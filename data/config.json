@@ -1,0 +1,13 @@
+{
+  "signal_phone": null,
+  "model": "qwen2.5:7b-instruct-q4_K_M",
+  "router_model": "qwen2.5:1.5b-instruct-q4_K_M",
+  "warp_api_key": null,
+  "quick_chat_max_length": 50,
+  "boot_notification": true,
+  "dashboard_refresh_ms": 1000,
+  "max_concurrent_tasks": 1,
+  "skill_timeout_seconds": 60,
+  "warp_timeout_seconds": 300,
+  "dangerous_commands": ["rm -rf /", "rm -rf /*", "mkfs", "dd if=", "> /dev/", ":(){ :|:& };:"]
+}
