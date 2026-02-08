@@ -1,5 +1,5 @@
 {
-  "signal_phone": null,
+  "signal_phone": "+15551234567",
   "model": "qwen2.5:7b-instruct-q4_K_M",
   "router_model": "qwen2.5:1.5b-instruct-q4_K_M",
   "warp_api_key": null,

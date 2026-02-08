@@ -1,3 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
 
-# Cache directory
+# Runtime data
 cache/
+logs/
+data/noctem.db
+
+# Credentials (keep config.json.example for reference)
+data/config.json
