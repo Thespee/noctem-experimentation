@@ -89,6 +89,13 @@ def start_services(headless: bool = False):
     config = load_config()
     noctem_dir = Path(__file__).parent
     
+    # Initialize parent child handler (for /parent commands)
+    from parent.child_handler import init_child_handler
+    init_child_handler(
+        db_path=noctem_dir / "data" / "noctem.db",
+        working_dir=noctem_dir
+    )
+    
     # Check if Signal phone needs configuration
     if not config.get("signal_phone") and not headless:
         print("\n  ⚠ No Signal phone configured")

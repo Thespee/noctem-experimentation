@@ -402,6 +402,113 @@ TEST_SKILLS → run full suite
 
 ---
 
+## Addendum: Parent Feature Session (2026-02-08 Night)
+
+### Session Summary
+
+Implemented complete **Phase 3 (Parent)** from `mvp steps/03-parent.md`:
+
+**New Files Created:**
+- `parent/__init__.py` - Module exports
+- `parent/protocol.py` - `ParentCommand` enum, `ParentRequest`/`ParentResponse` dataclasses
+- `parent/child_handler.py` - Handles `/parent` commands on child side
+- `parent/cli.py` - Parent CLI (`parent status`, `parent report`, `parent improve`)
+- `parent/improve.py` - Improvement queue management, pattern analysis
+- `parent/scheduler.py` - Babysitting scheduler, self-improvement loop
+- `parent/install.sh` - Installation script for parent machine
+- `parent/systemd/` - Timer and service files for automated babysitting
+- `tests/test_parent.py` - 33 comprehensive tests
+
+**Modified Files:**
+- `state.py` - Added `improvements` and `reports` tables + helper functions
+- `signal_receiver.py` - Routes `/parent` commands to child_handler
+- `main.py` - Initializes child_handler on startup
+
+### New Signal Commands
+
+| Command | Response |
+|---------|----------|
+| `/parent status` | Uptime, active tasks, queue size |
+| `/parent health` | Ollama, Signal, disk/memory/CPU status |
+| `/parent history` | Recent task history with success rate |
+| `/parent logs` | Last N lines of noctem.log |
+| `/parent report` | Full babysitting report |
+| `/parent approve {"id": N}` | Approve an improvement |
+| `/parent reject {"id": N}` | Reject an improvement |
+
+### Database Additions
+
+**`improvements` table**: Tracks code improvement suggestions
+- Status flow: pending → approved → applied (or rejected)
+- Stores patches for automated application
+
+**`reports` table**: Training data storage
+- Every babysitting report captures problem→solution pairs
+- Fields: metrics_json, problems_json, solutions_json
+- Designed for future LoRA fine-tuning
+
+### Updated Progress
+
+```
+Phase 1 (Web Skills):     ████████████████████ 100% ✓
+Phase 2 (Birth):          ░░░░░░░░░░░░░░░░░░░░   0%
+Phase 3 (Parent):         ████████████████████ 100% ✓
+Phase 4 (Email):          ░░░░░░░░░░░░░░░░░░░░   0%
+
+Overall: ~40% toward idealized vision (up from 25%)
+```
+
+---
+
+## Addendum: Alignment Speculations (Parent Feature)
+
+### 1. Training Data Pipeline is Ready
+
+**Current**: `reports` table captures problems (failed tasks, skill errors) and stores them as JSON.
+
+**Gap**: Solutions are often empty - we capture *what failed* but not *how it was fixed*.
+
+**Path Forward**: When an improvement is applied, backfill solutions_json in related reports. This creates explicit problem→solution pairs for fine-tuning.
+
+### 2. "Sleep Mode" Foundation Exists
+
+**Current**: `BabysittingScheduler` runs analysis when idle, but doesn't do actual LoRA training.
+
+**From VISION.md**: "Sleep mode for background training during idle time."
+
+**Speculation**: With 100+ reports accumulated:
+1. Export training pairs to JSONL
+2. Fine-tune small LoRA adapter on local patterns
+3. Hot-swap adapter into Ollama
+
+The data pipeline is now in place. Actual training is the next step.
+
+### 3. Parent Built Before Child
+
+**Observation**: We built the supervisor (parent) before the worker (birth process).
+
+**Why This is Good**: When birth is implemented (Phase 2), it can immediately report to parent. The supervision infrastructure is ready.
+
+**Speculation**: Birth could send `/parent report` as part of umbilical handshake - proving the channel works.
+
+### 4. Success Patterns Not Captured
+
+**Current**: Reports focus on errors. Successful patterns aren't logged.
+
+**Ideal**: "This worked well" is training data too.
+
+**Quick Win**: Add `successes_json` to reports table. Log successful task completions with prompts and skill chains.
+
+### 5. Trust Model is Phone-Based Only
+
+**Current**: Any message from configured phone can send `/parent` commands.
+
+**Risk**: If Signal account is compromised, attacker can approve malicious patches.
+
+**Quick Win**: Add confirmation token - parent sends command, child responds with one-time code, parent confirms with code.
+
+---
+
 *Built with assistance from Warp Agent*
 
 ---

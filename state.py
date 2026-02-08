@@ -7,7 +7,7 @@ SQLite-based persistence for tasks, memory, and system state.
 import sqlite3
 import json
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -79,11 +79,41 @@ def init_db():
         )
     """)
     
+    # Improvements queue (for parent-suggested changes)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS improvements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            priority INTEGER DEFAULT 3,
+            patch TEXT,
+            status TEXT DEFAULT 'pending',
+            source TEXT DEFAULT 'parent',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP
+        )
+    """)
+    
+    # Reports (training data: problem -> solution pairs)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_type TEXT NOT NULL,
+            content TEXT,
+            metrics_json TEXT,
+            problems_json TEXT,
+            solutions_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     # Create indexes for common queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_task ON memory(task_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_log_task ON skill_log(task_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_improvements_status ON improvements(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_type ON reports(report_type)")
     
     conn.commit()
     conn.close()
@@ -381,6 +411,217 @@ def get_task_skill_log(task_id: int) -> List[Dict]:
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+# =============================================================================
+# Improvement Operations
+# =============================================================================
+
+def create_improvement(title: str, description: str = "", priority: int = 3,
+                       patch: str = "", source: str = "parent") -> int:
+    """Create a new improvement suggestion."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO improvements (title, description, priority, patch, source, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+    """, (title, description, priority, patch, source))
+    imp_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return imp_id
+
+
+def get_improvement(imp_id: int) -> Optional[Dict]:
+    """Get an improvement by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM improvements WHERE id = ?", (imp_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_pending_improvements() -> List[Dict]:
+    """Get all pending improvements."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM improvements 
+        WHERE status = 'pending'
+        ORDER BY priority ASC, created_at ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def update_improvement_status(imp_id: int, status: str) -> bool:
+    """Update improvement status (pending/approved/applied/rejected)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    resolved_at = datetime.now().isoformat() if status in ('applied', 'rejected') else None
+    
+    cursor.execute("""
+        UPDATE improvements 
+        SET status = ?, resolved_at = ?
+        WHERE id = ?
+    """, (status, resolved_at, imp_id))
+    affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+# =============================================================================
+# Report Operations (Training Data)
+# =============================================================================
+
+def create_report(report_type: str, content: str, metrics: Dict = None,
+                  problems: List = None, solutions: List = None) -> int:
+    """Create a report for training data."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO reports (report_type, content, metrics_json, problems_json, solutions_json)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        report_type,
+        content,
+        json.dumps(metrics) if metrics else None,
+        json.dumps(problems) if problems else None,
+        json.dumps(solutions) if solutions else None
+    ))
+    report_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return report_id
+
+
+def get_recent_reports(report_type: str = None, limit: int = 10) -> List[Dict]:
+    """Get recent reports, optionally filtered by type."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if report_type:
+        cursor.execute("""
+            SELECT * FROM reports 
+            WHERE report_type = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (report_type, limit))
+    else:
+        cursor.execute("""
+            SELECT * FROM reports 
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Parse JSON fields
+    results = []
+    for row in rows:
+        r = dict(row)
+        for field in ('metrics_json', 'problems_json', 'solutions_json'):
+            if r.get(field):
+                try:
+                    r[field] = json.loads(r[field])
+                except json.JSONDecodeError:
+                    pass
+        results.append(r)
+    
+    return results
+
+
+def get_task_stats(since_hours: int = 24) -> Dict:
+    """Get task statistics for a time period."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    since = (datetime.now() - timedelta(hours=since_hours)).isoformat()
+    
+    # Total tasks
+    cursor.execute("""
+        SELECT COUNT(*) FROM tasks WHERE created_at > ?
+    """, (since,))
+    total = cursor.fetchone()[0]
+    
+    # Successful tasks
+    cursor.execute("""
+        SELECT COUNT(*) FROM tasks WHERE created_at > ? AND status = 'done'
+    """, (since,))
+    successful = cursor.fetchone()[0]
+    
+    # Failed tasks
+    cursor.execute("""
+        SELECT COUNT(*) FROM tasks WHERE created_at > ? AND status = 'failed'
+    """, (since,))
+    failed = cursor.fetchone()[0]
+    
+    # Get failed task details
+    cursor.execute("""
+        SELECT id, input, result FROM tasks 
+        WHERE created_at > ? AND status = 'failed'
+        ORDER BY created_at DESC
+        LIMIT 10
+    """, (since,))
+    failed_tasks = [dict(row) for row in cursor.fetchall()]
+    
+    conn.close()
+    
+    return {
+        "total": total,
+        "successful": successful,
+        "failed": failed,
+        "success_rate": f"{(successful/total*100):.1f}%" if total > 0 else "N/A",
+        "failed_tasks": failed_tasks
+    }
+
+
+def get_skill_stats(since_hours: int = 24) -> Dict:
+    """Get skill execution statistics."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    since = (datetime.now() - timedelta(hours=since_hours)).isoformat()
+    
+    # Stats by skill
+    cursor.execute("""
+        SELECT skill_name, 
+               COUNT(*) as total,
+               SUM(success) as successful,
+               AVG(duration_ms) as avg_duration
+        FROM skill_log 
+        WHERE created_at > ?
+        GROUP BY skill_name
+    """, (since,))
+    
+    by_skill = {}
+    for row in cursor.fetchall():
+        by_skill[row['skill_name']] = {
+            'total': row['total'],
+            'successful': row['successful'],
+            'avg_duration_ms': round(row['avg_duration']) if row['avg_duration'] else 0
+        }
+    
+    # Failed skill executions
+    cursor.execute("""
+        SELECT skill_name, input, output FROM skill_log
+        WHERE created_at > ? AND success = 0
+        ORDER BY created_at DESC
+        LIMIT 10
+    """, (since,))
+    failed = [dict(row) for row in cursor.fetchall()]
+    
+    conn.close()
+    
+    return {
+        "by_skill": by_skill,
+        "failed_executions": failed
+    }
 
 
 # =============================================================================

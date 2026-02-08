@@ -10,3 +10,4 @@ data/noctem.db
 
 # Credentials (keep config.json.example for reference)
 data/config.json
+.obsidian/

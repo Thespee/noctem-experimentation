@@ -80,6 +80,14 @@ class SignalReceiver:
         cmd = parts[0].lower()
         args = parts[1:] if len(parts) > 1 else []
         
+        # Handle /parent commands via parent module
+        if cmd == "/parent":
+            from parent.child_handler import handle_parent_message
+            response = handle_parent_message(command)
+            if response:
+                return response
+            return "Invalid parent command. Use: /parent <status|history|health|logs|report>"
+        
         if cmd == "/status":
             daemon = get_daemon()
             status = daemon.get_status()
