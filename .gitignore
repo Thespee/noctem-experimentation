@@ -8,6 +8,16 @@ cache/
 logs/
 data/noctem.db
 
-# Credentials (keep config.json.example for reference)
+# Credentials (keep .template and .example files)
 data/config.json
+data/email_config.json
+data/.vault.json
+data/.vault.enc
+data/.vault.salt
+
+# Environment files
+.env
+.env.local
+
+# Editor
 .obsidian/

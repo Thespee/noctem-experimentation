@@ -23,6 +23,9 @@ from . import task_status
 from . import web_fetch
 from . import web_search
 from . import troubleshoot
+from . import email_send
+from . import email_fetch
+from . import daily_report
 # from . import optimize   # TODO
 # from . import warp_agent # TODO
 

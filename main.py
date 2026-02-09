@@ -133,7 +133,24 @@ def start_services(headless: bool = False):
                 ctx = SkillContext(config=config)
                 skill.execute({"message": msg}, ctx)
             except Exception as e:
-                print(f"Could not send boot notification: {e}")
+                print(f"Could not send Signal notification: {e}")
+            
+            # Also send via email if configured
+            try:
+                from utils.vault import get_credential
+                if get_credential("email_user"):
+                    from skills.email_send import send_email_smtp
+                    recipient = get_credential("email_recipient") or get_credential("email_user")
+                    import socket
+                    hostname = socket.gethostname()
+                    send_email_smtp(
+                        to=recipient,
+                        subject=f"🌙 Noctem Online - {hostname}",
+                        body=f"{msg}\n\n---\nSent from Noctem on {hostname}"
+                    )
+                    print(f"  ✓ Email notification sent")
+            except Exception as e:
+                print(f"  ⚠ Could not send email notification: {e}")
     else:
         print("  ⚠ No signal_phone configured - Signal integration disabled")
     

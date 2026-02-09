@@ -1,0 +1,21 @@
+{
+  "_comment": "Noctem Email Configuration - COPY TO email_config.json AND FILL IN",
+  "_instructions": [
+    "1. Create Fastmail account at https://fastmail.com",
+    "2. Go to Settings → Password & Security → App Passwords",
+    "3. Create app password for 'Noctem'",
+    "4. Copy this file to email_config.json",
+    "5. Fill in credentials below",
+    "6. DELETE THIS FILE (email_config.template.json) for security"
+  ],
+  
+  "email_user": "noctem@fastmail.com",
+  "email_password": "YOUR_APP_PASSWORD_HERE",
+  "email_smtp_server": "smtp.fastmail.com",
+  "email_smtp_port": "587",
+  "email_imap_server": "imap.fastmail.com",
+  "email_imap_port": "993",
+  "email_recipient": "your-personal@email.com",
+  "email_from_name": "Noctem",
+  "email_provider": "fastmail"
+}

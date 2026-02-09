@@ -107,6 +107,34 @@ def init_db():
         )
     """)
     
+    # Incidents log (errors, issues, notable events)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            severity TEXT DEFAULT 'info',
+            category TEXT,
+            message TEXT,
+            details TEXT,
+            task_id INTEGER,
+            acknowledged INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Daily reports tracking
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_date DATE UNIQUE,
+            tasks_completed INTEGER,
+            tasks_failed INTEGER,
+            incidents_count INTEGER,
+            report_text TEXT,
+            sent_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     # Create indexes for common queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)")
@@ -114,6 +142,8 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_skill_log_task ON skill_log(task_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_improvements_status ON improvements(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_type ON reports(report_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)")
     
     conn.commit()
     conn.close()
@@ -414,7 +444,7 @@ def get_task_skill_log(task_id: int) -> List[Dict]:
 
 
 # =============================================================================
-# Improvement Operations
+# Improvement Operations (Parent)
 # =============================================================================
 
 def create_improvement(title: str, description: str = "", priority: int = 3,
@@ -475,7 +505,7 @@ def update_improvement_status(imp_id: int, status: str) -> bool:
 
 
 # =============================================================================
-# Report Operations (Training Data)
+# Report Operations (Training Data - Parent)
 # =============================================================================
 
 def create_report(report_type: str, content: str, metrics: Dict = None,
@@ -622,6 +652,147 @@ def get_skill_stats(since_hours: int = 24) -> Dict:
         "by_skill": by_skill,
         "failed_executions": failed
     }
+
+
+# =============================================================================
+# Incident Operations (Email/Daily Reports)
+# =============================================================================
+
+def log_incident(message: str, severity: str = "info", category: str = None,
+                 details: str = None, task_id: int = None):
+    """
+    Log an incident.
+    
+    Severity levels: info, warning, error, critical
+    Categories: system, task, skill, network, email, other
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO incidents (severity, category, message, details, task_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (severity, category, message, details, task_id))
+    conn.commit()
+    conn.close()
+
+
+def get_incidents_since(since: datetime) -> List[Dict]:
+    """Get incidents since a given datetime."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM incidents
+        WHERE created_at >= ?
+        ORDER BY created_at DESC
+    """, (since.isoformat(),))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_unacknowledged_incidents() -> List[Dict]:
+    """Get all unacknowledged incidents."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM incidents
+        WHERE acknowledged = 0
+        ORDER BY created_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def acknowledge_incidents(incident_ids: List[int] = None):
+    """Mark incidents as acknowledged. If no IDs given, acknowledge all."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if incident_ids:
+        placeholders = ','.join('?' * len(incident_ids))
+        cursor.execute(f"""
+            UPDATE incidents SET acknowledged = 1
+            WHERE id IN ({placeholders})
+        """, incident_ids)
+    else:
+        cursor.execute("UPDATE incidents SET acknowledged = 1")
+    
+    conn.commit()
+    conn.close()
+
+
+def get_tasks_since(since: datetime, status: str = None) -> List[Dict]:
+    """Get tasks created/completed since a given datetime."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if status:
+        cursor.execute("""
+            SELECT * FROM tasks
+            WHERE completed_at >= ? AND status = ?
+            ORDER BY completed_at DESC
+        """, (since.isoformat(), status))
+    else:
+        cursor.execute("""
+            SELECT * FROM tasks
+            WHERE created_at >= ?
+            ORDER BY created_at DESC
+        """, (since.isoformat(),))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_last_report_date() -> Optional[datetime]:
+    """Get the date of the last daily report."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT MAX(report_date) as last_date FROM daily_reports
+        WHERE sent_at IS NOT NULL
+    """)
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row and row['last_date']:
+        return datetime.fromisoformat(row['last_date'])
+    return None
+
+
+def save_daily_report(report_date: datetime, tasks_completed: int, tasks_failed: int,
+                      incidents_count: int, report_text: str):
+    """Save a daily report."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO daily_reports (report_date, tasks_completed, tasks_failed, 
+                                   incidents_count, report_text)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(report_date) DO UPDATE SET
+            tasks_completed = excluded.tasks_completed,
+            tasks_failed = excluded.tasks_failed,
+            incidents_count = excluded.incidents_count,
+            report_text = excluded.report_text
+    """, (report_date.date().isoformat(), tasks_completed, tasks_failed,
+          incidents_count, report_text))
+    report_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return report_id
+
+
+def mark_report_sent(report_date: datetime):
+    """Mark a daily report as sent."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE daily_reports SET sent_at = CURRENT_TIMESTAMP
+        WHERE report_date = ?
+    """, (report_date.date().isoformat(),))
+    conn.commit()
+    conn.close()
 
 
 # =============================================================================

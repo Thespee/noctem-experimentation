@@ -151,6 +151,21 @@ class SignalReceiver:
                 return f"Last message: \"{last_msg.get('text', '')[:50]}\"\nStatus: {last_msg.get('status')}\nTime: {last_msg.get('time')}"
             return "No messages received yet"
         
+        elif cmd == "/report":
+            # Generate daily report (no send)
+            try:
+                from skills.daily_report import generate_report
+                report, stats = generate_report(period_hours=24)
+                # Truncate for Signal
+                if len(report) > 1500:
+                    report = report[:1500] + "\n...truncated"
+                return report
+            except Exception as e:
+                return f"Report error: {e}"
+        
+        elif cmd == "/email":
+            return self.handle_email_command(" ".join(args))
+        
         elif cmd == "/help":
             return """Commands:
 /ping - Test (responds 'pong')
@@ -160,10 +175,102 @@ class SignalReceiver:
 /last - Show last received message
 /cancel <id> - Cancel a task
 /priority <id> <1-10> - Change priority
+/report - Generate daily report
+/email - Email commands (check, send test)
 /help - This message"""
         
         else:
             return f"Unknown command: {cmd}. Try /help"
+    
+    def handle_email_command(self, args_str: str) -> str:
+        """Handle /email subcommands."""
+        args = args_str.strip().split() if args_str.strip() else []
+        
+        if not args:
+            return """Email commands:
+/email status - Check email config
+/email test - Send test email
+/email check - Check inbox
+/email report - Send daily report now"""
+        
+        subcmd = args[0].lower()
+        
+        if subcmd == "status":
+            try:
+                from utils.vault import get_vault
+                vault = get_vault()
+                status = vault.status()
+                user = vault.get("email_user") if vault.has("email_user") else None
+                recipient = vault.get("email_recipient") if vault.has("email_recipient") else None
+                
+                if not user:
+                    return "❌ Email not configured\nRun: python utils/vault.py"
+                
+                return f"""📧 Email Status:
+  From: {user}
+  To: {recipient or user}
+  Backend: {status['backend']}
+  Keys: {', '.join(status['configured_keys'])}"""
+            except Exception as e:
+                return f"Error: {e}"
+        
+        elif subcmd == "test":
+            try:
+                from skills.email_send import test_smtp_connection, send_email_smtp
+                from utils.vault import get_credential
+                
+                # Test connection first
+                success, msg = test_smtp_connection()
+                if not success:
+                    return f"❌ SMTP test failed: {msg}"
+                
+                # Send test email
+                recipient = get_credential("email_recipient") or get_credential("email_user")
+                success, msg = send_email_smtp(
+                    to=recipient,
+                    subject="🌙 Noctem Test Email",
+                    body="This is a test email from Noctem.\n\nIf you received this, email is working!"
+                )
+                
+                if success:
+                    return f"✅ Test email sent to {recipient}"
+                return f"❌ Send failed: {msg}"
+            except Exception as e:
+                return f"Error: {e}"
+        
+        elif subcmd == "check":
+            try:
+                from skills.email_fetch import fetch_emails
+                emails, error = fetch_emails(limit=5, unread_only=True, since_hours=24)
+                
+                if error:
+                    return f"❌ {error}"
+                
+                if not emails:
+                    return "📭 No new emails"
+                
+                lines = [f"📬 {len(emails)} email(s):"]
+                for e in emails[:5]:
+                    subj = e['subject'][:35] + "..." if len(e['subject']) > 35 else e['subject']
+                    lines.append(f"  • {subj}")
+                    lines.append(f"    {e['from']['address']}")
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Error: {e}"
+        
+        elif subcmd == "report":
+            try:
+                from skills.daily_report import send_daily_report
+                success, msg, stats = send_daily_report()
+                
+                if success:
+                    return f"✅ Report sent!\nTasks: {stats['tasks_completed']} done, {stats['tasks_failed']} failed\nIncidents: {stats['incidents_count']}"
+                return f"❌ {msg}"
+            except Exception as e:
+                return f"Error: {e}"
+        
+        else:
+            return f"Unknown email command: {subcmd}\nTry: /email status, test, check, report"
     
     def send_response(self, message: str, recipient: Optional[str] = None):
         """Send a response via Signal using JSON-RPC daemon."""
