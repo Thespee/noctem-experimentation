@@ -2,6 +2,17 @@
 
 A lightweight agentic AI assistant framework designed for low-spec hardware. Runs on a USB-portable Linux server with Ollama for LLM inference and Signal for messaging.
 
+## Deployment Model
+
+**Target**: 1TB flash drive bootable Linux system — portable, encrypted, runs on any compatible hardware.
+
+**Development**: Windows workstation (this repo). Code is developed/tested here, then deployed to the flash drive for "birth."
+
+**Lifecycle**:
+1. **MVP** — Complete core skills and infrastructure on Windows
+2. **Birth** — Deploy to flash drive, autonomous first-time setup
+3. **Parent** — Multiple AI agents supervise and improve Noctem remotely
+
 ## Quick Start
 
 ```bash
