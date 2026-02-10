@@ -1,0 +1,21 @@
+# Research Agent Generated Files
+# Keep the questions.json template but ignore state and findings
+
+# State tracking
+state.json
+progress.json
+
+# Research findings (too large for git)
+findings/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*.bak
+*~
+
+# Logs (if we add logging)
+*.log

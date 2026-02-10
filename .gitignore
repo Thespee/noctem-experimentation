@@ -21,3 +21,8 @@ data/.vault.salt
 
 # Editor
 .obsidian/
+
+# Research Agent
+research/state.json
+research/findings/
+research/__pycache__/

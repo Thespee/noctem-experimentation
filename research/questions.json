@@ -1,0 +1,80 @@
+[
+  {
+    "id": "q001",
+    "question": "What are the latest breakthroughs in on-device AI inference optimization (2024-2026) that could enable running 7B+ parameter models on hardware with <8GB RAM, and which specific techniques (quantization, pruning, distillation) show the most promise for production deployment?",
+    "category": "Technology",
+    "priority": 1,
+    "status": "failed",
+    "created_at": "2026-02-09T07:09:00Z",
+    "rationale": "Critical for Noctem's core mission of running AI on low-spec hardware. Recent advances in quantization (GPTQ, GGUF, AWQ) and model compression techniques are rapidly evolving.",
+    "error": "Empty response from Warp",
+    "failed_at": "2026-02-08T23:24:55.584749"
+  },
+  {
+    "id": "q002",
+    "question": "How can personal AI assistant frameworks like Noctem be designed to align with UN Sustainable Development Goals and the Universal Declaration of Human Rights, particularly regarding digital rights, privacy, accessibility, and equitable access to AI technology?",
+    "category": "Ethics",
+    "priority": 1,
+    "status": "failed",
+    "created_at": "2026-02-09T07:09:00Z",
+    "rationale": "Essential for responsible AI development. Examines how Noctem can serve as a model for ethical, rights-respecting AI systems that are accessible to users regardless of economic resources or technical infrastructure.",
+    "error": "Empty response from Warp",
+    "failed_at": "2026-02-08T23:26:06.788353"
+  },
+  {
+    "id": "q003",
+    "question": "What mathematical optimizations and algorithmic approaches from recent research (KV cache optimization, attention mechanism improvements, sparse activation) can reduce inference latency and memory footprint for transformer-based models on edge devices without GPU acceleration?",
+    "category": "Mathematics",
+    "priority": 2,
+    "status": "failed",
+    "created_at": "2026-02-09T07:09:00Z",
+    "rationale": "Addresses the computational efficiency challenge. Explores cutting-edge algorithmic innovations that can make AI practical on constrained hardware, which is central to Noctem's viability on portable/embedded systems.",
+    "error": "Empty response from Warp",
+    "failed_at": "2026-02-08T23:27:26.959259"
+  },
+  {
+    "id": "q004",
+    "question": "What are the current best practices for implementing secure credential management and encrypted vaults in Python applications, particularly for systems that need to store API keys, OAuth tokens, and user secrets without external dependencies like HashiCorp Vault?",
+    "category": "Engineering",
+    "priority": 1,
+    "status": "pending",
+    "created_at": "2026-02-09T07:27:00Z",
+    "rationale": "Critical for Noctem's security-first architecture. OpenClaw's credential exposure failures highlight the need for robust local secret management. Must work on low-spec hardware and support the USB-portable encrypted container model."
+  },
+  {
+    "id": "q005",
+    "question": "How can a local AI assistant implement effective skill sandboxing and privilege isolation in Python without container technologies like Docker, while still allowing useful system interactions on resource-constrained edge devices?",
+    "category": "Engineering",
+    "priority": 1,
+    "status": "pending",
+    "created_at": "2026-02-09T07:27:00Z",
+    "rationale": "Addresses OpenClaw's security nightmare of unrestricted skill execution. Noctem needs lightweight sandboxing that works on a USB-portable Linux system without heavy dependencies, balancing security with functionality."
+  },
+  {
+    "id": "q006",
+    "question": "What approaches exist for implementing efficient RAG (Retrieval-Augmented Generation) pipelines on devices with limited RAM (<8GB), and how do sqlite-vss, ChromaDB, and other lightweight vector databases compare for personal knowledge management use cases?",
+    "category": "Technology",
+    "priority": 2,
+    "status": "pending",
+    "created_at": "2026-02-09T07:27:00Z",
+    "rationale": "Essential for Noctem's tutoring and personal knowledge features. The vision includes document ingestion (PDFs, emails, notes) and course material RAG. Must work within the memory constraints of the target portable system."
+  },
+  {
+    "id": "q007",
+    "question": "What are the most effective techniques for implementing LoRA (Low-Rank Adaptation) fine-tuning on consumer hardware, and what minimum specifications are required to achieve meaningful personalization of 7B parameter models from user interaction data?",
+    "category": "Science",
+    "priority": 2,
+    "status": "pending",
+    "created_at": "2026-02-09T07:27:00Z",
+    "rationale": "Core to Noctem's self-improvement vision. The sleep mode concept requires practical local fine-tuning capability. Research needed on QLoRA, PEFT techniques, and whether meaningful adaptation is achievable on low-spec hardware."
+  },
+  {
+    "id": "q008",
+    "question": "How can open-source personal AI assistants implement responsible automation boundaries—distinguishing between safe autonomous actions versus those requiring human approval—while learning user preferences over time without creating security vulnerabilities?",
+    "category": "Ethics",
+    "priority": 2,
+    "status": "pending",
+    "created_at": "2026-02-09T07:27:00Z",
+    "rationale": "Balances Noctem's automation goals with safety. Email automation, government form filling, and shell commands need clear approval boundaries. Must avoid OpenClaw's failure of excessive privilege by default while remaining useful."
+  }
+]
