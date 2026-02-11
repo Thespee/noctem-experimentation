@@ -14,21 +14,27 @@ from .base import (
     get_skill_manifest
 )
 
-# Import all skill modules to trigger registration
-# Add new skills here as they're created
+# Import skills - optional imports for those with external dependencies
+# Core skills (standard library only)
 from . import shell
-from . import signal_send
 from . import file_ops
 from . import task_status
-from . import web_fetch
-from . import web_search
-from . import troubleshoot
-from . import email_send
-from . import email_fetch
-from . import daily_report
 from . import task_manager
-# from . import optimize   # TODO
-# from . import warp_agent # TODO
+
+# Skills with optional dependencies - won't break if missing
+def _try_import(module_name):
+    try:
+        __import__(f'skills.{module_name}', fromlist=[module_name])
+    except ImportError as e:
+        pass  # Skill unavailable due to missing dependency
+
+_try_import('signal_send')
+_try_import('web_fetch')      # requires bs4
+_try_import('web_search')     # requires requests
+_try_import('troubleshoot')
+_try_import('email_send')
+_try_import('email_fetch')
+_try_import('daily_report')
 
 __all__ = [
     "Skill",
