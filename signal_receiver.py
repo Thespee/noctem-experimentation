@@ -166,14 +166,29 @@ class SignalReceiver:
         elif cmd == "/email":
             return self.handle_email_command(" ".join(args))
         
+        elif cmd == "/tasks":
+            from skills.task_manager import handle_tasks_command
+            return handle_tasks_command(args)
+        
+        elif cmd == "/add":
+            from skills.task_manager import handle_add_command
+            return handle_add_command(args)
+        
+        elif cmd == "/done":
+            from skills.task_manager import handle_done_command
+            return handle_done_command(args)
+        
         elif cmd == "/help":
             return """Commands:
 /ping - Test (responds 'pong')
 /echo <text> - Echo test
 /status - Show current status
-/queue - Show pending tasks
+/tasks - List pending tasks
+/add <title> - Add a task (/add Buy milk in Shopping)
+/done <id> - Complete a task
+/queue - Show daemon task queue
 /last - Show last received message
-/cancel <id> - Cancel a task
+/cancel <id> - Cancel a daemon task
 /priority <id> <1-10> - Change priority
 /report - Generate daily report
 /email - Email commands (check, send test)

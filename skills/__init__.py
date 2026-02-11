@@ -26,6 +26,7 @@ from . import troubleshoot
 from . import email_send
 from . import email_fetch
 from . import daily_report
+from . import task_manager
 # from . import optimize   # TODO
 # from . import warp_agent # TODO
 
