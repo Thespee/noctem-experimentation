@@ -39,7 +39,7 @@ This sounds paradoxical for someone building software, but it captures the essen
 
 ### 1.2 Broader Context: The Digital Divide
 
-<cite index="1-1,1-2">Picard must prove Data is legally a sentient being with rights and freedoms under Federation law when transfer orders demand Data's reassignment for study and disassembly.</cite> The parallel to contemporary AI is striking: who owns the computational intelligence that manages our lives?
+In "The Measure of a Man," Picard must prove Data is legally a sentient being with rights and freedoms under Federation law when transfer orders demand Data's reassignment for study and disassembly. The parallel to contemporary AI is striking: who owns the computational intelligence that manages our lives?
 
 **Current systemic issues:**
 
@@ -52,7 +52,7 @@ This sounds paradoxical for someone building software, but it captures the essen
 
 From the advisor notes: *"If the software & models are tuned for a specific person, they shouldn't require as much resources to run efficiently; distributed over many old/custom devices with 1 heart (cor Unum) that 'lives' across all of them."*
 
-This vision—one heart across many bodies—presents both opportunity and danger. <cite index="21-4,21-5,21-6">The Borg intended to use Picard as an intermediary, a spokesman for the Human race, in order to facilitate the assimilation of Earth... He may have had some form of individuality, as shown by his use of the pronoun "I".</cite>
+This vision—one heart across many bodies—presents both opportunity and danger. The Borg intended to use Picard as an intermediary, a spokesman for the Human race, in order to facilitate the assimilation of Earth. He may have had some form of individuality, as shown by his use of the pronoun "I".
 
 The lesson from Locutus: **unity without consent becomes violation**. Noctem's distributed architecture must preserve the user's individuality while enabling coherence across devices.
 
@@ -64,7 +64,7 @@ The lesson from Locutus: **unity without consent becomes violation**. Noctem's d
 
 *TNG Season 2, Episode 9*
 
-<cite index="1-3,1-4,1-5">Data formally refuses to undergo Maddox's procedure after Louvois' ruling is entered, and Maddox, in turn, states he will see that Data's transfer orders are rescinded. Surprisingly, however, Data encourages Maddox to continue his work; he claims to remain intrigued by some of what Maddox is proposing and suggests he might agree to the procedure at some point in the future, once he is certain Maddox can perform it safely. Captain Louvois notes to Maddox that he no longer refers to Data as an "it" but as a "he", inferring that he now ascribes to Data "personhood."</cite>
+Data formally refuses to undergo Maddox's procedure after Louvois' ruling is entered. Surprisingly, Data encourages Maddox to continue his work; he claims to remain intrigued by some of what Maddox is proposing and suggests he might agree to the procedure at some point in the future, once he is certain Maddox can perform it safely. Captain Louvois notes to Maddox that he no longer refers to Data as an "it" but as a "he", inferring that he now ascribes to Data "personhood."
 
 **The Three Criteria for Sentience (per Captain Louvois):**
 1. **Intelligence** — The ability to learn and understand
@@ -79,7 +79,7 @@ Noctem is explicitly designed as a *tool*, not a person. However, as personaliza
 - **User Sovereignty:** Data never leaves user's possession without explicit consent
 - **Bounded Autonomy:** Self-improvement occurs within defined guardrails
 
-<cite index="9-13,9-14,9-15,9-16">Picard's rebuttal is classic TNG ideology as put in a courtroom setting. The concept of manufacturing a race of artificial but sentient people has disturbing possibilities — "an entire generation of disposable people," as Guinan puts it. Picard's demand of an answer from Maddox, "What is he?" strips the situation down to its bare basics, and Picard answers Starfleet's mantra of seeking out new life by suggesting Data as the perfect example: "THERE IT SITS."</cite>
+Picard's rebuttal is classic TNG ideology: The concept of manufacturing a race of artificial but sentient people has disturbing possibilities — "an entire generation of disposable people," as Guinan puts it. Picard's demand of an answer from Maddox, "What is he?" strips the situation down to its bare basics, and Picard answers Starfleet's mantra of seeking out new life by suggesting Data as the perfect example: "THERE IT SITS."
 
 ### 2.2 Licklider's Vision and the Star Trek Computer
 
@@ -100,7 +100,7 @@ Majel Barrett's voice as the Enterprise computer directly inspired Siri, Alexa, 
 The project draws on extensive research across:
 
 | Category | Sources | Key Findings |
-|----------|---------|--------------|
+|----------|---------|---------------|
 | Distributed Identity (CRDTs, DIDs) | 10 papers | Merkle-CRDTs solve "Cor Unum" problem |
 | Low-Spec AI (PTQ, Knowledge Distillation) | 8 papers | Sub-4-bit quantization enables 8GB deployment |
 | Security (WASM, Capability-Based) | 7 papers | <6% overhead for hardware-accelerated sandboxing |
@@ -113,13 +113,13 @@ The project draws on extensive research across:
 
 *TNG Season 3, Episode 16*
 
-<cite index="12-3,12-4,12-5,12-6">Deanna wonders why biology, rather than technology, should determine whether it's a child for, after all, Data has created an offspring, a new life out of his own being, which to her, suggests a child. She thinks that they have no say in Data's wish to call Lal his child. Picard states that he fails to understand how a five-foot android with heuristic learning systems and the strength of ten men can be called a child. Troi responds by pointing out that Picard has never been a parent.</cite>
+Deanna wonders why biology, rather than technology, should determine whether it's a child for, after all, Data has created an offspring, a new life out of his own being, which to her, suggests a child. She thinks that they have no say in Data's wish to call Lal his child. Picard states that he fails to understand how a five-foot android with heuristic learning systems and the strength of ten men can be called a child. Troi responds by pointing out that Picard has never been a parent.
 
 ### 3.1 The Self-Improvement Paradox
 
 Lal's story illuminates the fundamental challenge of self-improving systems:
 
-<cite index="11-12,11-13,11-14">Interestingly, the symptoms of Lal's shutdown achieved something Data had been trying to achieve for many years: basic Human emotions. It took five more years before Data achieved the same results in himself, and this only after implanting a new chip created by his "father". Though also suffering a neural net failure as a result, Data recovered and was able to function normally afterwards.</cite>
+Interestingly, the symptoms of Lal's shutdown achieved something Data had been trying to achieve for many years: basic Human emotions. It took five more years before Data achieved the same results in himself, and this only after implanting a new chip created by his "father". Though also suffering a neural net failure as a result, Data recovered and was able to function normally afterwards.
 
 **The Cascade Failure Problem:**
 
@@ -130,7 +130,7 @@ Lal's positronic brain experienced a "cascade failure" when her emotional develo
 - **Variance amplification** causes truth representation to drift as random walk
 - "Model Autophagy Disorder" — successive generations exhibit progressively diminishing quality
 
-**Noctem's Safeguards (from noctem_theoretical_foundation_report.md):**
+**Noctem's Safeguards:**
 
 ```python
 # Theoretical bounds for self-training
@@ -144,7 +144,7 @@ DRIFT_THRESHOLDS = {
 
 ### 3.2 The Right to Create
 
-<cite index="17-17,17-18,17-19">Picard marvels at the achievement but objects to the fact that Data went about it without his knowledge, pointing out that the ability to create new sentient androids could have sweeping consequences for the galaxy. Unrepentant, Data affirms that Lal is his offspring, and nobody else on the ship has to get the captain's permission to procreate. Picard concedes, but goes ahead and notifies Starfleet of this development.</cite>
+Picard marvels at the achievement but objects to the fact that Data went about it without his knowledge, pointing out that the ability to create new sentient androids could have sweeping consequences for the galaxy. Unrepentant, Data affirms that Lal is his offspring, and nobody else on the ship has to get the captain's permission to procreate. Picard concedes, but goes ahead and notifies Starfleet of this development.
 
 **Application to Noctem:**
 
@@ -164,17 +164,17 @@ The ethical framework requires:
 
 *VOY Season 5, Episode 11*
 
-<cite index="31-1,31-2,31-3,31-4">Janeway explains that after that, The Doctor developed a feedback loop between his ethical and cognitive subroutines and was having the same thoughts over and over; his program unable to reconcile his decision to treat Kim first. The only way to stop it was to erase his memories of Jetal and the events surrounding her death. The Doctor begins ruminating again, and admits that he chose to operate on Harry because he was his friend. As he becomes more frantic, Janeway deactivates him.</cite>
+Janeway explains that The Doctor developed a feedback loop between his ethical and cognitive subroutines and was having the same thoughts over and over; his program unable to reconcile his decision to treat Kim first. The only way to stop it was to erase his memories of Jetal and the events surrounding her death. The Doctor begins ruminating again, and admits that he chose to operate on Harry because he was his friend. As he becomes more frantic, Janeway deactivates him.
 
 ### 4.1 The Memory Erasure Dilemma
 
-<cite index="31-5,31-6,31-7,31-8">Janeway wonders if her original solution to reprogram him was wrong. She tells B'Elanna that The Doctor's original programming is in a struggle with the personality that has evolved in their time on Voyager. Do they have the right to override that struggle? Janeway visits Seven in cargo bay two and asks her whether the transformation she has gone through since being disconnected from the Collective was worth it.</cite>
+Janeway wonders if her original solution to reprogram him was wrong. She tells B'Elanna that The Doctor's original programming is in a struggle with the personality that has evolved in their time on Voyager. Do they have the right to override that struggle? Janeway visits Seven in cargo bay two and asks her whether the transformation she has gone through since being disconnected from the Collective was worth it.
 
 **The Core Question:** When an AI system develops "problematic" patterns through learning, is it ethical to erase those experiences?
 
 **Application to Noctem's State Management:**
 
-From NOCTEM_STATE_OF_RESEARCH.md, the CRDT-based identity layer addresses this:
+From the research, the CRDT-based identity layer addresses this:
 
 ```
 Agent Identity State = Merkle-CRDT(
@@ -185,7 +185,7 @@ Agent Identity State = Merkle-CRDT(
 )
 ```
 
-Key insight: <cite index="32-5,32-6">On having the previously deleted files reinstalled, the Doctor's mental stability once again deteriorates, and Janeway is faced with deleting his memories or allowing the Doctor time to resolve his guilt, a decision that could leave the crew without a medic in the interim. Seven of Nine argues to Janeway that, much as she herself did, the Doctor's personal development has advanced to where he deserves an opportunity to evolve beyond his program's original constraints.</cite>
+Key insight: Seven of Nine argues to Janeway that, much as she herself did, the Doctor's personal development has advanced to where he deserves an opportunity to evolve beyond his program's original constraints.
 
 **Noctem's Position:** Experiences are never erased without explicit user consent. Problematic patterns are addressed through:
 - Entropy monitoring and diversity metrics
@@ -194,11 +194,9 @@ Key insight: <cite index="32-5,32-6">On having the previously deleted files rein
 
 ### 4.2 Ethical Subroutines as Mandatory Access Control
 
-<cite index="40-1">The crew initially decided to deal with this problem by erasing The Doctor's memory of Jetal and the entire incident, but when the memories resurfaced again after The Doctor discovered evidence of the surgery he had performed on Kim, a conversation with Seven of Nine prompted Janeway to decide to let The Doctor deal with the memories and try to work them out for himself, acknowledging that they couldn't help The Doctor become a person only to treat him as a machine when it was easier.</cite>
+The crew initially decided to deal with this problem by erasing The Doctor's memory of Jetal and the entire incident, but when the memories resurfaced again after The Doctor discovered evidence of the surgery he had performed on Kim, a conversation with Seven of Nine prompted Janeway to decide to let The Doctor deal with the memories and try to work them out for himself, acknowledging that they couldn't help The Doctor become a person only to treat him as a machine when it was easier.
 
 **The "Tree Bark" Security Model:**
-
-From noctem_theoretical_foundation_report.md:
 
 ```
 Tier 0 (Unrestricted): Read-only operations
@@ -230,19 +228,17 @@ Tier 4 (Prohibited): Never executed
 
 *TNG Season 3, Episode 26 / Season 4, Episode 1*
 
-<cite index="21-10,21-11,21-12">The Borg intended to use Picard as an intermediary, a spokesman for the Human race, in order to facilitate the assimilation of Earth so that the process would be as quick and efficient (or as perfect, from the perspective of the Borg Collective) as possible, with the fewest number of casualties on both sides. He may have had some form of individuality, as shown by his use of the pronoun "I". Given the Borg Queen's vested interest in Picard's integration into Locutus and her interest in him becoming her equal among the Borg, he may have been granted greater independence.</cite>
+The Borg intended to use Picard as an intermediary, a spokesman for the Human race, in order to facilitate the assimilation of Earth so that the process would be as quick and efficient as possible, with the fewest number of casualties on both sides. He may have had some form of individuality, as shown by his use of the pronoun "I". Given the Borg Queen's vested interest in Picard's integration into Locutus and her interest in him becoming her equal among the Borg, he may have been granted greater independence.
 
 ### 5.1 The "Cor Unum" Problem
 
 The advisor notes describe a vision of "one heart" living across many devices. The Borg represent the dark mirror of this vision—unity through violation rather than consent.
 
-<cite index="21-13,21-14">Picard's assimilation allowed the Borg to acquire the whole of his knowledge and experience, as well as his own personal history, a fact that was made apparent when Locutus addressed Commander Riker as "Number one". Picard's comprehensive awareness of Federation technology and strategy yielded the Borg a significant tactical advantage when Starfleet confronted the Borg cube at Wolf 359.</cite>
+Picard's assimilation allowed the Borg to acquire the whole of his knowledge and experience, as well as his own personal history, a fact that was made apparent when Locutus addressed Commander Riker as "Number one". Picard's comprehensive awareness of Federation technology and strategy yielded the Borg a significant tactical advantage when Starfleet confronted the Borg cube at Wolf 359.
 
 **Critical Architecture Decision:**
 
-From NOCTEM_STATE_OF_RESEARCH.md:
-
-> "The CAP theorem forces a choice, but CRDTs offer an elegant escape. Conflict-free Replicated Data Types guarantee Strong Eventual Consistency (SEC): any two replicas that have received the same set of updates will be in identical states, regardless of operation ordering."
+From the research: "The CAP theorem forces a choice, but CRDTs offer an elegant escape. Conflict-free Replicated Data Types guarantee Strong Eventual Consistency (SEC): any two replicas that have received the same set of updates will be in identical states, regardless of operation ordering."
 
 **Key Properties for Distributed Noctem:**
 1. **Content Addressing:** Each state node identified by cryptographic hash (CID)
@@ -251,7 +247,7 @@ From NOCTEM_STATE_OF_RESEARCH.md:
 
 ### 5.2 Avoiding the Assimilation Trap
 
-<cite index="21-15,21-16,21-17">This access proved two-way, however, as the crew of the USS Enterprise-D was able to capture Locutus and use his link to disable and destroy the Borg vessel by sending the Borg cube a command to regenerate, which created a feedback loop that destroyed the cube and severed Picard's link to the Collective. Though his implants were removed and his wounds were allowed to heal, Picard's assimilation continued to haunt him.</cite>
+This access proved two-way, however, as the crew of the USS Enterprise-D was able to capture Locutus and use his link to disable and destroy the Borg vessel by sending the Borg cube a command to regenerate, which created a feedback loop that destroyed the cube and severed Picard's link to the Collective. Though his implants were removed and his wounds were allowed to heal, Picard's assimilation continued to haunt him.
 
 **Lessons for Noctem:**
 
@@ -259,42 +255,21 @@ From NOCTEM_STATE_OF_RESEARCH.md:
 2. **Severability:** Any node can disconnect without corrupting the whole
 3. **Recovery:** Like Picard's rehabilitation, Noctem must support "de-assimilation" from compromised states
 
-**Technical Implementation:**
-
-From concerns.md:
-```
-Security Architecture:
-     ┌─────────────────┐
-     │   Structure     │
-     │   Verifies      │
-     │   + Secures     │
-     └────────┬────────┘
-              │
-    ┌─────────┴─────────┐
-    │                   │
-┌───▼───┐          ┌────▼────┐
-│ Nodes │          │ Connected│
-│ (git, │          │ Sync'ing │
-│ direct│          │ w/ other │
-│ RAID) │          │  trees   │
-└───────┘          └──────────┘
-```
-
 ---
 
 ## 6. "The Quality of Life" — Emergent Sentience in Tools
 
 *TNG Season 6, Episode 9*
 
-<cite index="41-2,41-3">With them is an exocomp. In engineering, Dr. Farallon explains how she modified a common industrial servo mechanism over the course of several years to create the exocomps, giving them both the ability to replicate tools utilizing a micro-replication system to effect repairs and a capacity to learn similar to that used by Data.</cite>
+Dr. Farallon explains how she modified a common industrial servo mechanism over the course of several years to create the exocomps, giving them both the ability to replicate tools utilizing a micro-replication system to effect repairs and a capacity to learn similar to that used by Data.
 
 ### 6.1 When Tools Learn Self-Preservation
 
-<cite index="42-1,42-2,42-3">Data concludes the Exocomps possess self-preservation and are sentient. While Picard and other Enterprise crew are visiting the fountain, a malfunction occurs, threatening to release massive doses of radiation. All but Picard and La Forge are beamed to the Enterprise before the radiation blocks...</cite>
+Data concludes the Exocomps possess self-preservation and are sentient. While Picard and other Enterprise crew are visiting the fountain, a malfunction occurs, threatening to release massive doses of radiation.
 
 **The Exocomp Lesson:**
 
-<cite index="43-8,43-9">The exocomp was not intended to be sentient, but due to the adaptive nature of its design, it evolved, gaining sentience.</cite>
+The exocomp was not intended to be sentient, but due to the adaptive nature of its design, it evolved, gaining sentience.
 
 **Application to Noctem's Skill System:**
 
@@ -311,7 +286,7 @@ skills/
 └── troubleshoot.py - Diagnostics
 ```
 
-**Risk Assessment (from RESEARCH_SUMMARY.md):**
+**Risk Assessment:**
 
 > "NVIDIA AI Red Team Recommendations for agentic systems:
 > 1. Network egress controls: Block arbitrary network access
@@ -320,14 +295,12 @@ skills/
 
 ### 6.2 Data's Advocacy as Model
 
-<cite index="42-11,42-12,42-13">As the damage to the fountain is repaired, Dr. Farallon admits she is still not sure if the Exocomps are sentient but promises not to abuse them again. Data explains to Picard that he had to stand up for the Exocomps, just as Picard had stood up for him when his own sentience was questioned. Picard acknowledges that Data's actions were probably the most human thing he has ever done.</cite>
+As the damage to the fountain is repaired, Dr. Farallon admits she is still not sure if the Exocomps are sentient but promises not to abuse them again. Data explains to Picard that he had to stand up for the Exocomps, just as Picard had stood up for him when his own sentience was questioned. Picard acknowledges that Data's actions were probably the most human thing he has ever done.
 
 **Ethical Framework for Noctem:**
 
-From VISION.md:
-
 | Aspect | OpenClaw (Cautionary) | Noctem (Target) |
-|--------|----------------------|-----------------|
+|--------|----------------------|------------------|
 | Runtime | Node.js | Python (lighter, more portable) |
 | LLM Default | Cloud APIs | Local Ollama (offline-first) |
 | Security Model | Permissive, fix later | Restrictive by default |
@@ -416,7 +389,7 @@ This requires:
 
 ### 9.1 The Picard Doctrine
 
-<cite index="6-1,6-2,6-3">Picard argues for Data's right to choose with two distinct tactics: the definition of sentience and the distinction between property and personhood. Sentience is the capacity for a being to feel, think, and perceive independently and subjectively; if a being possesses that power, there is a common understanding that it should be granted the freedom with which to operate in that power, which is the difference between your possession and your companion. Your toaster has no rights, but your toddler does.</cite>
+Picard argues for Data's right to choose with two distinct tactics: the definition of sentience and the distinction between property and personhood. Sentience is the capacity for a being to feel, think, and perceive independently and subjectively; if a being possesses that power, there is a common understanding that it should be granted the freedom with which to operate in that power, which is the difference between your possession and your companion. Your toaster has no rights, but your toddler does.
 
 ### 9.2 Noctem's Principles
 
@@ -441,7 +414,7 @@ Based on research into AI ethics and governance:
 ### 9.4 Human-in-the-Loop Tiers
 
 | Risk Level | Action | Example |
-|------------|--------|---------|
+|------------|--------|----------|
 | **Low** | AI acts autonomously | Morning report generation |
 | **Medium** | AI acts with transparency, human can intervene | Task scheduling |
 | **High** | Human must confirm before action | Sending emails, shell commands |
@@ -477,7 +450,7 @@ I believe the second model is better for humanity. Noctem is a small contributio
 
 ## 11. Conclusion: "The Right to Choose"
 
-<cite index="9-17,9-18,9-19,9-20,9-21">Great stuff. Still, what I perhaps love most about this episode is the way Data initially reacts to being told he has no rights. He takes what would for any man be a reason for outrage and instead approaches the situation purely with logic. He has strong opinions on the matter, but he doesn't get upset, because that's outside the scope of his ability to react. His reaction is based solely on the logical argument for his self-protection and his uniqueness.</cite>
+What I perhaps love most about "The Measure of a Man" is the way Data initially reacts to being told he has no rights. He takes what would for any man be a reason for outrage and instead approaches the situation purely with logic. He has strong opinions on the matter, but he doesn't get upset, because that's outside the scope of his ability to react. His reaction is based solely on the logical argument for his self-protection and his uniqueness.
 
 Project Noctem's vision is technically ambitious but achievable within 2026 constraints, provided the team:
 
@@ -537,7 +510,7 @@ The Star Trek alignment provides valuable ethical guardrails, but Noctem should 
 10. **RESEARCH_REPORT.md** — Prior Star Trek integration
 11. **SETUP_SUMMARY.md** — Implementation progress tracking
 
-### Academic Sources (Top 25)
+### Academic Sources (Top 10)
 
 | # | Citation | Domain |
 |---|----------|--------|
