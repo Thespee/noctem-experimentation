@@ -1,0 +1,92 @@
+---
+title: 'STAT 443: Lab 1'
+author: 'Student Name (Student #)'
+date: "xx January, 2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#if you do not have the package, type install.packages("name_of_the_package")
+library(knitr)
+library(tseries)
+```
+
+### Question 1
+
+(a) 
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+(c)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+### Question 2
+
+(a) 
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+(c)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+
+### More information on R Markdown
+
+This is an R Markdown document, which can be used as a template for STAT 443 labs and assignments. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+summary(cars)
+```
+
+Using the function *kable*, it produces a nicer table
+```{r}
+kable(summary(cars))
+```
+
+### Including Plots
+
+You can also embed plots, for example:
+
+```{r, echo=TRUE}
+plot(pressure)
+```
+
+Note that specifying `echo = FALSE` parameter would prevent printing of the R code that generated the plot. This is something you may want to do for larger reports that would not require display of the R code.
+
+You can also modify the size and alignment of the figure.
+```{r, echo=TRUE, fig.cap="title",fig.align='center',fig.height=6,fig.width=4}
+plot(pressure)
+```

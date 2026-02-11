@@ -1,0 +1,2 @@
+"0","test_data <- window(sales_time_series, start = c(1993, 2), end = c(1993, 12))"
+"0","predictions <- predict(holt_winters_model, n.ahead = 11, prediction.interval = TRUE, level = 0.95)"

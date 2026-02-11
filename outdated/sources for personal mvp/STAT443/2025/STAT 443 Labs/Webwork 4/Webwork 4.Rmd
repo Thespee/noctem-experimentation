@@ -1,0 +1,125 @@
+```{r}
+library(readr)
+library()
+```
+
+
+```{r}
+data <- read_csv("file7852ed66446.csv")
+```
+```{r}
+prices <- data$x # Replace 'Close' with the actual column name for closing prices
+dates <- data$...1   # Replace 'Date' with the actual column name for dates if present and needed for indexing
+
+
+# 2. Convert to time series object
+# We'll assume the data is weekly and ordered chronologically in the CSV.
+# If the index needs resetting to integers as suggested (though not strictly necessary for HoltWinters),
+# we can create a simple index.
+time_series_data <- ts(prices)
+
+# If you wanted to explicitly reset the time index to integers (as hinted in the question), though not strictly needed for HoltWinters:
+# index_values <- 1:length(time_series_data)
+# time_series_data <- ts(prices, index = index_values) # Not needed for HoltWinters in this case but showing how index could be adjusted.
+
+
+# 3. Plot the original time series data
+plot(time_series_data, main="Accenture Weekly Closing Prices", ylab="Price", xlab="Time (Weeks)")
+
+
+# 4. Examine ACF and PACF (as instructed)
+acf(time_series_data, main="Autocorrelation Function (ACF)")
+pacf(time_series_data, main="Partial Autocorrelation Function (PACF)")
+
+
+# 5. Apply Simple Exponential Smoothing using HoltWinters
+# To perform simple exponential smoothing with HoltWinters, set beta=FALSE and gamma=FALSE
+simple_exp_smoothing <- HoltWinters(time_series_data, beta=FALSE, gamma=FALSE)
+
+# Print the HoltWinters object to see the parameters and results
+print(simple_exp_smoothing)
+
+
+# Part (a) - Analyze the fitted series and choose the best description.
+# 6. Plot the HoltWinters object (fitted series)
+plot(simple_exp_smoothing, main="Simple Exponential Smoothing Fitted Series vs. Original Data")
+# Visually compare the fitted (red line) to the original series (black line).
+
+# Based on the plot, determine if the fitted series:
+# A. does not at all resemble the original series.
+# B. is much smoother than the original series.
+# C. is much more variable than the original series.
+# D. follows the original series closely.
+
+# **Answer for Part (a) based on visual inspection of the plot:**
+# Option B is generally the correct answer for simple exponential smoothing.
+# Simple exponential smoothing is designed to smooth out fluctuations in the data.
+# Choose 'B' and write down your reasoning based on the plot observation.
+part_a_answer <- "B" # Update based on your observation after running the code.
+cat("Part (a) Answer: ", part_a_answer, "\n")
+cat("Reason for Part (a) answer: Simple exponential smoothing smooths out the original series.\n\n")
+
+
+# Part (b) - Provide the estimate R uses for the exponential smoothing parameter alpha (ca).
+# 7. Extract the alpha value from the HoltWinters object
+alpha_estimate <- simple_exp_smoothing$alpha
+cat("Part (b) Answer: Exponential smoothing parameter alpha (ca): ", round(alpha_estimate, 3), "\n\n")
+```
+
+``` {r}
+
+# Part (c) - Use your model to predict the next value in the series.
+# 8. Forecast the next value using the simple exponential smoothing model
+forecast_next_value <- forecast::forecast(simple_exp_smoothing, h=1) # h=1 for forecasting one period ahead
+
+cat("Part (c) Answer: Forecast for the next value: ", round(forecast_next_value$mean[1], 3), "\n\n")
+
+
+# Part (d) - Choose the best forecasting method from the list if we wanted to modify for forecasting.
+# Consider each option and reason about their suitability for forecasting.
+# A. Exponential smoothing setting a = 1: This is equivalent to a Naive forecast with drift, very reactive to last observation. Likely too variable.
+# B. Holt-Winters smoothing: Can capture level, trend, and seasonality.  More comprehensive, generally good for forecasting if data has trend or seasonality.
+# C. Exponential smoothing setting a = 0.3: Smoother than with higher alpha, but might be too slow to react to recent changes.
+# D. Holt's exponential smoothing: Captures level and trend. Good for data with trend but no seasonality.
+
+# For stock prices, which can have trends but are less likely to be strongly seasonal on a weekly basis,
+# Holt's exponential smoothing (D) or Holt-Winters (B) are often considered more appropriate for forecasting
+# than simple exponential smoothing or extreme alpha values.
+
+# **Answer for Part (d):**
+# Holt's exponential smoothing (D) is generally a more robust choice for forecasting if there is trend in the data,
+# and from the list provided, it's a better option than simple exponential smoothing or naive forecast (alpha=1).
+# If you suspect seasonality or want to be most comprehensive from the options, Holt-Winters (B) might also be considered,
+# though for weekly stock data, seasonality might be less prominent than trend.
+
+part_d_answer <- "D" # Or "B" could also be argued if you consider Holt-Winters more general and robust. 'D' (Holt's) is arguably more 'natural' given the options if trend is present.
+cat("Part (d) Answer: ", part_d_answer, "\n")
+cat("Reason for Part (d) answer: Holt's exponential smoothing (D) is better at capturing trend and is generally more robust for forecasting than simple exponential smoothing or setting alpha=1.\n\n")
+
+
+# Part (e) - Apply the most natural method from the list (Holt's exponential smoothing) and forecast.
+# 9. Apply Holt's Exponential Smoothing (HoltWinters with beta=TRUE, gamma=FALSE)
+holt_exp_smoothing <- HoltWinters(time_series_data, gamma=FALSE) # beta=TRUE is default if gamma=FALSE, so just setting gamma=FALSE is enough for Holt's.
+
+print(holt_exp_smoothing) # Inspect the Holt's model
+
+# 10. Plot Holt's fitted series
+plot(holt_exp_smoothing, main="Holt's Exponential Smoothing Fitted Series vs. Original Data")
+
+
+# 11. Forecast the next value using Holt's model
+forecast_next_value_holt <- forecast::forecast(holt_exp_smoothing, h=1)
+
+cat("Part (e) Answer: Forecast for the next value using Holt's smoothing: ", round(forecast_next_value_holt$mean[1], 3), "\n\n")
+
+
+# --- End of R Code ---
+
+# To fully answer the question, you need to:
+# 1. Download the Accenture stock data CSV and replace the placeholder filename.
+# 2. Run this R code.
+# 3. Observe the plots and the numerical outputs.
+# 4. Based on your observations, confirm the answers for Part (a), (b), (c), (d), and (e).
+# 5. For Parts (a) and (d), select the best option from the multiple choice and justify your choice based on your analysis.
+```
+

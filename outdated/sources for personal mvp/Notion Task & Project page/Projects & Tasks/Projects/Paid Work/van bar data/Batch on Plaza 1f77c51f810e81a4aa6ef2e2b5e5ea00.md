@@ -1,0 +1,8 @@
+# Batch on Plaza
+
+Website: [http://www.tapandbarrel.com](http://www.tapandbarrel.com)
+Address: numerous locations
+Applied In Person: No
+Applied Online: No
+Initial investigation: No
+Link Cleaned: http://www.tapandbarrel.com

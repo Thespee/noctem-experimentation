@@ -1,0 +1,118 @@
+---
+title: 'STAT 443: Lab 10'
+author: 'Alex Grinius (20712972)'
+date: "March 21st, 2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#if you do not have the package, type install.packages("name_of_the_package")
+library(knitr)
+library(tseries)
+```
+
+### Question 1
+
+(a) 
+
+```{r, echo=TRUE}
+plot(0:1, type = "n", xlim = c(0, 0.5), ylim = c(0, 0.5))
+abline(h = 1/(2*pi), v = NULL, col = "red", lty = 1)
+```
+This is just a line in the domain [0,0.5] at height 1/2pi. 
+
+(b)
+
+```{r, echo=TRUE}
+set.seed(443)
+wn_100 <- arima.sim(n = 100, list(ar = numeric(0)))
+periodogram_100 <- spec.pgram(wn_100/pi, log = "no")
+abline(h = 1/(2*pi), col = "red", lty = 2)
+```
+It appears to stay mostly within the estimated line, with random spikes above. 
+
+(c)
+
+```{r, echo=TRUE}
+set.seed(443)
+wn_1000 <- arima.sim(n = 1000, list(ar = numeric(0)))
+periodogram_1000 <- spec.pgram(wn_1000/pi, log = "no")
+abline(h = 1/(2*pi), col = "red", lty = 2)
+```
+Appears to fill in the area below the theoretical with higher density than the example with a sample size of 100, but the exceptions also become more numerous and more "unusual" in that they reach higher than the ones above.
+(d)
+
+```{r, echo=TRUE}
+set.seed(443)
+wn_1500 <- arima.sim(n = 1500, list(ar = numeric(0)))
+periodogram_1500 <- spec.pgram(wn_1500/pi, log = "no")
+abline(h = 1/(2*pi), col = "red", lty = 2)
+```
+The graphs appear to 'fill in' under the 1/2pi line, while spikes above that line increase number and in amplitude.
+
+### Question 2
+
+(a) 
+
+```{r, echo=TRUE}
+plot(function(w) (1 + 0.9^2 + 2 * 0.9 * cos(2 * pi * w)) / (2 * pi), from = 0, to = 0.5, col = "red")
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+set.seed(443)
+ma1_100 <- arima.sim(n = 100, list(ma = 0.9))
+periodogram_ma1_100 <- spec.pgram(ma1_100/pi, log = "no")
+plot(function(w) (1 + 0.9^2 + 2 * 0.9 * cos(2 * pi * w)) / (2 * pi), from = 0, to = 0.5, col = "red", add = TRUE)
+
+```
+Similar to above, the sample stays mostly below the theoretical, but with random spikes above. 
+
+(c)
+
+```{r, echo=TRUE}
+set.seed(42069)
+ma1_1000 <- arima.sim(n = 1000, list(ma = 0.9))
+periodogram_ma1_1000 <- spec.pgram(ma1_1000/pi, log = "no")
+plot(function(w) (1 + 0.9^2 + 2 * 0.9 * cos(2 * pi * w)) / (2 * pi), from = 0, to = 0.5, col = "red", add = TRUE)
+
+```
+Similar, you get higher & more frequent spikes, but the majority stays below the expected. 
+(d)
+
+As you repeat this, the graphs do seem to converge to the same shape as the theoretical density; however, the magnitude doesn't seem to be accurate, even after dividing them by pi (I just take all the values and divide them by pi in the spec.pgram function, this might not be algebraically accurate). I belive this means that the Spectral Periodogram is a consistent, but biased estimator of the theoretical spectagram. 
+### Question 3
+
+(a) 
+
+```{r, echo=TRUE}
+plot(function(w) 1/(pi*(1 + 1.6*cos(pi*2*w) + 0.8^2)), from = 0, to = 0.5, col = "red")
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+set.seed(443)
+ar1_100 <- arima.sim(n = 100, list(ar = -0.8))
+periodogram_ar1_100 <- spec.pgram(ar1_100/pi, log = "no")
+plot(function(w) 1/(pi*(1 + 1.6*cos(pi*2*w) + 0.8^2)), from = 0, to = 0.5, add = TRUE, col = "red")
+```
+
+
+(c)
+
+```{r, echo=TRUE}
+set.seed(1738)
+ar1_1000 <- arima.sim(n = 1000, list(ar = -0.8))
+periodogram_ar1_1000 <- spec.pgram(ar1_1000/pi, log = "no")
+plot(function(w) 1/(pi*(1 + 1.6*cos(pi*2*w) + 0.8^2)), from = 0, to = 0.5, add = TRUE, col = "red")
+```
+
+(d)
+Yep, same as above, the shape does converge, but the magnitude seems to creep above the theoretical line. This one seems to stay within the bounds of the theoretical better than the previous 2, not sure why this is. 

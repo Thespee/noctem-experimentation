@@ -1,0 +1,2 @@
+"0","plot(function(w) (1 + 0.9^2 + 2 * 0.9 * cos(2 * pi * w)) / (2 * pi), from = 0, to = 0.5, col = ""red"", add = TRUE)"
+"0",""

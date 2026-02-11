@@ -1,0 +1,21 @@
+[Unit]
+Description=Noctem First-Boot Setup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/home/noctem/noctem/.birth_complete
+
+[Service]
+Type=oneshot
+User=noctem
+Group=noctem
+WorkingDirectory=/home/noctem/noctem
+ExecStart=/usr/bin/python3 /home/noctem/noctem/birth/run.py --no-signal
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+# Disable after first successful run
+ExecStartPost=/bin/systemctl disable noctem-birth.service
+
+[Install]
+WantedBy=multi-user.target

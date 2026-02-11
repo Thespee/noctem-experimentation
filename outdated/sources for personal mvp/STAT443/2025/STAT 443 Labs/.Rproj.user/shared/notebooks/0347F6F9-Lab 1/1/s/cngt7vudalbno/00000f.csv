@@ -1,0 +1,1 @@
+"0","time_series <- ts(data = data, start = 2002, frequency = 12)"

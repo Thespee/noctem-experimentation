@@ -1,0 +1,14 @@
+[Unit]
+Description=Signal CLI Daemon for Noctem
+After=network.target
+
+[Service]
+Type=simple
+User=computer
+Environment=HOME=/home/computer
+ExecStart=/usr/local/bin/signal-cli -a SIGNAL_PHONE_PLACEHOLDER daemon --tcp 127.0.0.1:7583
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

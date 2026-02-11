@@ -1,0 +1,9 @@
+update.packages(c(
+  "fpp2",
+  "gridExtra",
+  "seasonal",
+  "urca",
+  "vars",
+  "GGally"
+)
+)

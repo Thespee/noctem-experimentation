@@ -1,0 +1,12 @@
+{
+    "signal_phone": "+1YOURNUMBER",
+    "model": "qwen2.5:7b",
+    "router_model": "qwen2.5:1.5b",
+    "quick_chat_max_length": 80,
+    "timezone": "America/Los_Angeles",
+    "morning_report_hour": 8,
+    "evening_report_hour": 20,
+    "birthday_window_days": 3,
+    "calendar_path": "/mnt/shared/calendar/calendar.ics",
+    "birthdays_path": "/mnt/shared/birthdays.csv"
+}

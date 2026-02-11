@@ -1,0 +1,190 @@
+
+---
+title: "Compare forecast rules"
+output: rmarkdown::pdf_document
+date: "`r format(Sys.time(), '%Y %B %d')`"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning=FALSE, 
+  message=FALSE,  
+  comment = "#>"
+)
+```
+
+```{r customized-functions}
+source("simple-fcrules.R")
+source("esm-fcrules.R")
+source("linear-fcrules.R")
+# The formats of forecast functions are the following.
+# esm_fc = function(train,holdout,alpha,level,iprint) # simple exp smoothing
+# lholt_fc = function(train,holdout,alpha,beta,level,slope,iprint) # Holt linear
+# Winters multipliocate seasonal
+# mseason_fc = function(train,holdout,alpha,beta,gamma,level,slope,season,iprint)
+# aseason_fc = function(train,holdout,alpha,beta,gamma,level,slope,season,iprint)
+
+# Some of these functions are to be coded in the labs and submitted on canvas.
+```
+
+# Compare forecast rules for Vancouver monthly total precipitation
+``` {r Vancouver_weather_example, fig.height=5, fig.width=5}
+v = read.csv("vanc-prec-temp.csv",header=T)
+print(names(v))
+# length is 86*12 = 1032
+print(nrow(v))
+nn = nrow(v)
+summary(v$totprecip)
+
+izero = which(v$totprecip==0)
+print(length(izero))
+
+# Change 0s to 1, to apply Winters multiplicative rule
+v$totprecip[izero] = 1
+
+# holdout set: last 18 years
+ntrain = 12*68  
+vtrain = v$totprecip[1:ntrain]
+vholdout = v$totprecip[(ntrain+1):nn]
+mon_holdout = v$yearmon[(ntrain+1):nn]
+
+z = ts(vtrain,start=c(1938,1),frequency=12)
+
+# Winters additive seasonal
+wafit = HoltWinters(z,seasonal="additive") 
+# trend column means estimated slope
+print(wafit$fitted[(ntrain-24):(ntrain-12),])
+
+
+print(wafit)
+
+# $fitted is missing for first year 
+names(wafit)
+
+print(sqrt(wafit$SSE/(ntrain-12)))
+
+# Winters multiplicative seasonal
+wmfit = HoltWinters(z,seasonal="multiplicative") 
+# trend column means estimated slope
+print(wmfit$fitted[(ntrain-24):(ntrain-12),])
+
+alpha = wafit$alpha;  beta = wafit$beta; gamma = wafit$gamma
+level = wafit$coef[1];  slope = wafit$coef[2]; season = wafit$coefficient[3:14]
+aseason = aseason_fc(vtrain,vholdout,alpha,beta,gamma,level,slope,season,iprint=F)
+
+alph = wmfit$alpha;  bet = wmfit$beta; gamm = wmfit$gamma
+leve = wmfit$coef[1];  slop = wmfit$coef[2]; seaso = wmfit$coefficient[3:14]
+mseason = mseason_fc(vtrain,vholdout,alph,bet,gamm,leve,slop,seaso,iprint=F)
+
+persbm = persistbymonth_fc(vtrain,vholdout,iprint=F)
+iidbm = iidbymonth_fc(vtrain,vholdout,iprint=F)
+
+out = cbind(mon_holdout/100,vholdout, aseason$fc, mseason$fc, persbm$fc, iidbm$fc) 
+colnames(out) = c("yearmon","holdout","add_seasonal","mult_seasonal","persist_mon","iid_bymon")
+print(round(out[1:12,],2))
+
+rmse_vec = c(aseason$rmse, mseason$rmse, persbm$rmse, iidbm$rmse)
+
+cat(round(rmse_vec,2), "\n")
+
+# Interpret: how do the methods compare?
+
+```
+
+# Compare forecast rules for quarterly corporate stock returns 
+``` {r finance-returns-example, fig.height=5, fig.width=5}
+
+f = read.csv("CSGBCBRL36to78.csv", skip=3, header=T)
+
+csret = f$CS # returns of corporate stocks
+csret = ts(csret, start=c(1936,1), end=c(1978,4), frequency=4)
+plot(csret)
+nn = length(csret) # 172 quarters = 43 years
+
+# training set 35 years, ntrain = 140
+ntrain = 35*4
+train = csret[1:ntrain]
+holdout = csret[(ntrain+1):nn]
+qu_holdout = f$quarter[(ntrain+1):nn]
+
+fit_expsmo = HoltWinters(train, beta=F, gamma=F)
+names(fit_expsmo)
+print(fit_expsmo)
+
+#esmfc = esm_fc(train,holdout, alpha=fit_expsmo$alpha,
+#  level=fit_expsmo$fitted[ntrain-1,2], iprint=F)
+# below is the correction
+esmfc = esm_fc(train,holdout, alpha=fit_expsmo$alpha,
+  level=fit_expsmo$coefficients[1], iprint=F)
+
+fit_hw = HoltWinters(train, gamma=F)
+#holtfc = lholt_fc(train,holdout, alpha=fit_hw$alpha, beta=fit_hw$beta, 
+#  level=fit_hw$fitted[ntrain-2,2],
+#  slope=fit_hw$fitted[ntrain-2,3], iprint=F)
+# below is the correction
+holtfc = lholt_fc(train,holdout, alpha=fit_hw$alpha, beta=fit_hw$beta, 
+  level=fit_hw$coefficients[1],
+  slope=fit_hw$coefficients[2], iprint=F)
+
+persistfc = persist_fc(train,holdout,iprint=F)
+iidfc = iid_fc(train,holdout,iprint=F)
+
+out2 = cbind(qu_holdout/100,holdout, esmfc$fc, holtfc$fc, persistfc$fc, iidfc$fc) 
+colnames(out2) = c("quarter","holdout","expsmo","holt","persist","iid")
+print(round(out2[1:12,],2))
+
+rmse_vec = c(esmfc$rmse, holtfc$rmse, persistfc$rmse, iidfc$rmse)
+
+cat(round(rmse_vec,2),"\n")
+
+# Interpret: how do the methods compare?
+
+```
+
+# Compare forecast rules for monthly CPI in Canada
+``` {r CPI-example, fig.height=5, fig.width=5}
+
+data = read.csv("CANCPALTT01IXOBSAM.csv",header=T)
+cpi = ts(data$CANCPALTT01IXOBSAM,start=c(1992,1), end=c(2025,3),frequency=12)
+plot(cpi)
+nn = length(cpi)  # monthly consumer price index, Canada
+print(nn)
+
+ntrain = round(nn*0.8)
+train = cpi[1:ntrain]
+holdout = cpi[(ntrain+1):nn]
+ymd_holdout = data$observation_date[(ntrain+1):nn]
+library(lubridate)
+mon_holdout = 100* year(ymd_holdout) + month(ymd_holdout)
+
+cpi_hw = HoltWinters(train, gamma=F)
+#holtfc = lholt_fc(train, holdout, alpha=cpi_hw$alpha, beta=cpi_hw$beta, 
+#  level=cpi_hw$fitted[ntrain-2,2],
+#  slope=cpi_hw$fitted[ntrain-2,3], iprint=F)
+holtfc = lholt_fc(train, holdout, alpha=cpi_hw$alpha, beta=cpi_hw$beta, 
+  level=cpi_hw$coefficients[1],
+  slope=cpi_hw$coefficients[2], iprint=F)
+
+persistfc = persist_fc(train,holdout,iprint=F)
+iidfc = iid_fc(train,holdout,iprint=F)
+
+reg = lm(train[-1] ~ train[-ntrain])
+summary(reg)
+
+bcoef = reg$coeff
+print(bcoef)
+
+linearfc = linear_fc(train,holdout,bcoef,iprint=F)
+
+out3 = cbind(mon_holdout/100,holdout, holtfc$fc, linearfc$fc, persistfc$fc, iidfc$fc) 
+colnames(out3) = c("yearmon","holdout","holt","linear","persist","iid")
+print(round(out3[1:12,],2))
+
+rmse_vec = c(holtfc$rmse, linearfc$rmse, persistfc$rmse, iidfc$rmse)
+cat(round(rmse_vec,3),"\n")
+
+# Interpret: how do the methods compare?
+
+```
+

@@ -1,0 +1,18 @@
+---
+title: "Homework 1"
+author: 'Alex Grinius'
+date: "Due Jan 30th 9pm"
+output: 
+  bookdown::pdf_document2:
+    includes:
+      in_header: preamble.tex
+    number_sections: true
+    toc: FALSE
+urlcolour: blue
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = TRUE)
+library(tidyverse)
+theme_set(theme_bw()) # Remove the ggplot grey background, isn't it ugly?
+```

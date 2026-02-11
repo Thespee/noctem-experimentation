@@ -1,0 +1,1 @@
+{"frames":[{"func":"ts.plot(comparison$True_Value, comparison$Forecast, comparison$Lower_Bound, \n    comparison$Upper_Bound, col = c(\"blue\", \"red\", \"grey\", \"grey\"))","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0}],"message":"Error: object 'comparison' not found\n"}

@@ -1,0 +1,5 @@
+# Tasks for class
+
+Assignee: Alex
+Status: Done
+Project: Finish School (../Projects/Finish%20School%202e97c51f810e8097baeafd2726873b53.md)

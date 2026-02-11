@@ -1,0 +1,161 @@
+
+---
+title: "Variograms"
+output: rmarkdown::pdf_document
+date: "`r format(Sys.time(), '%Y %B %d')`"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning=FALSE, 
+  message=FALSE,  
+  comment = "#>"
+)
+```
+
+```{r customized-functions}
+# Function for variogram as defined in 
+# Bisgaard and Kulahci (2011). Time Series Analysis and Forecasting by Example, Wiley
+variogram = function(y, lagmax=10, iprint=F)
+{ G = rep(1,lagmax)
+  n = length(y)
+  if(lagmax>n) { lagmax = n-2 }
+  y1 = y[-1]; y2 = y[-n]
+  d1 = y1-y2; denom = var(d1)
+  for(k in 2:lagmax)
+  { y1 = y[(k+1):n]; y2 = y[1:(n-k)]
+    dk = y1-y2
+    numer = var(dk)
+    G[k] = numer/denom
+  }
+  # H is the variogram assuming a stationary time series
+  H = rep(1,lagmax)
+  ac = c(acf(y,plot=F,lag.max=lagmax)$acf)
+  H = (1-ac[-1])/(1-ac[2])
+  if(iprint) 
+  { print(cbind(G,H)) 
+    mx = max(cbind(G,H))
+    matplot(1:lagmax,cbind(G,H),ylim=c(0,mx),ylab="variogram", xlab="lag")
+    abline(h=1)
+  }
+  list(G=G, H=H)
+}
+
+```
+
+# Use variogram to assess stationarity
+``` {r variogram_plots, fig.height=5, fig.width=5}
+
+par(mfrow=c(2,2))
+
+v = read.csv("vanc-prec-temp.csv",header=T)
+# length is 86*12 = 1032
+precip = matrix(v$totprecip,nrow=12)
+# January in row 1 etc.
+precip_july = precip[7,]
+plot.ts(precip_july)
+vgram_precip = variogram(precip_july,lagmax=10, iprint=T)
+
+csgb_df = read.csv("CSGBCBRL36to78.csv", skip=3, header=T)
+csret = csgb_df$CS # returns of corporate stocks
+plot.ts(csret)
+vgram_csret = variogram(csret,lagmax=10, iprint=T)
+
+gdp_df = read.csv("gdp-unemploy-FRED.csv", header=T, nrow=236)
+# Restrict to start in 1987, omit 104 rows
+gdp_df = gdp_df[-(1:104),]
+unempl = gdp_df$unempl
+plot.ts(unempl)
+vgram_unempl = variogram(unempl,lagmax=10, iprint=T)
+
+diflnunempl = gdp_df$diflnunempl
+plot.ts(diflnunempl)
+vgram_diflnunempl = variogram(diflnunempl,lagmax=10, iprint=T)
+
+
+cpi_df = read.csv("CANCPALTT01IXOBSAM.csv",header=T)
+cpi = ts(cpi_df$CANCPALTT01IXOBSAM,start=c(1992,1), end=c(2025,3),frequency=12)
+plot.ts(cpi)
+vgram_cpi = variogram(cpi,lagmax=10, iprint=T)
+
+difcpi = diff(cpi)
+plot.ts(difcpi)
+vgram_difcpi = variogram(difcpi,lagmax=10, iprint=T)
+
+# Monthly mean relative sunspot numbers from 1749 to 1983
+data(sunspots)  
+sunspot100mon = sunspots[1:100]
+plot.ts(sunspot100mon)
+vgram_sunspot100 = variogram(sunspot100mon,lagmax=10, iprint=T)
+sunspot1000mon = sunspots[1:1000]
+plot.ts(sunspot1000mon)
+vgram_sunspot1000 = variogram(sunspot1000mon,lagmax=10, iprint=T)
+
+set.seed(1234)
+ar1negphi = arima.sim(n=200,list(ar=c(-0.5)),sd=1)
+plot(ar1negphi, main="AR(1) coeff -0.5")
+vgram_ar1neg = variogram(ar1negphi,lagmax=10, iprint=T)
+
+set.seed(1234)
+ar1posphi = arima.sim(n=200,list(ar=c(0.6)),sd=1)
+plot(ar1posphi, main="AR(1) coeff 0.6")
+vgram_ar1pos = variogram(ar1posphi,lagmax=10, iprint=T)
+
+set.seed(12345)
+ar2pos = arima.sim(n=300,list(ar=c(0.6,0.2)),sd=0.5)
+plot(ar2pos, main="AR(2) coeff 0.6 0.2")
+vgram_ar2 = variogram(ar2pos,lagmax=15, iprint=T)
+
+data(sunspot.year) # ts object, starts Jan 1700 yearly (averaged) to 1988
+plot(sunspot.year)
+Gvec = variogram(sunspot.year,lagmax=20, iprint=T)
+  
+
+
+
+```
+
+# More plots for sunspot numbers monthly and yearly
+``` {r sunspots_plots, fig.height=5, fig.width=5}
+par(mfrow=c(2,2))
+acf(sunspot.year)
+spec.pgram(sunspot.year,span=c(5,7))
+abline(v=1/10)
+acf(sunspot1000mon)
+spec.pgram(sunspot1000mon,span=c(5,7))
+abline(v=1/120)
+
+```
+
+# Appendix
+``` {r appendix, fig.height=5, fig.width=5}
+# Compare monthly and annual series
+# Verify that annual series comes from averages of 12 months of a year
+# Check number of years of separation between local maxima of yearly average sunspots counts
+
+data(sunspots)
+mon = window(sunspots,start=c(1749,1),end=c(1759,12))
+data(sunspot.year) # starts Jan 1700 yearly (averaged)
+yr = window(sunspot.year,start=1749,end=1759)
+
+
+print(yr)
+
+mon_mat = matrix(mon,nrow=12)
+print(mon_mat)
+
+yr_mean = apply(mon_mat,2,mean)
+print(yr_mean)
+
+yr2 = window(sunspot.year,start=1749,end=1840)
+print(yr2)
+
+# Number of years of separation between local maxima
+localpeaks = c(2,13,21,30,39,56,68,82,89)
+separation = diff(localpeaks)
+print(separation)
+print(mean(separation))
+
+# Compare with smoothed spectral periodogram
+```

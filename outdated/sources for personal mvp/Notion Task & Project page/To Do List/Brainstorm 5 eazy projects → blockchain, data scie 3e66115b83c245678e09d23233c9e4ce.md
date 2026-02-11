@@ -1,0 +1,1 @@
+# Brainstorm 5 eazy projects → blockchain, data science, computer science, machine learning

@@ -1,0 +1,3 @@
+"0","wages_ts <- ts(data$employee_wages, start = c(1997, 1), frequency = 12)"
+"0","train_data <- window(wages_ts, start = c(1997, 1), end = c(2018, 12))"
+"0","test_data <- window(wages_ts, start = c(2019, 1), end = c(2019, 12))"

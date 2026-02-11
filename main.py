@@ -310,4 +310,23 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        stop_services()
+    except Exception as e:
+        import traceback
+        print(f"\n❌ Fatal error: {e}")
+        traceback.print_exc()
+        # Try to log the error
+        try:
+            state.log_incident(
+                message=f"Fatal error: {e}",
+                severity="critical",
+                category="system",
+                details=traceback.format_exc()
+            )
+        except:
+            pass
+        sys.exit(1)

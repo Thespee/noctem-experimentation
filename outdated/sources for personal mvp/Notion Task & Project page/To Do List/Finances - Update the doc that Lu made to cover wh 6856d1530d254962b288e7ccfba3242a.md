@@ -1,0 +1,5 @@
+# Finances - Update the doc that Lu made to cover what I need it to
+
+Start Date: August 27, 2024
+Due Date: September 7, 2024
+Project: 2 Unum (https://www.notion.so/2-Unum-c1c89d9e46394a6bae18d11c8cb4fe05?pvs=21)

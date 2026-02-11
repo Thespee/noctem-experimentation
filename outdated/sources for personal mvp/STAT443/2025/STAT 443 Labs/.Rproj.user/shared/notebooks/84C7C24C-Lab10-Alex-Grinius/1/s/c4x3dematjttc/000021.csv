@@ -1,0 +1,3 @@
+"0","set.seed(1738)"
+"0","ar1_1000 <- arima.sim(n = 1000, list(ar = -0.8))"
+"0","periodogram_ar1_1000 <- spec.pgram(ar1_1000/pi, log = ""no"")"

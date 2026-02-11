@@ -1,0 +1,10 @@
+[Unit]
+Description=Noctem Morning Report
+After=network.target
+
+[Service]
+Type=oneshot
+User=computer
+WorkingDirectory=/home/computer/data/noctem
+Environment=HOME=/home/computer
+ExecStart=/usr/bin/python3 /home/computer/data/noctem/scripts/send_morning_report.py

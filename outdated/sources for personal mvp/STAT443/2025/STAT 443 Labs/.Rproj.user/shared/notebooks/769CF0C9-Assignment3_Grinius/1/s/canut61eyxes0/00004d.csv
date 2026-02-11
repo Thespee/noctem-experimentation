@@ -1,0 +1,2 @@
+"0","decomposed_data <- decompose(train_data, type = ""additive"")"
+"0","plot(na.omit(decomposed_data$random))"

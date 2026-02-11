@@ -1,0 +1,4 @@
+"0","set.seed(443)"
+"0","X <- rnorm(500)"
+"0","ts_x <- ts(data = X, start = 1, frequency = 1)"
+"0",""

@@ -1,0 +1,2 @@
+"0","sales_time_series <- ts(souvenir_sales_data, start = c(1987, 1), frequency = 12)"
+"0","plot.ts(sales_time_series, main = ""Monthly Souvenir Sales"", ylab = ""Sales (A$)"")"

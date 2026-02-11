@@ -1,0 +1,132 @@
+---
+title: "Woolyarn-arma"
+output: rmarkdown::pdf_document
+date: "`r format(Sys.time(), '%Y %B %d')`"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning=FALSE, 
+  message=FALSE,  
+  comment = "#>"
+)
+```
+
+# Required library
+```{r library}
+library(forecast)
+# woolyrnq: Quarterly production of woollen yarn in Australia: tonnes. Mar 1965 - Sep 1994
+data(woolyrnq) # data set in library(forecast)
+```
+# Set up training and holdout sets for differenced series
+```{r trainingset, fig.height=4, fig.width=5}
+print(length(woolyrnq))
+summary(woolyrnq)
+par(mfrow=c(2,2))
+dwool = diff(woolyrnq)
+plot(woolyrnq); plot(dwool); acf(dwool)  # seasonal, lag 2 negative, lag 2 positive
+pacf(dwool) # to be discussed later
+
+summary(dwool)
+
+sd(dwool)
+
+dwool_tr = dwool/100  # transform to get smaller sigma estimate
+
+ntotal = length(dwool_tr)
+# Take first 100 as training set, or first 99 after differencing. 
+ntrain = 99 # missing first quarter so this is 25 years
+train = dwool_tr[1:ntrain]
+holdout = dwool_tr[(ntrain+1):ntotal] # 19 quarters or almost 5 years
+
+```
+
+# ARMA models for diff(woolyrnq) -- output used to demonstrate forecast theory 
+```{r arma, fig.height=4.6, fig.width=4.6}
+fit = auto.arima(train,seasonal=F,stationary=T)
+
+qqnorm(fit$residuals)  # check normality assumption (for likelihood method)
+
+print(fit)
+
+# Compare different ARMA models, verify auto.arima finds model with smallest AIC 
+fit_arma33 = arima(train,order=c(3,0,3),method="ML",include.mean=F)
+fit_arma32 = arima(train,order=c(3,0,2),method="ML",include.mean=F)
+fit_arma31 = arima(train,order=c(3,0,1),method="ML",include.mean=F)
+fit_arma22 = arima(train,order=c(2,0,2),method="ML",include.mean=F)
+fit_arma21 = arima(train,order=c(2,0,1),method="ML",include.mean=F)
+
+print(fit_arma33) # difference in 3rd decimal place, compared with auto_arima
+
+print(fit_arma32)
+
+print(fit_arma31)
+
+print(fit_arma22)
+
+# ARMA(2,1) will be used to match output of forecasts to theoretical results
+print(fit_arma21)
+```
+
+# 1-step to 4-step forecasts at end of training set
+```{r forecasts, fig.height=5, fig.width=5}
+pred_arma21 = predict(fit_arma21, n.ahead=4, se.fit=T); print(pred_arma21)
+
+ar_coef = fit_arma21$coef[1:2]; ma_coef = fit_arma21$coef[3]
+sigma = sqrt(fit_arma21$sigma2)
+# Get the psi(b) coefficients
+psiv = ARMAtoMA(ar=ar_coef, ma=ma_coef, lag.max=4)
+mult = cumsum(c(1,psiv^2)); print(mult)
+print(sqrt(mult)*sigma) # Match the $se component of predict()
+
+# Code for the pi(b) coeffcients to come later
+
+```
+
+# Moving 1-step ahead forecasts for holdout set?
+```{r holdout1step, fig.height=5, fig.width=5}
+# non-seasonal
+#' @description
+#' Moving 1-step ahead forecasts for holdout set
+#' @param tsdata vector with training and holdout data
+#' @param ntrain length of training set
+#' @param order ARIMA order using for training set
+#' @param method as used for arima applied to training set
+#' @param traincoef the $coef component for arima applied to training set 
+#' @param includeman flag as used for arima applied to training set
+#' @return holdout set rmse and 1-step forecasts
+arma_fc = function(tsdata,ntrain,order,method,traincoef,include.mean, iprint=T)
+{ obj = arima(tsdata,order=order,init=traincoef,fixed=traincoef,
+     method=method, include.mean=include.mean,
+     optim.control=list(maxit=0))  # no log-likelihood iterations
+  # yt = y_{t|t-1} + innov ; fc = yt-innov 
+  fc = tsdata - obj$residuals  
+  # next line to compare with residuals when arima is applied only to training set
+  #if(iprint) { print(round(obj$residuals,1)) }
+  ntotal = length(tsdata)
+  holdout_fc = fc[(ntrain+1):ntotal]
+  holdout = tsdata[(ntrain+1):ntotal]
+  if(iprint) print(cbind(holdout,holdout_fc))
+  rmse = sqrt(mean((holdout-holdout_fc)^2))
+  list(rmse=rmse, fc=holdout_fc)
+}
+
+arma21_fc = arma_fc(dwool_tr,99,c(2,0,1),method="ML",fit_arma21$coef,
+  include.mean=F, iprint=T)
+
+print(arma21_fc$rmse)
+
+sd(fit_arma21$residuals)
+
+arma33_fc = arma_fc(dwool_tr,99,c(3,0,3),method="ML",fit_arma33$coef,
+  include.mean=F, iprint=T)
+
+print(arma33_fc$rmse)
+
+sd(fit_arma33$residuals)
+
+# Results for arma_fc function to be confirmed with coding of the pi(b) function
+
+```
+

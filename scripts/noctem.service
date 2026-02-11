@@ -1,0 +1,16 @@
+[Unit]
+Description=Noctem AI Assistant
+After=network.target signal-daemon.service
+Wants=signal-daemon.service
+
+[Service]
+Type=simple
+User=computer
+WorkingDirectory=/home/computer/data/noctem
+Environment=HOME=/home/computer
+ExecStart=/usr/bin/python3 /home/computer/data/noctem/main.py --headless
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

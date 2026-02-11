@@ -1,0 +1,1 @@
+"0","plot(training_data, main = ""Training Data: Lake Huron Level (1875-1969)"", ylab = ""Lake Level (feet)"", xlab = ""Year"")"

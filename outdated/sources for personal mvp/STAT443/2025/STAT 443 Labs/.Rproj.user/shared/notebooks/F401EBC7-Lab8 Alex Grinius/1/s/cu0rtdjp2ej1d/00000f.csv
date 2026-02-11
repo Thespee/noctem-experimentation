@@ -1,0 +1,2 @@
+"0","fitted_values <- fitted(holt_winters_model)"
+"0","plot.ts(fitted_values[, ""level""], main = ""Level Component (Lt)"", ylab = ""Level"")"

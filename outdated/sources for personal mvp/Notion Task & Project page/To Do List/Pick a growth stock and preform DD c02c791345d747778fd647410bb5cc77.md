@@ -1,0 +1,1 @@
+# Pick a growth stock and preform DD

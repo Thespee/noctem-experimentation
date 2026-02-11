@@ -1,0 +1,99 @@
+---
+title: 'STAT 443: Lab 1'
+author: 'Alex Grinius (20712972)'
+date: "14 March, 2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#if you do not have the package, type install.packages("name_of_the_package")
+library(knitr)
+library(tseries)
+```
+
+### Question 1
+
+(a) 
+
+```{r, echo=TRUE}
+data <- LakeHuron
+training_data <- window(LakeHuron, start = 1875, end = 1969)
+test_data <- window(LakeHuron, start = 1970, end = 1972)
+
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+plot(training_data, main = "Training Data: Lake Huron Level (1875-1969)", ylab = "Lake Level (feet)", xlab = "Year")
+acf(training_data, main = "ACF of Training Data")
+pacf(training_data, main = "PACF of Training Data")
+```
+From the ACF we see that significance cuts off at q = 9 (looking closely, 10 is below the line). The PACF cuts off at p = 2, with again that weird spike at 10, not quite hitting significance. Thus I am moving forward with an ARMA(2,9) model. 
+
+(c)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+
+### Question 2
+
+(a) 
+
+```{r, echo=TRUE}
+model1 <- arima(training_data, order = c(2,0 ,9))
+model2 <- arima(training_data, order = c(2,0 ,10))
+print(model1)
+print(model2)
+```
+Here I verify that the AIC is lower for the model with q = 9 than it is for q = 10
+
+## Question 3
+(a)
+
+```{r, echo=TRUE}
+acf(residuals(model1), main = "ACF of Residuals")
+tsdiag(model1)
+```
+The ACF shows now significant corelations after lag = 0, and the Ljung-Box plots don't show a pattern in the residuals. This indicates a decent fit that we can move forward with. 
+
+(b)
+
+```{r, echo=TRUE}
+# this is where your R code goes
+```
+
+## Question 4
+(a)
+
+```{r, echo=TRUE}
+forecast <- predict(model1, n.ahead = 3)
+```
+
+(b)
+```{r, echo=TRUE}
+comparison <- data.frame(
+  Year = 1970:1972,
+  Forecast = forecast$pred,
+  True_Value = test_data,
+  Lower_Bound = forecast$pred - 1.96 * forecast$se, 
+  Upper_Bound = forecast$pred + 1.96 * forecast$se
+)
+print(comparison)
+```
+
+## Question 5
+
+(a)
+
+```{r, echo=TRUE}
+ts.plot(comparison$True_Value, comparison$Forecast, comparison$Lower_Bound, comparison$Upper_Bound, col = c("blue", "red", "grey", "grey"))
+```
+
+On this gtraph the blue is the actual value, the red is the forcast prediction and the two grey lines are the 95% confidence intervals. As we can see, the model predicts a continuous decline even though the true value goes up from 1970 to 71 & 72. The 95% confidence intervals still contain the true values.

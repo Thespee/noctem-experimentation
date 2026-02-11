@@ -1,0 +1,2 @@
+"0",""
+"0","lines(0:(length(theoretical_acf)-1), theoretical_acf, col = ""red"", lwd = 2)"

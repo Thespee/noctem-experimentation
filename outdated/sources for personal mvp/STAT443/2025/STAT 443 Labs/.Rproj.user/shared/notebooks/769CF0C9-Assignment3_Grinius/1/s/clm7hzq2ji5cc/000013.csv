@@ -1,0 +1,2 @@
+"0","Q2_model <- auto.arima(train_data)"
+"0","tsdiag(Q2_model)"

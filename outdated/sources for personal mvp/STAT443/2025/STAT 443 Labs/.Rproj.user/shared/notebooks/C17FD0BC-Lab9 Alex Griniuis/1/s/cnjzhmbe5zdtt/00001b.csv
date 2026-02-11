@@ -1,0 +1,3 @@
+"0","ts.plot(comparison$True_Value, comparison$Forecast, comparison$Lower_Bound, comparison$Upper_Bound, col = c(""blue"", ""red"", ""grey"", ""grey""))"
+"2","Error: object 'comparison' not found
+"

@@ -1,0 +1,8 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0","#if you do not have the package, type install.packages(""name_of_the_package"")"
+"0","library(knitr)"
+"0","library(tseries)"
+"0","library(forecast)"
+"0","library(ggplot2)"
+"2","Warning: package ‘ggplot2’ was built under R version 4.3.3"
+"0","data <- read.csv(""employee_wages_total_industry.csv"")"

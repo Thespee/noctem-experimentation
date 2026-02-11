@@ -1,0 +1,8 @@
+"0","comparison <- data.frame("
+"0","  Year = 1970:1972,"
+"0","  Forecast = forecast$pred,"
+"0","  True_Value = test_data,"
+"0","  Lower_Bound = forecast$pred - 1.96 * forecast$se, "
+"0","  Upper_Bound = forecast$pred + 1.96 * forecast$se"
+"0",")"
+"0","print(comparison)"

@@ -135,6 +135,57 @@ def init_db():
         )
     """)
     
+    # Personal Task Tracking: Goals -> Projects -> User Tasks
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_id INTEGER,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (goal_id) REFERENCES goals(id)
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER,
+            title TEXT NOT NULL,
+            description TEXT,
+            priority INTEGER DEFAULT 5,
+            due_date DATE,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id)
+        )
+    """)
+    
+    # Message log for NLP training
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS message_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            direction TEXT,
+            content TEXT,
+            parsed_intent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     # Create indexes for common queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)")
@@ -144,6 +195,9 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_type ON reports(report_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_tasks_status ON user_tasks(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_tasks_project ON user_tasks(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_goal ON projects(goal_id)")
     
     conn.commit()
     conn.close()
@@ -793,6 +847,180 @@ def mark_report_sent(report_date: datetime):
     """, (report_date.date().isoformat(),))
     conn.commit()
     conn.close()
+
+
+# =============================================================================
+# Personal Task Operations (Goals -> Projects -> Tasks)
+# =============================================================================
+
+def create_goal(name: str, description: str = "") -> int:
+    """Create a new goal."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO goals (name, description) VALUES (?, ?)
+    """, (name, description))
+    goal_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return goal_id
+
+
+def get_goals(status: str = "active") -> List[Dict]:
+    """Get all goals, optionally filtered by status."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if status:
+        cursor.execute("SELECT * FROM goals WHERE status = ? ORDER BY created_at", (status,))
+    else:
+        cursor.execute("SELECT * FROM goals ORDER BY created_at")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def create_project(name: str, goal_id: int = None, description: str = "") -> int:
+    """Create a new project, optionally linked to a goal."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO projects (name, goal_id, description) VALUES (?, ?, ?)
+    """, (name, goal_id, description))
+    project_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return project_id
+
+
+def get_projects(goal_id: int = None, status: str = "active") -> List[Dict]:
+    """Get projects, optionally filtered by goal and status."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if goal_id:
+        cursor.execute("""
+            SELECT * FROM projects WHERE goal_id = ? AND status = ? ORDER BY created_at
+        """, (goal_id, status))
+    else:
+        cursor.execute("SELECT * FROM projects WHERE status = ? ORDER BY created_at", (status,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def create_user_task(title: str, project_id: int = None, description: str = "",
+                     priority: int = 5, due_date: str = None) -> int:
+    """Create a new user task."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_tasks (title, project_id, description, priority, due_date)
+        VALUES (?, ?, ?, ?, ?)
+    """, (title, project_id, description, priority, due_date))
+    task_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return task_id
+
+
+def get_user_tasks(project_id: int = None, status: str = "pending") -> List[Dict]:
+    """Get user tasks, optionally filtered by project and status."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if project_id:
+        cursor.execute("""
+            SELECT ut.*, p.name as project_name 
+            FROM user_tasks ut
+            LEFT JOIN projects p ON ut.project_id = p.id
+            WHERE ut.project_id = ? AND ut.status = ?
+            ORDER BY ut.priority ASC, ut.created_at ASC
+        """, (project_id, status))
+    else:
+        cursor.execute("""
+            SELECT ut.*, p.name as project_name 
+            FROM user_tasks ut
+            LEFT JOIN projects p ON ut.project_id = p.id
+            WHERE ut.status = ?
+            ORDER BY ut.priority ASC, ut.due_date ASC NULLS LAST, ut.created_at ASC
+        """, (status,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def complete_user_task(task_id: int) -> bool:
+    """Mark a user task as done."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE user_tasks SET status = 'done', completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (task_id,))
+    affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+
+def get_user_task(task_id: int) -> Optional[Dict]:
+    """Get a user task by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ut.*, p.name as project_name, g.name as goal_name
+        FROM user_tasks ut
+        LEFT JOIN projects p ON ut.project_id = p.id
+        LEFT JOIN goals g ON p.goal_id = g.id
+        WHERE ut.id = ?
+    """, (task_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def log_message(direction: str, content: str, parsed_intent: str = None):
+    """Log a message for NLP training."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO message_log (direction, content, parsed_intent)
+        VALUES (?, ?, ?)
+    """, (direction, content, parsed_intent))
+    conn.commit()
+    conn.close()
+
+
+def get_tasks_due_soon(days: int = 7) -> List[Dict]:
+    """Get tasks due within the next N days."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ut.*, p.name as project_name
+        FROM user_tasks ut
+        LEFT JOIN projects p ON ut.project_id = p.id
+        WHERE ut.status = 'pending' 
+        AND ut.due_date IS NOT NULL
+        AND ut.due_date <= date('now', '+' || ? || ' days')
+        ORDER BY ut.due_date ASC
+    """, (days,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_completed_tasks_since(since: datetime) -> List[Dict]:
+    """Get user tasks completed since a given datetime."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ut.*, p.name as project_name
+        FROM user_tasks ut
+        LEFT JOIN projects p ON ut.project_id = p.id
+        WHERE ut.status = 'done' AND ut.completed_at >= ?
+        ORDER BY ut.completed_at DESC
+    """, (since.isoformat(),))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
 # =============================================================================

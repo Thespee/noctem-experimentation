@@ -1,0 +1,4 @@
+"0",""
+"0",""
+"0","# 4. Examine ACF and PACF (as instructed)"
+"0","acf(time_series_data, main=""Autocorrelation Function (ACF)"")"

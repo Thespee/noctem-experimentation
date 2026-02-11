@@ -1,0 +1,42 @@
+---
+title: "Homework 1"
+author: 'Alex Grinius'
+date: "Due Jan 30th 9pm"
+output: 
+  bookdown::pdf_document2:
+    includes:
+      in_header: preamble.tex
+    number_sections: true
+    toc: FALSE
+urlcolour: blue
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = TRUE)
+library(tidyverse)
+theme_set(theme_bw()) # Remove the ggplot grey background, isn't it ugly?
+```
+# Q1
+a)
+
+b)
+```{r}
+set.seed(2025)
+
+ar_sim <- arima.sim(model = list(ar = c(0.1, 0.2)), n = 10000, sd = 1) #sigma^2 = 1
+
+# Calculate sample ACF for the first 15 lags
+sample_acf <- acf(ar_sim, lag.max = 15, plot = FALSE)$acf
+
+theoretical_acf <- c(1, 1/7, 3/14)
+
+plot(0:15, sample_acf[1:16], type = "h",
+     xlab = "Lag", ylab = "Autocorrelation",
+     main = "Sample and Theoretical ACF of AR(2) Process")
+
+lines(0:(length(theoretical_acf)-1), theoretical_acf, col = "red", lwd = 2)
+legend("topright", legend = c("Sample ACF", "Theoretical ACF"), col = c("black", "red"), lwd = 2)
+```
+# Q2
+
+

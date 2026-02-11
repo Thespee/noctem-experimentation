@@ -1,0 +1,4 @@
+"0","data <- LakeHuron"
+"0","training_data <- window(LakeHuron, start = 1875, end = 1969)"
+"0","test_data <- window(LakeHuron, start = 1970, end = 1972)"
+"0",""

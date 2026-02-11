@@ -1,0 +1,1 @@
+# Go look at history of gambling and stock brokers price.

@@ -1,0 +1,1 @@
+"0","forecast <- predict(model1, n.ahead = 3)"

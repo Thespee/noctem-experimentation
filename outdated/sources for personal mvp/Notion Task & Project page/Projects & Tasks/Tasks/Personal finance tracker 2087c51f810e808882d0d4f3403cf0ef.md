@@ -1,0 +1,5 @@
+# Personal finance tracker
+
+Assignee: Alex
+Status: Not Started
+Project: Lotta Admin - Computer (../Projects/Lotta%20Admin%20-%20Computer%202087c51f810e80e1a64dd93f93a1dc73.md)

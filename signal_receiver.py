@@ -166,17 +166,34 @@ class SignalReceiver:
         elif cmd == "/email":
             return self.handle_email_command(" ".join(args))
         
+        elif cmd == "/tasks":
+            from skills.task_manager import handle_tasks_command
+            return handle_tasks_command(args)
+        
+        elif cmd == "/add":
+            from skills.task_manager import handle_add_command
+            return handle_add_command(args)
+        
+        elif cmd == "/done":
+            from skills.task_manager import handle_done_command
+            return handle_done_command(args)
+        
+        elif cmd == "/morning":
+            try:
+                from utils.morning_report import generate_morning_report
+                return generate_morning_report()
+            except Exception as e:
+                return f"Error generating report: {e}"
+        
         elif cmd == "/help":
             return """Commands:
 /ping - Test (responds 'pong')
-/echo <text> - Echo test
-/status - Show current status
-/queue - Show pending tasks
-/last - Show last received message
-/cancel <id> - Cancel a task
-/priority <id> <1-10> - Change priority
+/tasks - List pending tasks
+/add <title> - Add task (/add Buy milk in Shopping)
+/done <id> - Complete a task
+/morning - Morning briefing
+/status - System status
 /report - Generate daily report
-/email - Email commands (check, send test)
 /help - This message"""
         
         else:
@@ -425,6 +442,19 @@ class SignalReceiver:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(10)
                 sock.connect((SIGNAL_DAEMON_HOST, SIGNAL_DAEMON_PORT))
+                
+                # Subscribe to receive messages (required for newer signal-cli versions)
+                subscribe_request = {
+                    "jsonrpc": "2.0",
+                    "method": "subscribeReceive",
+                    "params": {"account": self.phone},
+                    "id": 1
+                }
+                sock.sendall((json.dumps(subscribe_request) + "\n").encode())
+                # Read subscription response
+                sub_response = sock.recv(4096).decode()
+                print(f"📱 Subscribed to messages: {sub_response[:100]}...")
+                
                 print(f"📱 Connected! Waiting for messages...")
                 
                 sock.settimeout(None)  # Block forever waiting for messages

@@ -1,0 +1,141 @@
+
+---
+title: "Forecasting unemployment rate, with/without GDP"
+output: rmarkdown::pdf_document
+date: "`r format(Sys.time(), '%Y %B %d')`"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning=FALSE, 
+  message=FALSE,  
+  comment = "#>"
+)
+```
+
+```{r customized-functions}
+source("esm-fcrules.R")
+source("simple-fcrules.R")
+source("linear-fcrules.R")
+```
+
+```{r data_selection, fig.height=5, fig.width=5}
+# years 1961 to 2019 or 59 years 236 quarters
+df = read.csv("gdp-unemploy-FRED.csv", header=T, nrow=236)
+# restrict to start in 1987, omit 104 rows
+
+names(df)
+
+
+df = df[-(1:104),]
+
+head(df)
+
+# differences of log of consecutive values have been multiplied by 100
+print(log(df$gdp[2])-log(df$gdp[1]))
+
+print(log(df$unempl[2])-log(df$unempl[1]))
+
+tail(df)
+
+
+# first column is date
+gdp =  df[,2];
+unempl =  df[,3]  
+n = length(unempl)
+print(n) 
+
+ntrain = 80  # holdout set 13 years with 4 quarters per year
+train = unempl[1:ntrain]
+holdout = unempl[(ntrain+1):n]
+
+plot(seq(1987,2019.75,0.25),unempl,xlab="year",ylab="unemployment rate",type="l")
+```
+
+# Holt and some simple forecasting rules
+```{r forecast_rules, fig.height=5, fig.width=5}
+
+fit_hw = HoltWinters(train, gamma=F)
+print(fit_hw)
+
+holt = lholt_fc(train,holdout, alpha=fit_hw$alpha, beta=fit_hw$beta, 
+  level=fit_hw$coefficients[1],
+  slope=fit_hw$coefficients[2], iprint=F)
+
+cat("holt_rmse=", holt$rmse,"\n")
+
+persist = persist_fc(train,holdout,iprint=F)
+cat("persist_rmse=", persist$rmse,"\n")
+
+iid = iid_fc(train,holdout,iprint=F)
+cat("iid_rmse=", iid$rmse,"\n")
+
+ar1 = lm(train[-1] ~ train[-ntrain])
+print(summary(ar1))
+bcoef = ar1$coefficient
+ar1 = linear_fc(train,holdout,bcoef,iprint=F)
+cat("ar1_rmse=", ar1$rmse,"\n")
+```
+# Prediction  with previous difference log(gdp) and difference log(unemploy)
+``` {r previous, fig.height=5, fig.width=5}
+
+# dataframe with previous 
+df2 = data.frame(
+   gprev=df$diflngdp[2:(n-1)], 
+   uprev=df$diflnunempl[2:(n-1)], ut=df$diflnunempl[3:n])
+# number of rows is ntrain-2
+print(dim(df2))
+
+# 1. Fit regression on previous diflngdp with training set
+reg1 = lm(ut ~ gprev, data=df2[1:(ntrain-2),])
+print(summary(reg1))
+
+# predicted value for 100* ( log(unempl[t]) -  log(unempl[t-1]) )
+pred1 = predict(reg1, newdata=df2)
+u = df$unempl[1:n]  
+# predicted value for unempl[t] is exp(pred1/100) * unempl[t-1]
+# first pred1 is for time index 3
+upred1 = exp(pred1/100) * u[2:(n-1)]
+
+# 1-step ahead point forecasts for holdout set 
+u1fc = tail(upred1,n-ntrain)
+uholdout = tail(u,n-ntrain)
+rmse1 = sqrt(mean((u1fc-uholdout)^2))
+cat("reg1_rmse=", rmse1,"\n")
+
+
+# 2. Fit regression on previous diflngdp and diflnunempl with training set
+reg2 = lm(ut ~ gprev+uprev, data=df2[1:(ntrain-2),])
+summary(reg2)
+
+# predicted value for unempl[t] is exp(pred1/100) * unempl[t-1]
+pred2 = predict(reg2, newdata=df2)
+u = df$unempl[1:n]
+# first pred1 is for time index 3
+upred2 = exp(pred2/100) * u[2:(n-1)]
+
+# 1-step ahead point forecasts for holdout set 
+u2fc = tail(upred2,n-ntrain)
+uholdout = tail(u,n-ntrain)
+rmse2 = sqrt(mean((u2fc-uholdout)^2))
+cat("reg2_rmse=", rmse2,"\n")
+```
+
+# Summary of forecast comparisons
+``` {r summary, fig.height=5, fig.width=5}
+
+library(lubridate)
+yr = year(df$date); quarter = month(df$date)
+yrq = yr+quarter/100;
+
+out = cbind(yrq[(ntrain+1):n],uholdout,holt$fc,persist$fc,iid$fc, ar1$fc, u1fc,u2fc)
+colnames(out) = c("yearq","holdout","holt","persist","iid","ar1","prevgdp","prev2var")
+print(round(out,2))
+
+rmse_vec = c(holt$rmse, persist$rmse, iid$rmse, ar1$rmse, rmse1, rmse2)
+cat(round(rmse_vec,3), "\n")
+
+# Later, check if ARMAX leads to better forecasts.
+
+```

@@ -1,0 +1,31 @@
+[Unit]
+Description=Noctem Personal AI Assistant
+After=network-online.target ollama.service noctem-birth.service
+Wants=network-online.target
+# Only start after birth is complete
+ConditionPathExists=/home/noctem/noctem/.birth_complete
+
+[Service]
+Type=simple
+User=noctem
+Group=noctem
+WorkingDirectory=/home/noctem/noctem
+ExecStart=/usr/bin/python3 /home/noctem/noctem/main.py --headless
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=HOME=/home/noctem
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/noctem/noctem
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

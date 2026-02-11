@@ -1,0 +1,3 @@
+# STAT 306 MIDTERM 1
+
+Due Date: March 8, 2022

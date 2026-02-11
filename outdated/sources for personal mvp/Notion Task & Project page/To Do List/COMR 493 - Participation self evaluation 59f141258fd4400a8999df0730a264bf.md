@@ -1,0 +1,5 @@
+# COMR 493 - Participation self evaluation
+
+Start Date: September 4, 2024
+Due Date: November 29, 2024
+Project: 1 School (https://www.notion.so/1-School-3589c1e76e4b471b9ccf56b4158194f5?pvs=21)

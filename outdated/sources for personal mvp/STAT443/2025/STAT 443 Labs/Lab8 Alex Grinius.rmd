@@ -1,0 +1,101 @@
+---
+title: 'STAT 443: Lab 1'
+author: 'Alex Grinius(20712972)'
+date: "8 March, 2024"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#if you do not have the package, type install.packages("name_of_the_package")
+library(knitr)
+library(tseries)
+```
+
+### Question 1
+
+(a) 
+
+```{r, echo=TRUE}
+souvenir_sales_data <- read.table(file = "souvenir.txt", header = FALSE, sep = "", colClasses = "numeric")
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+sales_time_series <- ts(souvenir_sales_data, start = c(1987, 1), frequency = 12)
+plot.ts(sales_time_series, main = "Monthly Souvenir Sales", ylab = "Sales (A$)")
+```
+This graph shows clear seasonality with it's repeated peaks. It appears to be multiplicative since the peaks increase overtime, but the baseline remains about the same
+
+(c)
+
+```{r, echo=TRUE}
+acf(sales_time_series, main = "Sample ACF of Sales Data", lag.max = 36)
+```
+Seasonality is shown again with sinusoidal correlations, decaying with time.
+
+
+### Question 2
+
+(a) 
+
+```{r, echo=TRUE}
+training_data <- window(sales_time_series, start = c(1987, 1), end = c(1993, 1))
+holt_winters_model <- HoltWinters(training_data, seasonal = "multiplicative")
+holt_winters_model$coefficients
+```
+
+
+(b)
+
+```{r, echo=TRUE}
+plot(holt_winters_model)
+```
+
+### Question 3
+
+(a)
+
+```{r, echo=TRUE}
+fitted_values <- fitted(holt_winters_model)
+plot.ts(fitted_values[, "level"], main = "Level Component (Lt)", ylab = "Level")
+```
+
+```{r, echo=TRUE}
+plot.ts(fitted_values[, "trend"], main = "Trend Component (Tt)", ylab = "Trend")
+```
+
+```{r, echo=TRUE}
+plot.ts(fitted_values[, "season"], main = "Seasonal Component (It)", ylab = "Seasonal Effect")
+```
+### Question 4
+
+```{r, echo=TRUE}
+test_data <- window(sales_time_series, start = c(1993, 2), end = c(1993, 12))
+predictions <- predict(holt_winters_model, n.ahead = 11, prediction.interval = TRUE, level = 0.95)
+```
+
+```{r, echo=TRUE}
+plot.ts(sales_time_series, xlim = c(1993, 1994),
+        ylim = c(min(sales_time_series, predictions), max(sales_time_series, predictions)),
+        main = "Sales Forecasts vs Actual (Test Set)", ylab = "Sales (A$)")
+lines(ts(predictions[, "fit"], start = c(1993, 2), frequency = 12), col = "blue", lty = 1, type = "b", pch = 19)
+lines(ts(predictions[, "upr"], start = c(1993, 2), frequency = 12), col = "blue", lty = 2)
+lines(ts(predictions[, "lwr"], start = c(1993, 2), frequency = 12), col = "blue", lty = 2)
+lines(test_data, col = "red", lty = 1, type = "b", pch = 19)
+```
+The forecast is pretty accurate, the predicted upper and lower bounds contain the majority of the actual data. The first 4 months do sit right on the lower bound though. 
+
+### Question 5
+
+```{r, echo=TRUE}
+forecast_values_Feb_Apr <- predictions[1:3, "fit"]
+print("Forecast values for February, March, and April 1993:") 
+print(forecast_values_Feb_Apr)
+```
+### Question 6
+The seasonality appears to be multiplicative (q1), I would consider applying a log transform to the time series. The log transform would aid in bringing all the data closer together, and reduce the magnitude of variance in the later seasons. 

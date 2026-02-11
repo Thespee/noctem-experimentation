@@ -1,0 +1,1 @@
+# message people about what they're doing friday

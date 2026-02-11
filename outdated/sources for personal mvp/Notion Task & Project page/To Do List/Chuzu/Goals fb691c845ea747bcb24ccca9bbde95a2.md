@@ -1,0 +1,3 @@
+# Goals
+
+Define success. Before I graduate in May 2025, I want this company to be generating revenue without my direct effort. Since I intend to work and travel after my graduation, this company cannot be reliant on me to operate in the way that it is now. If my skill is making version 0 of things, then I will aim to make the company operational, and then step back when it comes to expansion. This is a really aggressive time line (1 year, 8 months) I want it to properly qualify for IRAP ($30k revenue in year precceding may 2025).

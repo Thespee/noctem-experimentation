@@ -1,0 +1,2 @@
+"0","data <- read.csv(""dat_Passengers.csv"", header = TRUE)"
+"0","head(data)"

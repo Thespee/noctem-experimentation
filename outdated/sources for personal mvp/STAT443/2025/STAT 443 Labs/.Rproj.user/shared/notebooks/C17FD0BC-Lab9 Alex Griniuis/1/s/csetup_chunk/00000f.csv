@@ -1,0 +1,4 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0","#if you do not have the package, type install.packages(""name_of_the_package"")"
+"0","library(knitr)"
+"0","library(tseries)"

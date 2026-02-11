@@ -1,0 +1,144 @@
+
+---
+title: "YVR monthly average temperature: forecast rules and h-step ahead intervals"
+output: rmarkdown::pdf_document
+date: "`r format(Sys.time(), '%Y %B %d')`"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning=FALSE, 
+  message=FALSE,  
+  comment = "#>"
+)
+```
+
+```{r customized-functions}
+source("simple-fcrules.R")
+source("esm-fcrules.R")
+#source("linear-fcrules.R")
+# The formats of forecast functions are the following.
+# esm_fc = function(train,holdout,alpha,level,iprint) # simple exponential smoothing
+# lholt_fc = function(train,holdout,alpha,beta,level,slope,iprint) # Holt linear
+# Winters multiplicative seasonal and additive seasonal
+# mseason_fc = function(train,holdout,alpha,beta,gamma,level,slope,season,iprint)
+# aseason_fc = function(train,holdout,alpha,beta,gamma,level,slope,season,iprint)
+
+# Some of these functions are to be coded in the labs and submitted on canvas.
+```
+
+# Compare forecast rules for Vancouver monthly total precipitation
+``` {r Vancouver_weather_example, fig.height=5, fig.width=5}
+v = read.csv("vanc-prec-temp.csv",header=T)
+print(names(v))
+# length is 86*12 = 1032
+print(nrow(v))
+nn = nrow(v)
+summary(v$meantemp)
+
+# summaries for monthly average temperature by month
+month = v$yearmon %% 100
+
+print(tapply(v$meantemp, month, summary))
+
+print(tapply(v$meantemp, month, sd))
+
+
+# holdout set: last 18 years
+ntrain = 12*68  
+# change to degree Kelvin so that multiplicative rule shoukd
+vtrain = v$meantemp[1:ntrain] + 273
+vholdout = v$meantemp[(ntrain+1):nn] + 273
+mon_holdout = v$yearmon[(ntrain+1):nn]
+
+z = ts(vtrain,start=c(1938,1),frequency=12)
+
+# Winters additive seasonal
+wafit = HoltWinters(z,seasonal="additive") 
+# trend column means estimated slope
+print(wafit$fitted[(ntrain-24):(ntrain-12),])
+
+
+print(wafit)
+
+# $fitted is missing for first year 
+names(wafit)
+
+print(sqrt(wafit$SSE/(ntrain-12)))
+
+# Winters multiplicative seasonal
+wmfit = HoltWinters(z,seasonal="multiplicative") 
+# trend column means estimated slope
+print(wmfit$fitted[(ntrain-24):(ntrain-12),])
+
+print(wmfit)
+
+print(sqrt(wmfit$SSE/(ntrain-12)))
+
+alpha = wafit$alpha;  beta = wafit$beta; gamma = wafit$gamma
+level = wafit$coef[1];  slope = wafit$coef[2]; season = wafit$coefficient[3:14]
+aseason = aseason_fc(vtrain,vholdout,alpha,beta,gamma,level,slope,season,iprint=F)
+
+alph = wmfit$alpha;  bet = wmfit$beta; gamm = wmfit$gamma
+leve = wmfit$coef[1];  slop = wmfit$coef[2]; seaso = wmfit$coefficient[3:14]
+mseason = mseason_fc(vtrain,vholdout,alph,bet,gamm,leve,slop,seaso,iprint=F)
+
+persbm = persistbymonth_fc(vtrain,vholdout,iprint=F)
+iidbm = iidbymonth_fc(vtrain,vholdout,iprint=F)
+
+out = cbind(mon_holdout/100,vholdout, aseason$fc, mseason$fc, persbm$fc, iidbm$fc) 
+colnames(out) = c("yearmon","holdout","add_seasonal","mult_seasonal","persist_mon","iid_bymon")
+print(round(out[1:12,],2))
+
+rmse_vec = c(aseason$rmse, mseason$rmse, persbm$rmse, iidbm$rmse)
+
+cat(round(rmse_vec,2), "\n")
+
+# Interpret: how do the methods compare?
+
+```
+
+# 1-step to h-step ahead forecast intervals at end of training set
+``` {r prediction_intervals, fig.height=5, fig.width=5}
+
+class(wafit)
+
+class(wmfit)
+
+# predict method: see help(predict.HoltWinters)
+
+wa_pred = predict(wafit, n.ahead=14, prediction.interval=T, level=0.90)
+
+wm_pred = predict(wmfit, n.ahead=14, prediction.interval=T, level=0.90)
+
+
+mon_ahead = v$yearmon[(ntrain+1):(ntrain+14)]
+
+pred_df = as.data.frame(cbind(mon_ahead/100,wa_pred,wm_pred))
+
+names(pred_df) = c("yearmon","pt_add","upr_add","lwr_add","pt_mul","upr_mul","lwr_mul")
+
+print(round(pred_df,3))
+
+cv = qnorm(0.95)
+SE_add = (pred_df$upr_add - pred_df$lwr_add)/(2*cv)
+SE_add = round(SE_add,3)
+cbind(pred_df$yearmon, SE_add)
+
+# Note: SEs of prediction intervals increase with longer forecast horizon
+```
+# Moving 1-step ahead forecasts for holdout set
+``` {r moving_1_step, fig.height=5, fig.width=5}
+
+# Use the training and holdout sets together as a ts object
+# z_all = ts(v$meantemp,start=c(1938,1),frequency=12)
+# wafit_all = HoltWinters(z_all, alpha=wafit$alpha, ... ) 
+
+# Exercise: fill in the other arguments and extract suitable output.
+# Make a second application of HoltWinters with inputs (a) the entire data set
+# (b) some output components of HoltWinters applied to the training set
+# and (c) ?? 
+# Extract part of the output of the second application to match results of 
+# R functions based on pseudocodes in the slides.
+```
