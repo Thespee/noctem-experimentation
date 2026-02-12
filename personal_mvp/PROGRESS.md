@@ -1,15 +1,28 @@
 # Personal MVP v0.5 Progress Tracker
 
 **Started**: 2026-02-10
-**Status**: Day 1 Complete ✅
+**Status**: Pivoting to Telegram + Simplified Scope
 
 ---
 
-## Phase Status
+## v0.5 Revised Scope (2026-02-12)
+
+**Goal**: Todoist clone over Telegram with read-only web interface
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Telegram Bot | 🔄 In Progress | Token obtained, replacing Signal |
+| USB Autoinstall | ✅ Ready | autoinstall/user-data created |
+| Natural Language Tasks | ⬜ Not Started | "Buy milk tomorrow at 4pm" parsing |
+| Read-only Web UI | ⬜ Not Started | Simple task list view |
+| Morning/Evening Reports | ⬜ Not Started | What's due / what was done |
+| Ansible Playbook | ⬜ Not Started | Reproducible server setup |
+
+## Previous Phase Status (Signal-based, deprecated)
 
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
-| 1 | USB Shared Partition | ✅ Complete | 107GB root, 128GB shared, 786GB data |
+| 1 | USB Shared Partition | ⚠️ Reset | USB reformatted, need reinstall |
 | 2 | Core Task System | ✅ Complete | /tasks, /add, /done working |
 | 3 | Scheduled Reports | ✅ Complete | Morning report, birthdays, calendar |
 | 4 | Web Dashboard | ⬜ Not Started | Day 2 |
