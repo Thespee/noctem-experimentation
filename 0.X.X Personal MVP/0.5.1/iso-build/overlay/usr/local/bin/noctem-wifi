@@ -1,0 +1,24 @@
+#!/bin/bash
+# Noctem WiFi Configuration Helper
+
+echo "==================================="
+echo "  Noctem WiFi Setup"
+echo "==================================="
+echo ""
+echo "Available WiFi networks:"
+echo ""
+nmcli device wifi list
+echo ""
+read -p "Network name (SSID): " SSID
+read -s -p "Password: " PASS
+echo ""
+echo "Connecting..."
+nmcli device wifi connect "$SSID" password "$PASS"
+
+if [ $? -eq 0 ]; then
+    echo "Connected successfully!"
+    IP=$(hostname -I | awk '{print $1}')
+    echo "IP Address: $IP"
+else
+    echo "Connection failed. Please try again."
+fi

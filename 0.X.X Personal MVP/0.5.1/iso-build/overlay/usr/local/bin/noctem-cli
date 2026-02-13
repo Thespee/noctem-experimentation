@@ -1,0 +1,5 @@
+#!/bin/bash
+# Launch Noctem CLI
+source /home/noctem/noctem_venv/bin/activate
+cd /home/noctem/noctem
+python -m noctem.cli

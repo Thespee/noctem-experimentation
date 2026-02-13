@@ -1,0 +1,3 @@
+#!/bin/bash
+# View Noctem service logs
+journalctl -u noctem -f

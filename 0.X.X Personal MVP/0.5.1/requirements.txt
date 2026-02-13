@@ -1,0 +1,21 @@
+# Noctem v0.5 Dependencies
+
+# Telegram bot
+python-telegram-bot>=20.0
+
+# Job scheduling
+APScheduler>=3.10
+
+# Web dashboard
+flask>=3.0
+jinja2>=3.0
+
+# Calendar parsing
+icalendar>=5.0
+requests>=2.28
+
+# QR code display
+qrcode[pil]>=7.0
+
+# Date parsing helpers
+python-dateutil>=2.8

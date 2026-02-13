@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime data
+cache/
+logs/
+data/noctem.db
+
+# Credentials (keep .template and .example files)
+data/config.json
+data/email_config.json
+data/.vault.json
+data/.vault.enc
+data/.vault.salt
+
+# Environment files
+.env
+.env.local
+
+# Editor
+.obsidian/
+
+# Research Agent
+research/state.json
+research/findings/
+research/__pycache__/

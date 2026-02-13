@@ -1,28 +1,35 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
 
-# Runtime data
-cache/
-logs/
-data/noctem.db
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Credentials (keep .template and .example files)
-data/config.json
-data/email_config.json
-data/.vault.json
-data/.vault.enc
-data/.vault.salt
+# Data files (keep structure, ignore content)
+*.db
+*.log
+data/logs/*
+!data/logs/.gitkeep
 
-# Environment files
-.env
-.env.local
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Editor
-.obsidian/
+# OS
+.DS_Store
+Thumbs.db
 
-# Research Agent
-research/state.json
-research/findings/
-research/__pycache__/
+# Build artifacts
+*.iso
+dist/
+build/

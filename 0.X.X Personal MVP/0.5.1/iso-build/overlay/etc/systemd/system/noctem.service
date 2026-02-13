@@ -1,0 +1,17 @@
+[Unit]
+Description=Noctem Executive Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=noctem
+WorkingDirectory=/home/noctem/noctem
+ExecStart=/home/noctem/noctem_venv/bin/python -m noctem.main all --quiet
+Restart=always
+RestartSec=5
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
