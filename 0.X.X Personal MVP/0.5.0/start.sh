@@ -3,7 +3,13 @@
 # Starts web dashboard and optional services
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_PYTHON="/home/alex/noctem_venv/bin/python"
+
+# Try to find Python: venv first, then system python3
+if [ -f "$HOME/noctem_venv/bin/python" ]; then
+    VENV_PYTHON="$HOME/noctem_venv/bin/python"
+else
+    VENV_PYTHON="python3"
+fi
 
 cd "$SCRIPT_DIR"
 
