@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Journals - Noctem</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .upload-zone {
+            border: 2px dashed #444;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+        .upload-zone input {
+            display: none;
+        }
+        .stats-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            background: #1a1a2e;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .stat-item.pending { border-left: 3px solid #fbbf24; }
+        .stat-item.completed { border-left: 3px solid #22c55e; }
+        .stat-item.failed { border-left: 3px solid #ef4444; }
+        
+        .journal-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .journal-item {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .journal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .journal-status {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+        .status-pending { background: #fbbf24; color: #000; }
+        .status-transcribing { background: #3b82f6; color: #fff; }
+        .status-completed { background: #22c55e; color: #fff; }
+        .status-failed { background: #ef4444; color: #fff; }
+        
+        .journal-transcription {
+            background: #0a0a1a;
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .journal-meta {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .upload-progress {
+            display: none;
+            margin-top: 1rem;
+        }
+        .upload-progress.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">🌙 Noctem</div>
+        <ul>
+            <li><a href="{{ url_for('dashboard') }}">📊 Dashboard</a></li>
+            <li><a href="{{ url_for('voice_journals') }}" class="active">🎤 Voice</a></li>
+            <li><a href="{{ url_for('calendar_upload') }}">📅 Calendar</a></li>
+            <li><a href="{{ url_for('settings') }}">⚙️ Settings</a></li>
+        </ul>
+    </nav>
+    
+    <main class="content">
+        <h1>🎤 Voice Journals</h1>
+        
+        <!-- Stats -->
+        <div class="stats-bar">
+            <div class="stat-item pending">⏳ Pending: {{ stats.pending }}</div>
+            <div class="stat-item completed">✓ Transcribed: {{ stats.completed }}</div>
+            {% if stats.failed > 0 %}
+            <div class="stat-item failed">✗ Failed: {{ stats.failed }}</div>
+            {% endif %}
+        </div>
+        
+        <!-- Upload Zone -->
+        <div class="card">
+            <h2>Upload Voice Memo</h2>
+            <div class="upload-zone" id="upload-zone">
+                <p>📤 <strong>Drop audio file here</strong> or click to browse</p>
+                <p class="journal-meta">Supports: MP3, WAV, OGG, M4A, WEBM, FLAC</p>
+                <input type="file" id="audio-input" accept=".mp3,.wav,.ogg,.m4a,.webm,.flac,audio/*">
+            </div>
+            <div class="upload-progress" id="upload-progress">
+                <p>⏳ Uploading...</p>
+            </div>
+            <div id="upload-result"></div>
+        </div>
+        
+        <!-- Journal List -->
+        <div class="card">
+            <h2>Recent Voice Memos</h2>
+            {% if journals %}
+            <div class="journal-list">
+                {% for j in journals %}
+                <div class="journal-item">
+                    <div class="journal-header">
+                        <span class="journal-meta">
+                            {{ j.created_at[:16] if j.created_at else 'Unknown' }}
+                            {% if j.duration_seconds %}• {{ j.duration_seconds|round(1) }}s{% endif %}
+                            {% if j.source %}• via {{ j.source }}{% endif %}
+                        </span>
+                        <span class="journal-status status-{{ j.status }}">{{ j.status }}</span>
+                    </div>
+                    
+                    {% if j.transcription %}
+                    <div class="journal-transcription">
+                        {{ j.transcription }}
+                    </div>
+                    {% elif j.status == 'failed' %}
+                    <div class="journal-transcription" style="color: #ef4444;">
+                        Error: {{ j.error_message or 'Unknown error' }}
+                    </div>
+                    {% elif j.status == 'pending' %}
+                    <div class="journal-meta">
+                        Waiting for transcription...
+                    </div>
+                    {% endif %}
+                    
+                    {% if j.language %}
+                    <div class="journal-meta" style="margin-top: 0.5rem;">
+                        Language: {{ j.language }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="journal-meta">No voice memos yet. Upload one above or send a voice message via Telegram!</p>
+            {% endif %}
+        </div>
+    </main>
+    
+    <script>
+        const uploadZone = document.getElementById('upload-zone');
+        const audioInput = document.getElementById('audio-input');
+        const uploadProgress = document.getElementById('upload-progress');
+        const uploadResult = document.getElementById('upload-result');
+        
+        // Click to browse
+        uploadZone.addEventListener('click', () => audioInput.click());
+        
+        // Drag and drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+        
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+        
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadFile(files[0]);
+            }
+        });
+        
+        // File input change
+        audioInput.addEventListener('change', () => {
+            if (audioInput.files.length > 0) {
+                uploadFile(audioInput.files[0]);
+            }
+        });
+        
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('audio', file);
+            
+            uploadProgress.classList.add('active');
+            uploadResult.innerHTML = '';
+            
+            fetch('/api/voice/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                uploadProgress.classList.remove('active');
+                if (data.success) {
+                    uploadResult.innerHTML = '<p style="color: #22c55e;">✓ ' + data.message + '</p>';
+                    // Reload after short delay to show new entry
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    uploadResult.innerHTML = '<p style="color: #ef4444;">✗ ' + data.error + '</p>';
+                }
+            })
+            .catch(err => {
+                uploadProgress.classList.remove('active');
+                uploadResult.innerHTML = '<p style="color: #ef4444;">✗ Upload failed: ' + err.message + '</p>';
+            });
+        }
+    </script>
+</body>
+</html>
