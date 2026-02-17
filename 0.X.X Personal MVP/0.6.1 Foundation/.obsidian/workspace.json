@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/USER_GUIDE.md",
+                "file": "README.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "USER_GUIDE"
+              "title": "README"
             }
           }
         ]
@@ -185,6 +185,7 @@
   },
   "active": "ae962e7e91f42280",
   "lastOpenFiles": [
+    "docs/USER_GUIDE.md",
     "noctem/data/noctem.db-journal",
     "noctem/data/voice_journals/20260217_002026_ada49138.ogg",
     "tests/__pycache__/test_v060_polish.cpython-310-pytest-9.0.2.pyc",
@@ -196,7 +197,6 @@
     "noctem/slow/__pycache__/model_registry.cpython-310.pyc",
     "noctem/butler/__pycache__/summon.cpython-310.pyc",
     "noctem/logging/__pycache__/__init__.cpython-310.pyc",
-    "noctem/logging/__pycache__/execution_logger.cpython-310.pyc",
     "Research/Noctem 0.5 from Scratch.md",
     "1000003716.jpg",
     "Research/improvements.md",

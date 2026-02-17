@@ -364,6 +364,31 @@
             font-family: monospace;
             margin-left: 0.25rem;
         }
+        
+        /* Quick Nav Links */
+        .quick-nav {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .quick-nav a {
+            background: #1a1a2e;
+            color: #ccc;
+            text-decoration: none;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        .quick-nav a:hover {
+            background: #2a2a4e;
+            color: #fff;
+        }
+        .quick-nav a.active {
+            background: #3b82f6;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -393,6 +418,15 @@
             <div class="main-header">
                 <h1>🌙 Noctem</h1>
                 <span class="date">{{ today.strftime('%A, %B %d, %Y') }}</span>
+            </div>
+            
+            <!-- Quick Navigation -->
+            <div class="quick-nav">
+                <a href="/" class="active">📊 Dashboard</a>
+                <a href="/voice">🎤 Voice</a>
+                <a href="/calendar">📅 Calendar</a>
+                <a href="/prompts">⚙️ Prompts</a>
+                <a href="/settings">🔧 Settings</a>
             </div>
             
             <!-- Status Bar -->
@@ -554,6 +588,49 @@
     <script>
         let chatOpen = true;
         let lastThinkingId = 0;
+        const CHAT_STORAGE_KEY = 'noctem_chat_history';
+        const MAX_STORED_MESSAGES = 50;
+        
+        // Load chat history from localStorage
+        function loadChatHistory() {
+            try {
+                const stored = localStorage.getItem(CHAT_STORAGE_KEY);
+                if (stored) {
+                    const messages = JSON.parse(stored);
+                    const container = document.getElementById('chat-messages');
+                    // Keep the welcome message, add stored messages
+                    messages.forEach(msg => {
+                        const div = document.createElement('div');
+                        div.className = 'chat-message ' + (msg.isUser ? 'user' : 'bot');
+                        div.innerHTML = '<span class="msg">' + escapeHtml(msg.text) + '</span>';
+                        container.appendChild(div);
+                    });
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (e) {
+                console.error('Failed to load chat history:', e);
+            }
+        }
+        
+        // Save chat history to localStorage
+        function saveChatHistory() {
+            try {
+                const container = document.getElementById('chat-messages');
+                const messages = [];
+                container.querySelectorAll('.chat-message').forEach((div, index) => {
+                    // Skip the first message (welcome)
+                    if (index === 0) return;
+                    const text = div.querySelector('.msg').textContent;
+                    const isUser = div.classList.contains('user');
+                    messages.push({ text, isUser });
+                });
+                // Keep only last N messages
+                const toStore = messages.slice(-MAX_STORED_MESSAGES);
+                localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toStore));
+            } catch (e) {
+                console.error('Failed to save chat history:', e);
+            }
+        }
         
         // Toggle chat
         function toggleChat() {
@@ -572,6 +649,8 @@
             div.innerHTML = '<span class="msg">' + escapeHtml(text) + '</span>';
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
+            // Save after each message
+            saveChatHistory();
         }
         
         function escapeHtml(text) {
@@ -669,6 +748,7 @@
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            loadChatHistory();
             loadThinkingFeed();
             // Poll for updates every 30s
             setInterval(loadThinkingFeed, 30000);

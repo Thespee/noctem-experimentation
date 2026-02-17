@@ -869,7 +869,127 @@ noctem maintenance report --preview
 
 ---
 
-## 12) References
+## 12) Complex AI Generated Suggestions
+
+*Generated during v0.6.1 implementation session (2026-02-17). These require significant architectural work and are documented here for future planning.*
+
+### A. Web Dashboard Page Architecture Refactor
+
+**Problem:** Current dashboard is a monolithic single page. User feedback requests:
+- System status block above calendar (Butler protocol real-time status)
+- Page navigation buttons for different interaction types
+- Management page (overdue, priorities, AI suggestions, goals/projects)
+- Audio journaling page (voice transcriptions with playback/edit)
+- Maintenance report page
+- Expandable page structure for future features
+
+**Proposed Page Structure:**
+```
+/                   → Dashboard (calendar, status, quick capture)
+/management         → Priorities, overdue, AI suggestions, goals/projects
+/audio              → Voice journals, transcriptions, audio playback
+/maintenance        → System health, model registry, insights
+/settings           → Config, prompts, calendar upload
+```
+
+**Implementation Notes:**
+- Create shared base template with navigation sidebar
+- Each page as separate Flask route + template
+- API endpoints already exist for most data
+- Estimate: 4-6 hours for full restructure
+
+### B. Cross-Device Chat Persistence
+
+**Problem:** Chat history is lost on page refresh. User wants:
+- Persistent chat across page refreshes
+- Shared history between web and CLI
+- Integration with "System Thinking" panel
+
+**Proposed Solution:**
+- Store messages in `conversations` table (already exists)
+- Add session_id tracking (cookie or localStorage)
+- Load last N messages on page load
+- Real-time sync via polling or WebSocket (future)
+
+**Schema already supports this:**
+```sql
+CREATE TABLE conversations (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT,
+    source TEXT,          -- 'web', 'cli', 'telegram'
+    role TEXT,            -- 'user', 'assistant'
+    content TEXT,
+    thinking_summary TEXT,
+    thinking_level TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP
+);
+```
+
+**Implementation Notes:**
+- Quick fix: localStorage (done in v0.6.1)
+- Full fix: DB-backed sessions with session_id
+- Merge chat into thinking panel: Unified sidebar showing both messages and system activity
+- Estimate: 2-3 hours for localStorage, 6-8 hours for full DB persistence
+
+### C. Butler Protocol System Status Widget
+
+**Problem:** User wants real-time Butler status visible on dashboard.
+
+**Proposed Widget:**
+```
+┌─────────────────────────────────────┐
+│ 🤖 Butler Status                    │
+│ ────────────────────────────────────│
+│ Contacts: 3/5 remaining this week   │
+│ Next window: Tue 9:00 AM            │
+│ Queue: 2 items pending              │
+│                                     │
+│ [Summon Butler] [View Queue]        │
+└─────────────────────────────────────┘
+```
+
+**Implementation Notes:**
+- API endpoint: `/api/butler/status` (partially exists)
+- Add scheduled contact window calculation
+- JavaScript polling every 30s
+- Estimate: 2-3 hours
+
+### D. Page Navigation System
+
+**Requirements:**
+- Buttons under calendar for page switching
+- Mobile-friendly responsive design
+- Keyboard shortcuts (1-5 for pages)
+- Active page indicator
+
+**Proposed Implementation:**
+```html
+<nav class="page-nav">
+    <button data-page="/">📊 Dashboard</button>
+    <button data-page="/management">📋 Management</button>
+    <button data-page="/audio">🎤 Audio</button>
+    <button data-page="/maintenance">🔧 System</button>
+    <button data-page="/settings">⚙️ Settings</button>
+</nav>
+```
+
+**Estimate:** 1-2 hours (after page architecture is in place)
+
+### E. Priority Order for Implementation
+
+1. **Fix prompt history bug** (5 min) — blocking
+2. **Chat localStorage persistence** (30 min) — quick win
+3. **Page navigation structure** (4-6 hours) — enables everything else
+4. **Management page** (2-3 hours) — moves existing content
+5. **Audio journaling page** (2-3 hours) — voice.html already exists
+6. **Butler status widget** (2-3 hours) — high visibility
+7. **Maintenance page** (2 hours) — uses existing APIs
+8. **Full chat DB persistence** (6-8 hours) — cross-device
+
+---
+
+## 13) References
 
 - [LangGraph Human-in-the-Loop](https://docs.langchain.com/oss/python/langgraph/human-in-the-loop)
 - [Temporal Durable Execution](https://docs.temporal.io/)

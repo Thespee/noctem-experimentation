@@ -377,13 +377,20 @@ class PromptVersion:
                 variables = json.loads(row["variables"])
             except json.JSONDecodeError:
                 variables = []
+        # Parse created_at if it's a string
+        created_at_val = row["created_at"]
+        if isinstance(created_at_val, str):
+            try:
+                created_at_val = datetime.fromisoformat(created_at_val)
+            except ValueError:
+                pass
         return cls(
             id=row["id"],
             template_id=row["template_id"],
             version=row["version"],
             prompt_text=row["prompt_text"],
             variables=variables,
-            created_at=row["created_at"],
+            created_at=created_at_val,
             created_by=row["created_by"],
         )
 
