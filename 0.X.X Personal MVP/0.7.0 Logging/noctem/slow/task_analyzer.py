@@ -1,4 +1,3 @@
-"""
 """Task Analyzer for Noctem v0.6.0 slow mode.
 
 Analyzes tasks to suggest what a computer/automation could help with.

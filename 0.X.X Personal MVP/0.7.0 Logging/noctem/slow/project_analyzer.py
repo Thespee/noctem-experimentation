@@ -1,4 +1,3 @@
-"""
 """Project Analyzer for Noctem v0.6.0 slow mode.
 
 Analyzes projects to suggest what the user should do next.
