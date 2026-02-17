@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Editor - Noctem</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .prompts-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: 100vh;
+            gap: 0;
+        }
+        
+        /* Sidebar */
+        .prompts-sidebar {
+            background: #0a0a1a;
+            border-right: 1px solid #222;
+            padding: 1rem;
+        }
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .sidebar-header h2 {
+            margin: 0;
+            font-size: 1rem;
+        }
+        .prompt-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .prompt-item {
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            background: #1a1a2e;
+        }
+        .prompt-item:hover {
+            background: #2a2a4e;
+        }
+        .prompt-item.active {
+            background: #2a3a5e;
+            border-left: 3px solid #3b82f6;
+        }
+        .prompt-item .name {
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .prompt-item .description {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+        .prompt-item .version {
+            font-size: 0.7rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+        
+        /* Main Editor */
+        .prompts-main {
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .editor-header h1 {
+            margin: 0;
+            font-size: 1.25rem;
+        }
+        .editor-actions button {
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            margin-left: 0.5rem;
+        }
+        .btn-save {
+            background: #22c55e;
+            color: #fff;
+        }
+        .btn-secondary {
+            background: #333;
+            color: #ccc;
+        }
+        
+        .editor-description {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* Variables */
+        .variables-section {
+            background: #1a1a2e;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        .variables-section h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.85rem;
+            color: #888;
+        }
+        .variable-tag {
+            display: inline-block;
+            background: #2a3a4e;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        /* Textarea */
+        .prompt-textarea {
+            width: 100%;
+            min-height: 300px;
+            background: #0a0a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 1rem;
+            color: #fff;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            resize: vertical;
+        }
+        .prompt-textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+        
+        /* Version History */
+        .history-section {
+            margin-top: 2rem;
+            border-top: 1px solid #222;
+            padding-top: 1rem;
+        }
+        .history-section h3 {
+            margin: 0 0 1rem 0;
+            font-size: 1rem;
+        }
+        .version-item {
+            background: #1a1a2e;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .version-item.current {
+            border-left: 3px solid #22c55e;
+        }
+        .version-info .version-number {
+            font-weight: bold;
+        }
+        .version-info .version-meta {
+            font-size: 0.75rem;
+            color: #666;
+        }
+        .version-actions button {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            background: #333;
+            color: #ccc;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 0.5rem;
+        }
+        .version-actions button:hover {
+            background: #444;
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+        .empty-state h2 {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Back Link */
+        .back-link {
+            display: inline-block;
+            color: #888;
+            text-decoration: none;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+        
+        /* Status Messages */
+        .status-message {
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .status-message.success {
+            display: block;
+            background: #1a3a2e;
+            border: 1px solid #22c55e;
+            color: #22c55e;
+        }
+        .status-message.error {
+            display: block;
+            background: #3a1a1e;
+            border: 1px solid #ef4444;
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="prompts-layout">
+        <!-- Sidebar: Prompt List -->
+        <div class="prompts-sidebar">
+            <div class="sidebar-header">
+                <h2>🔧 LLM Prompts</h2>
+            </div>
+            <a href="/" class="back-link">← Back to Dashboard</a>
+            
+            <ul class="prompt-list" id="prompt-list">
+                <!-- Populated by JS -->
+            </ul>
+        </div>
+        
+        <!-- Main: Editor -->
+        <div class="prompts-main">
+            <div id="editor-content">
+                <div class="empty-state">
+                    <h2>Select a Prompt</h2>
+                    <p>Choose a prompt from the list to edit it.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% raw %}
+    <script>
+        let currentPrompt = null;
+        let prompts = [];
+        
+        // Load prompt list
+        async function loadPromptList() {
+            try {
+                const response = await fetch('/api/prompts');
+                const data = await response.json();
+                prompts = data.templates;
+                renderPromptList();
+            } catch (err) {
+                console.error('Failed to load prompts:', err);
+            }
+        }
+        
+        function renderPromptList() {
+            const list = document.getElementById('prompt-list');
+            list.innerHTML = prompts.map(p => `
+                <li class="prompt-item ${currentPrompt === p.name ? 'active' : ''}" 
+                    onclick="loadPrompt('${p.name}')">
+                    <div class="name">${p.name.replace(/_/g, ' ')}</div>
+                    <div class="description">${p.description || ''}</div>
+                    <div class="version">v${p.current_version}</div>
+                </li>
+            `).join('');
+        }
+        
+        // Load a specific prompt
+        async function loadPrompt(name) {
+            currentPrompt = name;
+            renderPromptList();
+            
+            try {
+                const response = await fetch(`/api/prompts/${name}`);
+                const data = await response.json();
+                
+                // Load history
+                const historyResponse = await fetch(`/api/prompts/${name}/history`);
+                const historyData = await historyResponse.json();
+                
+                renderEditor(data, historyData.versions);
+            } catch (err) {
+                console.error('Failed to load prompt:', err);
+            }
+        }
+        
+        function renderEditor(prompt, history) {
+            const container = document.getElementById('editor-content');
+            container.innerHTML = `
+                <div class="editor-header">
+                    <h1>${prompt.name.replace(/_/g, ' ')}</h1>
+                    <div class="editor-actions">
+                        <button class="btn-secondary" onclick="loadPrompt('${prompt.name}')">Reset</button>
+                        <button class="btn-save" onclick="savePrompt()">💾 Save Changes</button>
+                    </div>
+                </div>
+                
+                <p class="editor-description">${prompt.description || 'No description'}</p>
+                
+                <div id="status-message" class="status-message"></div>
+                
+                ${prompt.variables && prompt.variables.length > 0 ? `
+                <div class="variables-section">
+                    <h3>Variables (use {{name}} syntax)</h3>
+                    ${prompt.variables.map(v => `<span class="variable-tag">{{${v}}}</span>`).join('')}
+                </div>
+                ` : ''}
+                
+                <textarea class="prompt-textarea" id="prompt-text">${escapeHtml(prompt.prompt_text)}</textarea>
+                
+                <div class="history-section">
+                    <h3>📜 Version History (${history.length} versions)</h3>
+                    ${history.map((v, i) => `
+                        <div class="version-item ${i === 0 ? 'current' : ''}">
+                            <div class="version-info">
+                                <span class="version-number">v${v.version}</span>
+                                <span class="version-meta">
+                                    ${v.created_at ? new Date(v.created_at).toLocaleString() : ''}
+                                    • by ${v.created_by}
+                                </span>
+                            </div>
+                            <div class="version-actions">
+                                <button onclick="viewVersion(${v.version})">View</button>
+                                ${i !== 0 ? `<button onclick="rollbackTo(${v.version})">Rollback</button>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Save prompt
+        async function savePrompt() {
+            const text = document.getElementById('prompt-text').value;
+            const statusDiv = document.getElementById('status-message');
+            
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompt_text: text})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusDiv.className = 'status-message success';
+                    statusDiv.textContent = `✓ Saved as version ${data.new_version}`;
+                    // Reload to show new version
+                    setTimeout(() => loadPrompt(currentPrompt), 1000);
+                } else {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = `✗ ${data.error}`;
+                }
+            } catch (err) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = `✗ Error: ${err.message}`;
+            }
+        }
+        
+        // View a specific version
+        async function viewVersion(version) {
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}/history`);
+                const data = await response.json();
+                
+                const v = data.versions.find(x => x.version === version);
+                if (v) {
+                    document.getElementById('prompt-text').value = v.prompt_text;
+                    const statusDiv = document.getElementById('status-message');
+                    statusDiv.className = 'status-message success';
+                    statusDiv.textContent = `Viewing version ${version} (not saved)`;
+                }
+            } catch (err) {
+                console.error('Failed to view version:', err);
+            }
+        }
+        
+        // Rollback to a version
+        async function rollbackTo(version) {
+            if (!confirm(`Rollback to version ${version}? This creates a new version with the old text.`)) {
+                return;
+            }
+            
+            const statusDiv = document.getElementById('status-message');
+            
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}/rollback`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({to_version: version})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusDiv.className = 'status-message success';
+                    statusDiv.textContent = `✓ Rolled back to v${version}, now at v${data.new_version}`;
+                    setTimeout(() => loadPrompt(currentPrompt), 1000);
+                } else {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = `✗ ${data.error}`;
+                }
+            } catch (err) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = `✗ Error: ${err.message}`;
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPromptList();
+        });
+    </script>
+    {% endraw %}
+</body>
+</html>

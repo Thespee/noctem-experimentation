@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="30">
+    <title>Noctem Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* 3-Column Layout */
+        .dashboard-layout {
+            display: grid;
+            grid-template-columns: 140px 1fr 260px;
+            min-height: 100vh;
+            gap: 0;
+        }
+        
+        /* Left Column: 14-Day Forecast */
+        .forecast-column {
+            background: #0a0a1a;
+            border-right: 1px solid #222;
+            padding: 1rem 0.5rem;
+            overflow-y: auto;
+        }
+        .forecast-header {
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #888;
+            margin-bottom: 0.5rem;
+            padding: 0 0.5rem;
+        }
+        .forecast-day {
+            padding: 0.4rem 0.5rem;
+            border-radius: 4px;
+            margin-bottom: 2px;
+            font-size: 0.75rem;
+            cursor: default;
+        }
+        .forecast-day.today {
+            background: #1a2a3a;
+            border-left: 3px solid #3b82f6;
+        }
+        .forecast-day.weekend {
+            color: #666;
+        }
+        .forecast-day .day-name {
+            font-weight: bold;
+        }
+        .forecast-day .day-date {
+            color: #666;
+            margin-left: 0.25rem;
+        }
+        .forecast-day .density-bar {
+            height: 4px;
+            background: #222;
+            border-radius: 2px;
+            margin-top: 0.25rem;
+            overflow: hidden;
+        }
+        .forecast-day .density-fill {
+            height: 100%;
+            border-radius: 2px;
+        }
+        .density-free { background: #22c55e; }
+        .density-light { background: #84cc16; }
+        .density-moderate { background: #fbbf24; }
+        .density-busy { background: #f97316; }
+        .density-packed { background: #ef4444; }
+        
+        .forecast-day .counts {
+            display: flex;
+            gap: 0.5rem;
+            font-size: 0.65rem;
+            color: #666;
+            margin-top: 0.2rem;
+        }
+        
+        /* Main Column */
+        .main-column {
+            padding: 1rem;
+            overflow-y: auto;
+            background: #0d0d1a;
+        }
+        
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .main-header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        .main-header .date {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.8rem;
+            flex-wrap: wrap;
+        }
+        .status-item {
+            background: #1a1a2e;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+        }
+        
+        /* Week Table */
+        .week-table {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .week-day {
+            background: #1a1a2e;
+            border-radius: 6px;
+            padding: 0.75rem;
+            min-height: 200px;
+        }
+        .week-day.today {
+            background: #1a2a3a;
+            border: 1px solid #3b82f6;
+        }
+        .week-day.weekend {
+            background: #151520;
+        }
+        .week-day-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #333;
+        }
+        .week-day-header .day-name {
+            font-weight: bold;
+        }
+        .week-day-header .day-date {
+            font-size: 1.2rem;
+            color: #888;
+        }
+        .week-day-brief {
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 0.5rem;
+        }
+        .week-day-events, .week-day-tasks {
+            font-size: 0.8rem;
+        }
+        .week-day-events li, .week-day-tasks li {
+            margin-bottom: 0.25rem;
+            list-style: none;
+        }
+        .week-day-events {
+            color: #3b82f6;
+            margin-bottom: 0.5rem;
+        }
+        .event-time {
+            color: #666;
+            font-size: 0.7rem;
+        }
+        .task-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.25rem;
+        }
+        .task-item.high-priority::before {
+            content: "!";
+            color: #ef4444;
+            font-weight: bold;
+        }
+        
+        /* Sections */
+        .section {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .section h2 {
+            margin: 0 0 0.75rem 0;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .section ul {
+            padding-left: 0;
+            margin: 0;
+        }
+        .section li {
+            list-style: none;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #222;
+        }
+        .section li:last-child {
+            border-bottom: none;
+        }
+        
+        /* Right Column: Thinking Feed */
+        .thinking-column {
+            background: #0a0a1a;
+            border-left: 1px solid #222;
+            padding: 1rem 0.75rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .thinking-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .thinking-header h2 {
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        .thinking-filter {
+            font-size: 0.7rem;
+        }
+        .thinking-filter select {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            color: #ccc;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+        }
+        .thinking-feed {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 0.75rem;
+        }
+        .thinking-entry {
+            padding: 0.5rem;
+            border-bottom: 1px solid #1a1a2e;
+            margin-bottom: 0.25rem;
+        }
+        .thinking-entry .time {
+            color: #666;
+            font-size: 0.65rem;
+        }
+        .thinking-entry .source {
+            color: #3b82f6;
+            font-size: 0.65rem;
+        }
+        .thinking-entry .summary {
+            margin-top: 0.25rem;
+        }
+        .thinking-entry.level-decision {
+            border-left: 2px solid #fbbf24;
+            padding-left: 0.75rem;
+        }
+        .thinking-entry.level-activity {
+            border-left: 2px solid #3b82f6;
+            padding-left: 0.75rem;
+        }
+        .thinking-actions {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #222;
+        }
+        .thinking-actions a {
+            font-size: 0.7rem;
+            color: #888;
+            text-decoration: none;
+        }
+        .thinking-actions a:hover {
+            color: #fff;
+        }
+        
+        /* Chat Widget (floating) */
+        .chat-widget {
+            position: fixed;
+            bottom: 1rem;
+            right: 280px;
+            width: 320px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 100;
+        }
+        .chat-header {
+            padding: 0.75rem;
+            background: #2a2a4e;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+        .chat-body {
+            display: flex;
+            flex-direction: column;
+            height: 300px;
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.75rem;
+        }
+        .chat-message {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        .chat-message.user {
+            background: #2a3a4e;
+            margin-left: 2rem;
+        }
+        .chat-message.bot {
+            background: #1a2a3a;
+            margin-right: 2rem;
+        }
+        .chat-input {
+            display: flex;
+            padding: 0.5rem;
+            border-top: 1px solid #333;
+        }
+        .chat-input input {
+            flex: 1;
+            background: #0a0a1a;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 0.5rem;
+            border-radius: 4px 0 0 4px;
+        }
+        .chat-input button {
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 1024px) {
+            .dashboard-layout {
+                grid-template-columns: 1fr;
+            }
+            .forecast-column, .thinking-column {
+                display: none;
+            }
+            .chat-widget {
+                right: 1rem;
+                width: calc(100% - 2rem);
+                max-width: 400px;
+            }
+        }
+        
+        /* Keyboard Shortcut Hints */
+        .kbd {
+            display: inline-block;
+            background: #333;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-family: monospace;
+            margin-left: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-layout">
+        <!-- Left: 14-Day Forecast -->
+        <div class="forecast-column">
+            <div class="forecast-header">📅 14-Day Forecast</div>
+            {% for day in forecast_14 %}
+            <div class="forecast-day {% if day.is_today %}today{% endif %} {% if day.is_weekend %}weekend{% endif %}">
+                <span class="day-name">{{ day.day_name }}</span>
+                <span class="day-date">{{ day.date.day }}</span>
+                <div class="density-bar">
+                    <div class="density-fill density-{{ day.density_label }}" style="width: {{ (day.density * 100)|int }}%"></div>
+                </div>
+                {% if day.task_count > 0 or day.event_count > 0 %}
+                <div class="counts">
+                    {% if day.task_count > 0 %}{{ day.task_count }}t{% endif %}
+                    {% if day.event_count > 0 %}{{ day.event_count }}e{% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-column">
+            <div class="main-header">
+                <h1>🌙 Noctem</h1>
+                <span class="date">{{ today.strftime('%A, %B %d, %Y') }}</span>
+            </div>
+            
+            <!-- Status Bar -->
+            <div class="status-bar">
+                <span class="status-item">
+                    🤖 Butler: {{ butler_status.remaining }}/{{ butler_status.budget }}
+                </span>
+                <span class="status-item">
+                    {% if ollama_healthy %}✅{% else %}❌{% endif %} LLM: {{ ollama_msg[:20] }}
+                </span>
+                <span class="status-item">
+                    🐢 Queue: {{ slow_status.queue.pending }}
+                </span>
+            </div>
+            
+            <!-- Week Table (Mon-Sun) -->
+            <div class="week-table">
+                {% for day in week_table %}
+                <div class="week-day {% if day.is_today %}today{% endif %} {% if day.is_weekend %}weekend{% endif %}">
+                    <div class="week-day-header">
+                        <span class="day-name">{{ day.day_name }}</span>
+                        <span class="day-date">{{ day.date_display }}</span>
+                    </div>
+                    <div class="week-day-brief">{{ day.brief }}</div>
+                    
+                    {% if day.events %}
+                    <ul class="week-day-events">
+                        {% for e in day.events[:3] %}
+                        <li>
+                            {% if e.start_time %}<span class="event-time">{{ e.start_time }}</span>{% endif %}
+                            {{ e.title[:18] }}{% if e.title|length > 18 %}...{% endif %}
+                        </li>
+                        {% endfor %}
+                        {% if day.events|length > 3 %}
+                        <li style="color: #666;">+{{ day.events|length - 3 }} more</li>
+                        {% endif %}
+                    </ul>
+                    {% endif %}
+                    
+                    {% if day.tasks %}
+                    <ul class="week-day-tasks">
+                        {% for t in day.tasks[:4] %}
+                        <li class="task-item {% if t.importance >= 0.8 %}high-priority{% endif %}">
+                            {{ t.name[:20] }}{% if t.name|length > 20 %}...{% endif %}
+                        </li>
+                        {% endfor %}
+                        {% if day.tasks|length > 4 %}
+                        <li style="color: #666;">+{{ day.tasks|length - 4 }} more</li>
+                        {% endif %}
+                    </ul>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            
+            <!-- Today's Details -->
+            {% if overdue_tasks %}
+            <div class="section">
+                <h2>⚠️ Overdue ({{ overdue_tasks|length }})</h2>
+                <ul>
+                    {% for task in overdue_tasks[:5] %}
+                    <li>{{ task.name }} <span style="color: #666; font-size: 0.8rem;">was due {{ task.due_date }}</span></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            {% if priority_tasks %}
+            <div class="section">
+                <h2>⚡ Top Priorities</h2>
+                <ul>
+                    {% for task in priority_tasks %}
+                    <li>
+                        {{ task.name }}
+                        {% if task.due_date %}
+                        <span style="color: #888; font-size: 0.8rem;">
+                            {% if task.due_date == today %}today{% else %}{{ task.due_date }}{% endif %}
+                        </span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            <!-- AI Suggestions -->
+            {% if tasks_with_suggestions or projects_with_suggestions %}
+            <div class="section">
+                <h2>💡 AI Suggestions</h2>
+                {% for task in tasks_with_suggestions[:3] %}
+                <div style="margin-bottom: 0.75rem;">
+                    <strong>{{ task.name }}</strong>
+                    <p style="color: #888; font-size: 0.85rem; margin: 0.25rem 0 0 0;">→ {{ task.computer_help_suggestion }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <!-- Goals & Projects (collapsed) -->
+            <details class="section">
+                <summary style="cursor: pointer; font-weight: bold;">🎯 Goals & Projects</summary>
+                {% for gd in goals_data %}
+                <div style="margin-top: 0.75rem;">
+                    <strong>{{ gd.goal.name }}</strong>
+                    {% for pd in gd.projects[:3] %}
+                    <div style="margin-left: 1rem; font-size: 0.85rem; color: #888;">
+                        {{ pd.project.name }} ({{ pd.done_count }}/{{ pd.total_count }})
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </details>
+        </div>
+        
+        <!-- Right: Thinking Feed -->
+        <div class="thinking-column">
+            <div class="thinking-header">
+                <h2>🧠 System Thinking</h2>
+                <div class="thinking-filter">
+                    <select id="thinking-level" onchange="loadThinkingFeed()">
+                        <option value="all">All</option>
+                        <option value="activity">Activity</option>
+                        <option value="decisions">Decisions</option>
+                    </select>
+                </div>
+            </div>
+            <div class="thinking-feed" id="thinking-feed">
+                <div class="thinking-entry">
+                    <div class="time">Loading...</div>
+                </div>
+            </div>
+            <div class="thinking-actions">
+                <a href="/api/thinking/export">📥 Export Log</a>
+                <span style="margin: 0 0.5rem;">|</span>
+                <a href="/prompts">⚙️ Edit Prompts</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chat Widget -->
+    <div id="chat-widget" class="chat-widget">
+        <div class="chat-header" onclick="toggleChat()">
+            <span>💬 Chat <span class="kbd">n</span></span>
+            <span class="chat-toggle" id="chat-toggle">▼</span>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-messages" id="chat-messages">
+                <div class="chat-message bot">
+                    <span class="msg">🌙 Hi! Type naturally to add tasks. Press <span class="kbd">?</span> for help.</span>
+                </div>
+            </div>
+            <form class="chat-input" onsubmit="sendMessage(event)">
+                <input type="text" id="chat-input" placeholder="buy groceries tomorrow..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let chatOpen = true;
+        let lastThinkingId = 0;
+        
+        // Toggle chat
+        function toggleChat() {
+            const body = document.getElementById('chat-body');
+            const toggle = document.getElementById('chat-toggle');
+            chatOpen = !chatOpen;
+            body.style.display = chatOpen ? 'flex' : 'none';
+            toggle.textContent = chatOpen ? '▼' : '▲';
+        }
+        
+        // Chat message handling
+        function addMessage(text, isUser) {
+            const messages = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = 'chat-message ' + (isUser ? 'user' : 'bot');
+            div.innerHTML = '<span class="msg">' + escapeHtml(text) + '</span>';
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            addMessage(message, true);
+            input.value = '';
+            input.disabled = true;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: message})
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    addMessage(data.response, false);
+                } else {
+                    addMessage('❌ ' + (data.error || 'Error'), false);
+                }
+            } catch (err) {
+                addMessage('❌ Connection error', false);
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        }
+        
+        // Thinking feed
+        async function loadThinkingFeed() {
+            const level = document.getElementById('thinking-level').value;
+            try {
+                const response = await fetch(`/api/thinking/recent?limit=30&level=${level}`);
+                const data = await response.json();
+                
+                const feed = document.getElementById('thinking-feed');
+                if (data.entries.length === 0) {
+                    feed.innerHTML = '<div class="thinking-entry"><div class="summary" style="color: #666;">No activity yet</div></div>';
+                    return;
+                }
+                
+                feed.innerHTML = data.entries.map(e => `
+                    <div class="thinking-entry level-${e.level || 'activity'}">
+                        <div class="time">${e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : ''}</div>
+                        <div class="source">${e.source || 'system'}</div>
+                        <div class="summary">${escapeHtml(e.summary || '')}</div>
+                    </div>
+                `).join('');
+                
+                if (data.entries.length > 0) {
+                    lastThinkingId = data.entries[0].id;
+                }
+            } catch (err) {
+                console.error('Failed to load thinking feed:', err);
+            }
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ignore if typing in input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            switch(e.key.toLowerCase()) {
+                case 'n':
+                    // Focus chat
+                    document.getElementById('chat-input').focus();
+                    if (!chatOpen) toggleChat();
+                    e.preventDefault();
+                    break;
+                case 'd':
+                    // Go to dashboard (refresh)
+                    location.reload();
+                    break;
+                case 't':
+                    // Scroll to top
+                    document.querySelector('.main-column').scrollTop = 0;
+                    break;
+                case '?':
+                    // Show help
+                    addMessage('Shortcuts: n=chat, d=refresh, t=top, ?=help', false);
+                    break;
+            }
+        });
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadThinkingFeed();
+            // Poll for updates every 30s
+            setInterval(loadThinkingFeed, 30000);
+        });
+    </script>
+</body>
+</html>
