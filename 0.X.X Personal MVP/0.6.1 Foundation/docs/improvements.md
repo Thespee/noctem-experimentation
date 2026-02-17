@@ -1,6 +1,6 @@
-# Noctem v0.6.0 — Improvements, Research, and Design Notes
+# Noctem v0.6.1 — Improvements, Research, and Design Notes
 
-*Last updated: 2026-02-17 (v0.6.1 Foundation complete; habits moved to post-1.0 Personal Skills)*
+*Last updated: 2026-02-17 (v0.6.1 Foundation + bug fixes complete)*
 
 ---
 
@@ -539,6 +539,34 @@ ALTER TABLE thoughts ADD COLUMN summon_mode INTEGER DEFAULT 0;
 **Learnings & Design Notes**
 
 1. **Execution logging is low-overhead**: Context manager pattern makes it easy to add tracing without changing function signatures. ~1-2ms overhead per trace.
+
+#### v0.6.1 Bug Fixes & Quick Improvements (2026-02-17 Session 2)
+
+**Issues Fixed**
+
+| Issue | Fix |
+|-------|-----|
+| Prompt history API error (`'str' has no attribute 'isoformat'`) | `PromptVersion.from_row()` now parses `created_at` string → datetime |
+| Chat messages lost on page refresh | Added `localStorage` persistence (last 50 messages) |
+| Voice/audio page not discoverable | Added quick navigation bar to dashboard |
+
+**Files Modified**
+
+| File | Changes |
+|------|----------|
+| `models.py` | Fixed datetime parsing in `PromptVersion.from_row()` |
+| `web/templates/dashboard.html` | Added chat `localStorage` save/load; added quick nav bar (Voice, Calendar, Prompts, Settings) |
+| `docs/improvements.md` | Added § 12 "Complex AI Generated Suggestions" for future work |
+
+**Session Learnings**
+
+1. **SQLite stores datetimes as strings**: All `from_row()` methods need to check `isinstance(val, str)` and parse with `datetime.fromisoformat()`. Several models already had this pattern; `PromptVersion` was missing it.
+
+2. **localStorage is a quick win for chat**: Full DB persistence (cross-device) is better but takes 6-8 hours. localStorage fix took 30 minutes and solves the immediate pain.
+
+3. **Dashboard needs navigation**: The original design assumed users would know URLs. Quick nav bar makes pages discoverable.
+
+4. **Document complex ideas before forgetting**: User feedback generated significant architectural ideas (page restructuring, Butler status widget, management page). Captured in § 12 for future implementation.
 
 2. **Intent parsing for /summon works well**: Simple keyword matching handles 90% of cases; "general" fallback routes to slow mode.
 
