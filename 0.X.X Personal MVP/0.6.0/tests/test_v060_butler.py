@@ -23,13 +23,13 @@ from noctem.db import get_db, init_db
 # Override DB path for testing
 db.DB_PATH = Path(TEST_DB)
 
-from noctem.services import task_service, habit_service, project_service
+from noctem.services import task_service, project_service
 from noctem.config import Config
 from noctem.butler.protocol import ButlerProtocol, get_butler_status, get_butler_status_message
 from noctem.butler.updates import (
     generate_update_message, generate_brief_update,
     get_overdue_tasks, get_tasks_due_today, get_tasks_due_this_week,
-    get_habits_status, get_unclear_tasks_count
+    get_unclear_tasks_count
 )
 from noctem.butler.clarifications import (
     ClarificationQueue, generate_clarification_message,
@@ -135,7 +135,7 @@ class TestButlerProtocol:
         """get_butler_status_message should return formatted string."""
         status_str = get_butler_status_message()
         assert "Butler Status" in status_str
-        assert "Contacts remaining" in status_str
+        assert "Contacts used" in status_str  # v0.6.0: changed to "X/5 used" format
     
     def test_get_butler_status_dict(self):
         """get_butler_status should return dict with budget info."""

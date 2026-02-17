@@ -2,6 +2,7 @@
 Task Analyzer for Noctem v0.6.0 slow mode.
 
 Analyzes tasks to suggest what a computer/automation could help with.
+Uses prompt_service for editable/versioned prompts.
 """
 import logging
 from typing import Optional
@@ -10,22 +11,10 @@ from datetime import datetime
 from ..db import get_db
 from ..models import Task
 from ..services import task_service
+from ..services.prompt_service import render_prompt
 from .ollama import OllamaClient, llm_generate
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """You are a helpful assistant analyzing tasks. 
-Your job is to suggest practical ways a computer or automation could help with each task.
-Be specific, concise, and practical. Focus on things that are actually achievable with current technology.
-Keep your response to 2-3 sentences maximum."""
-
-TASK_PROMPT_TEMPLATE = """Task: {name}
-Project: {project}
-Due: {due_date}
-Tags: {tags}
-
-What could a computer or automation help with for this task?
-Be specific and practical. Consider: reminders, research, templates, scheduling, notifications, data gathering, etc."""
 
 
 def analyze_task_for_computer_help(task: Task) -> Optional[str]:
@@ -54,14 +43,16 @@ def analyze_task_for_computer_help(task: Task) -> Optional[str]:
     if task.due_time:
         due_str += f" at {task.due_time}"
     
-    prompt = TASK_PROMPT_TEMPLATE.format(
-        name=task.name,
-        project=project_name,
-        due_date=due_str,
-        tags=tags_str,
-    )
+    # Use prompt service for editable prompts
+    system_prompt = render_prompt("task_analyzer_system")
+    user_prompt = render_prompt("task_analyzer_user", {
+        "name": task.name,
+        "project": project_name,
+        "due_date": due_str,
+        "tags": tags_str,
+    })
     
-    suggestion = llm_generate(prompt, system=SYSTEM_PROMPT)
+    suggestion = llm_generate(user_prompt, system=system_prompt)
     
     if suggestion:
         logger.info(f"Generated computer help suggestion for task {task.id}")

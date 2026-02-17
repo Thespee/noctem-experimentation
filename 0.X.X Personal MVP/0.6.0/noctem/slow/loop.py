@@ -19,6 +19,7 @@ from ..services import task_service, project_service
 from ..voice.journals import (
     get_pending_journals, mark_transcribing, complete_transcription, fail_transcription
 )
+from ..fast.capture import process_voice_transcription
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,7 @@ class SlowModeLoop:
         """
         Process pending voice journal transcriptions.
         Uses Whisper (local, no LLM needed).
+        After transcription, routes through capture system for task creation.
         Returns count of items processed.
         """
         pending = get_pending_journals()
@@ -198,14 +200,26 @@ class SlowModeLoop:
                 whisper = get_whisper_service()
                 text, metadata = whisper.transcribe(audio_path)
                 
+                # Complete the transcription record
                 complete_transcription(
                     journal_id,
                     transcription=text,
                     duration_seconds=metadata.get("duration"),
                     language=metadata.get("language"),
                 )
+                
+                # Route through capture system (voice → task pipeline)
+                if text and text.strip():
+                    capture_result = process_voice_transcription(text, journal_id)
+                    logger.info(
+                        f"Voice journal {journal_id} processed: "
+                        f"kind={capture_result.kind.value}, "
+                        f"confidence={capture_result.confidence:.2f}, "
+                        f"task_id={capture_result.task.id if capture_result.task else None}"
+                    )
+                
                 count += 1
-                logger.info(f"Voice journal {journal_id} transcribed successfully")
+                logger.info(f"Voice journal {journal_id} transcribed and routed successfully")
                 
             except Exception as e:
                 logger.error(f"Failed to transcribe voice journal {journal_id}: {e}")

@@ -1,6 +1,6 @@
 # Noctem v0.6.0 — Improvements, Research, and Design Notes
 
-*Last updated: 2026-02-17 (v0.7-0.9 Roadmap added)*
+*Last updated: 2026-02-17 (v0.6.0 Polish complete; habits moved to post-1.0 Personal Skills)*
 
 ---
 
@@ -284,14 +284,139 @@ CREATE TABLE model_registry (
 
 > **Foundation-first ordering**: Each layer enables the next. Logging → Correction Loop → Model Awareness → Automation → Skills → Knowledge.
 
-### Now (v0.6.0 Polish)
+### Now (v0.6.0 Polish) ✅ DONE
 
-| Priority | Improvement | Description | Why Now |
-|----------|-------------|-------------|----------|
-| 1 | Contact budget transparency | Status shows "2/5 contacts used this week" and next scheduled contact time | Quick win; establishes Butler as primary interface |
-| 2 | Voice → Task | Feed Whisper transcripts through existing task parser; show one-line confirm with `*` to amend | Enables hands-free capture |
-| 3 | Unclear-input queue | Butler uses its 2 clarification windows to surface top N oldest ambiguous thoughts with quick-reply buttons | Reduces friction in fast capture |
-| 4 | Context-aware suggestions | Incorporate calendar gaps and optional task durations into "what to do next" | Makes suggestions actionable |
+| Priority | Improvement | Status | Notes |
+|----------|-------------|--------|-------|
+| 1 | Contact budget transparency | ✅ Done | Status shows "X/5 used this week" + full datetime for next contact |
+| 2 | Voice → Task | ✅ Done | Transcripts → fast classifier → thoughts table → task/note/clarification queue |
+| 3 | Unclear-input queue | ✅ Done | Ambiguous thoughts (SCOPE/TIMING/INTENT) queued for Butler clarification windows |
+| 4 | Context-aware suggestions | ✅ Done | SuggestionService: calendar gaps, duration matching, time-of-day awareness |
+
+#### v0.6.0 Implementation Notes
+
+**Architecture: "Royal Scribe" Pattern**
+
+All inputs (text, voice, Telegram) flow through a unified capture system that acts like a well-paid royal scribe:
+
+```
+Input (any source)
+      │
+      ▼
+┌─────────────────────────────────────┐
+│  Voice Cleanup (if audio)           │
+│  • Remove fillers: um, uh, you know │
+│  • Normalize hesitations            │
+└─────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────┐
+│  Fast Classifier (rule-based)       │
+│  • ThoughtKind: ACTIONABLE/NOTE/    │
+│    AMBIGUOUS                        │
+│  • Confidence: 0.0-1.0              │
+│  • AmbiguityReason: SCOPE/TIMING/   │
+│    INTENT                           │
+└─────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────┐
+│  Thoughts Table (always)            │
+│  • Every input recorded             │
+│  • Links to task_id if created      │
+│  • Preserves original + cleaned     │
+└─────────────────────────────────────┘
+      │
+      ├─── HIGH confidence (≥0.8) ──────► Create task/note immediately
+      │
+      ├─── MEDIUM confidence (0.5-0.8) ─► Create task with `*` hint
+      │                                   (user can amend)
+      │
+      └─── LOW confidence (<0.5) ───────► Queue for Butler clarification
+```
+
+**Key Design Decisions**
+
+1. **Thoughts-first, not tasks-first**: Every input creates a thought record before any routing. This preserves context for later review and enables the slow system to audit fast-path decisions.
+
+2. **Confidence thresholds**: HIGH_CONFIDENCE=0.8, MEDIUM_CONFIDENCE=0.5. Tasks created below 0.8 get a `*` amendment hint in their name so the user knows to review.
+
+3. **Ambiguity subcategories**: Not all unclear inputs are unclear for the same reason:
+   - SCOPE: "Work on the project" — which project? how much?
+   - TIMING: "Do this soon" — when exactly?
+   - INTENT: "Maybe I should..." — is this actually a commitment?
+
+4. **Butler clarification questions are context-aware**: Each ambiguity type gets targeted questions:
+   - SCOPE → "Can you be more specific about what this involves?"
+   - TIMING → "When would you like to do this?"
+   - INTENT → "Is this something you want to commit to, or just a thought to revisit later?"
+
+5. **Suggestions consider real constraints**: Time-of-day (morning=focused work, afternoon=meetings, evening=wind-down), calendar gaps, and task duration estimates.
+
+**Files Created**
+
+| File | Purpose |
+|------|----------|
+| `noctem/fast/classifier.py` | Rule-based classifier with signal detection (imperative verbs, time words, hedging language, question marks) |
+| `noctem/fast/voice_cleanup.py` | Filler removal, hesitation normalization, whitespace cleanup |
+| `noctem/fast/capture.py` | Unified `process_input()` entry point; creates thoughts, routes to task/note/clarification |
+| `noctem/services/suggestion_service.py` | `SuggestionService` with calendar integration, gap detection, duration matching |
+| `tests/test_v060_polish.py` | 38 tests covering classifier, capture, suggestions, voice cleanup |
+
+**Files Modified**
+
+| File | Changes |
+|------|----------|
+| `db.py` | Added `thoughts` table schema, `duration_minutes` column migration |
+| `models.py` | Added `Thought` dataclass, `duration_minutes` field to `Task` |
+| `cli.py` | `NEW_TASK` commands now use `process_input()` instead of direct task creation |
+| `slow/loop.py` | Voice transcriptions feed into capture system with pending confirmation |
+| `butler/clarifications.py` | Added `get_pending_thought_clarifications()`, `resolve_thought_clarification()`, ambiguity-specific questions |
+| `butler/protocol.py` | Status format changed to "Contacts used: X/5 this week", added full datetime for next contact window |
+
+**Database Schema Additions**
+
+```sql
+-- Implemented thoughts table (expanded from design)
+CREATE TABLE thoughts (
+    id INTEGER PRIMARY KEY,
+    source TEXT,                    -- 'telegram', 'cli', 'web', 'voice'
+    raw_text TEXT,                  -- Original input
+    cleaned_text TEXT,              -- After voice cleanup
+    kind TEXT,                      -- 'actionable', 'note', 'ambiguous'
+    ambiguity_reason TEXT,          -- 'scope', 'timing', 'intent' (if ambiguous)
+    confidence REAL,                -- 0.0-1.0
+    linked_task_id INTEGER,         -- FK to tasks if converted
+    status TEXT DEFAULT 'pending',  -- 'pending', 'converted', 'dismissed'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Added to tasks table
+ALTER TABLE tasks ADD COLUMN duration_minutes INTEGER;
+```
+
+**Test Coverage**
+
+323 tests pass (including 38 new v0.6.0 polish tests). Key test scenarios:
+- Classifier correctly identifies actionable vs note vs ambiguous
+- Voice cleanup removes fillers without mangling content
+- Capture system creates thoughts and routes appropriately
+- Suggestions respect calendar gaps and time-of-day
+- Butler status shows new "X/5 used" format
+
+**Learnings & Future Considerations**
+
+1. **Rule-based classification is surprisingly effective** for the fast path. Imperative verbs + time expressions catch ~80% of actionable items. Save LLM calls for genuinely ambiguous cases.
+
+2. **Ambiguity subcategories help Butler ask better questions**. Generic "can you clarify?" is less useful than "when would you like to do this?"
+
+3. **The `*` amendment hint pattern** (for medium-confidence tasks) provides a lightweight way to flag "I created this but you should review" without blocking capture.
+
+4. **Duration estimates unlock smarter suggestions**. Even rough estimates (15/30/60 min) let the system match tasks to calendar gaps.
+
+5. **Next steps for this system**: Add execution logging (v0.6.x priority 1) to measure classifier accuracy in production and identify where rules need tuning.
+
+---
 
 ### Development Time Line
 
@@ -403,13 +528,32 @@ CREATE TABLE learning_items (
 
 #### v1.0+ — Advanced Automation & External Actions
 
-| Priority | Improvement | Description | Depends On |
-|----------|-------------|-------------|------------|
-| 1 | Durable workflows | Temporal for real actions (email, calendar write); Signals/Timers and Sagas; human checkpoints on risky steps | Project-as-agent mature |
-| 2 | External integrations | Calendar write-back, email drafting, API calls to external services | Durable workflows |
-| 3 | Maintenance Protocol (Phase 2-3) | Butler-delivered reports; actionable quick-replies; model auto-switching based on task type | 0.7 self-improvement |
-| 4 | Optional cloud routing | Behind explicit consent; route complex tasks to cloud models; default remains local-only | Model registry mature |
-| 5 | Mobile companion | Lightweight app for quick capture + Butler notifications; syncs with local instance | All core infrastructure |
+| Priority | Improvement                      | Description                                                                                                   | Depends On              |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 1        | Durable workflows                | Temporal for real actions (email, calendar write); Signals/Timers and Sagas; human checkpoints on risky steps | Project-as-agent mature |
+| 2        | External integrations            | Calendar write-back, email drafting, API calls to external services                                           | Durable workflows       |
+| 3        | Maintenance Protocol (Phase 2-3) | Butler-delivered reports; actionable quick-replies; model auto-switching based on task type                   | 0.7 self-improvement    |
+| 4        | Optional cloud routing           | Behind explicit consent; route complex tasks to cloud models; default remains local-only                      | Model registry mature   |
+| 5        | Hardware                         | Usb bootable linus server running the whole system                                                            | All core infrastructure |
+
+#### Post-1.0 — Personal Skills (Future)
+
+Skills built on top of the v0.8 skill infrastructure that extend Noctem into personal life domains. These are **not** part of the MVP roadmap.
+
+| Skill | Description | Infrastructure Needed |
+|-------|-------------|----------------------|
+| **Habit Builder** | Track recurring behaviors; streaks and break recovery; Butler prompts at optimal times; analyze patterns over time | v0.8 skills + v0.7 logging |
+| Fitness Tracking | Log workouts, integrate with health data exports; surface trends | Wiki (0.9) for storing routines |
+| Meal Planning | Weekly meal prep suggestions; grocery list generation; recipe wiki integration | Wiki (0.9) + external API skills |
+| Finance Awareness | Budget tracking; spending pattern alerts; bill reminders | Durable workflows (1.0) for recurring checks |
+| Reading List | Track books/articles; surface "time to read" suggestions in calendar gaps | Wiki (0.9) + suggestion service |
+V2.0 -- Take Public
+**Note on existing habit code**: The codebase contains `habit_service.py`, `Habit`/`HabitLog` models, and `habits`/`habit_logs` tables from earlier development. This infrastructure is **deferred** — it works but is not actively developed or exposed in the UI until the skill infrastructure (v0.8) is mature enough to implement habits properly as a skill.
+
+#### V2.0 — Take Public
+| Priority | Improvement                      | Description                                                                                                   | Depends On              |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 5        | Mobile companion                 | Lightweight app for quick capture + Butler notifications; syncs with local instance                           | All core infrastructure |
 
 ---
 

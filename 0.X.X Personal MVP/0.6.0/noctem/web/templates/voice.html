@@ -83,6 +83,61 @@
         .upload-progress.active {
             display: block;
         }
+        .journal-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .journal-actions button, .journal-actions a {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: #2a2a4e;
+            color: #ccc;
+            border: none;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .journal-actions button:hover, .journal-actions a:hover {
+            background: #3b3b6e;
+            color: #fff;
+        }
+        .edit-mode textarea {
+            width: 100%;
+            min-height: 100px;
+            background: #0a0a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 0.75rem;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            resize: vertical;
+        }
+        .edit-mode .edit-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .edit-mode .edit-actions button {
+            padding: 0.5rem 1rem;
+        }
+        .edit-mode .edit-actions .save-btn {
+            background: #22c55e;
+            color: #fff;
+        }
+        .edit-mode .edit-actions .cancel-btn {
+            background: #444;
+        }
+        .edited-badge {
+            font-size: 0.7rem;
+            background: #3b82f6;
+            color: #fff;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -128,27 +183,38 @@
             {% if journals %}
             <div class="journal-list">
                 {% for j in journals %}
-                <div class="journal-item">
+                <div class="journal-item" data-journal-id="{{ j.id }}">
                     <div class="journal-header">
                         <span class="journal-meta">
                             {{ j.created_at[:16] if j.created_at else 'Unknown' }}
                             {% if j.duration_seconds %}• {{ j.duration_seconds|round(1) }}s{% endif %}
                             {% if j.source %}• via {{ j.source }}{% endif %}
+                            {% if j.transcription_edited %}<span class="edited-badge">edited</span>{% endif %}
                         </span>
                         <span class="journal-status status-{{ j.status }}">{{ j.status }}</span>
                     </div>
                     
-                    {% if j.transcription %}
-                    <div class="journal-transcription">
-                        {{ j.transcription }}
+                    {% if j.transcription or j.transcription_edited %}
+                    <div class="journal-transcription" id="transcription-{{ j.id }}">
+                        {{ j.transcription_edited or j.transcription }}
+                    </div>
+                    <div class="journal-actions">
+                        <a href="/api/voice/{{ j.id }}/download" title="Download audio">⬇️ Download</a>
+                        <button onclick="editTranscription({{ j.id }})" title="Edit transcription">✏️ Edit</button>
                     </div>
                     {% elif j.status == 'failed' %}
                     <div class="journal-transcription" style="color: #ef4444;">
                         Error: {{ j.error_message or 'Unknown error' }}
                     </div>
+                    <div class="journal-actions">
+                        <a href="/api/voice/{{ j.id }}/download" title="Download audio">⬇️ Download</a>
+                    </div>
                     {% elif j.status == 'pending' %}
                     <div class="journal-meta">
                         Waiting for transcription...
+                    </div>
+                    <div class="journal-actions">
+                        <a href="/api/voice/{{ j.id }}/download" title="Download audio">⬇️ Download</a>
                     </div>
                     {% endif %}
                     
@@ -226,6 +292,74 @@
             .catch(err => {
                 uploadProgress.classList.remove('active');
                 uploadResult.innerHTML = '<p style="color: #ef4444;">✗ Upload failed: ' + err.message + '</p>';
+            });
+        }
+        
+        // Edit transcription functionality
+        function editTranscription(journalId) {
+            const container = document.getElementById('transcription-' + journalId);
+            const currentText = container.textContent.trim();
+            const journalItem = container.closest('.journal-item');
+            const actionsDiv = journalItem.querySelector('.journal-actions');
+            
+            // Hide current display
+            container.style.display = 'none';
+            actionsDiv.style.display = 'none';
+            
+            // Create edit form
+            const editDiv = document.createElement('div');
+            editDiv.className = 'edit-mode';
+            editDiv.id = 'edit-form-' + journalId;
+            editDiv.innerHTML = `
+                <textarea id="edit-text-${journalId}">${currentText}</textarea>
+                <div class="edit-actions">
+                    <button class="save-btn" onclick="saveTranscription(${journalId})">💾 Save</button>
+                    <button class="cancel-btn" onclick="cancelEdit(${journalId})">Cancel</button>
+                </div>
+            `;
+            
+            container.parentNode.insertBefore(editDiv, actionsDiv);
+        }
+        
+        function cancelEdit(journalId) {
+            const editForm = document.getElementById('edit-form-' + journalId);
+            const container = document.getElementById('transcription-' + journalId);
+            const journalItem = container.closest('.journal-item');
+            const actionsDiv = journalItem.querySelector('.journal-actions');
+            
+            editForm.remove();
+            container.style.display = 'block';
+            actionsDiv.style.display = 'flex';
+        }
+        
+        function saveTranscription(journalId) {
+            const newText = document.getElementById('edit-text-' + journalId).value;
+            const editForm = document.getElementById('edit-form-' + journalId);
+            
+            fetch(`/api/voice/${journalId}/transcription`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({transcription: newText})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update the display
+                    const container = document.getElementById('transcription-' + journalId);
+                    container.textContent = newText;
+                    cancelEdit(journalId);
+                    
+                    // Add edited badge if not present
+                    const header = container.closest('.journal-item').querySelector('.journal-meta');
+                    if (!header.querySelector('.edited-badge')) {
+                        header.innerHTML += '<span class="edited-badge">edited</span>';
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(err => {
+                alert('Error saving: ' + err.message);
             });
         }
     </script>

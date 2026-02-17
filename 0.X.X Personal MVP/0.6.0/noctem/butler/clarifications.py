@@ -4,6 +4,8 @@ Butler Clarifications - Question queue for Noctem v0.6.0.
 When slow mode identifies unclear items, it queues clarification questions.
 These are sent during clarification contacts (default: Tue/Thu at 9am).
 Maximum 2 clarification contacts per week.
+
+v0.6.0 Polish: Now includes ambiguous thoughts from the capture system.
 """
 from datetime import datetime
 from typing import List, Optional
@@ -12,8 +14,30 @@ import json
 import logging
 
 from ..db import get_db
+from ..models import Thought
 
 logger = logging.getLogger(__name__)
+
+
+# Subcategory-specific clarification questions
+AMBIGUITY_QUESTIONS = {
+    "scope": {
+        "question": "Is this a new project or a single task?",
+        "options": ["Project", "Task", "Skip for now"],
+    },
+    "timing": {
+        "question": "When should this be done?",
+        "options": ["Today", "Tomorrow", "This week", "No deadline"],
+    },
+    "intent": {
+        "question": "What should I do with this?",
+        "options": ["Create task", "Just remember it", "Remind me later", "Ignore"],
+    },
+    None: {
+        "question": "Could you tell me more about this?",
+        "options": ["It's a task", "It's a note", "Skip for now"],
+    },
+}
 
 
 @dataclass
@@ -186,15 +210,57 @@ class ClarificationQueue:
             conn.execute("DELETE FROM clarification_queue WHERE task_id = ?", (task_id,))
 
 
+def get_pending_thoughts_for_clarification(limit: int = 3) -> List[Thought]:
+    """
+    Get pending ambiguous thoughts for clarification.
+    Returns oldest first.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM thoughts
+            WHERE kind = 'ambiguous' AND status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT ?
+            """,
+            (limit,)
+        ).fetchall()
+    return [Thought.from_row(row) for row in rows]
+
+
+def generate_thought_clarification_question(thought: Thought) -> dict:
+    """
+    Generate a clarification question for an ambiguous thought.
+    Returns dict with question text and options.
+    """
+    template = AMBIGUITY_QUESTIONS.get(
+        thought.ambiguity_reason,
+        AMBIGUITY_QUESTIONS[None]
+    )
+    
+    return {
+        "thought_id": thought.id,
+        "text_preview": thought.raw_text[:50] + ("..." if len(thought.raw_text) > 50 else ""),
+        "question": template["question"],
+        "options": template["options"],
+        "ambiguity_reason": thought.ambiguity_reason,
+    }
+
+
 def generate_clarification_message() -> Optional[str]:
     """
     Generate a clarification message with pending questions.
+    Includes both task-based questions and ambiguous thoughts.
     
-    Returns None if no questions pending.
+    Returns None if nothing pending.
     """
-    questions = ClarificationQueue.get_next_questions(3)
+    # Get task-based questions
+    task_questions = ClarificationQueue.get_next_questions(2)
     
-    if not questions:
+    # Get ambiguous thoughts
+    thoughts = get_pending_thoughts_for_clarification(2)
+    
+    if not task_questions and not thoughts:
         return None
     
     lines = [
@@ -204,19 +270,38 @@ def generate_clarification_message() -> Optional[str]:
         "",
     ]
     
-    for i, q in enumerate(questions, 1):
-        lines.append(f"**{i}. {q.task_name}**")
+    item_num = 1
+    asked_question_ids = []
+    thought_items = []  # Track which items are thoughts
+    
+    # Add task-based questions
+    for q in task_questions:
+        lines.append(f"**{item_num}. {q.task_name}**")
         lines.append(f"   {q.question}")
         
         if q.options:
             options_str = " / ".join(q.options[:4])
             lines.append(f"   _Options: {options_str}_")
         lines.append("")
+        asked_question_ids.append(q.id)
+        item_num += 1
     
-    lines.append("_Reply with the number and your answer (e.g., \"1: tomorrow\")_")
+    # Add ambiguous thoughts
+    for thought in thoughts:
+        clarification = generate_thought_clarification_question(thought)
+        lines.append(f"**{item_num}. \"{clarification['text_preview']}\"**")
+        lines.append(f"   {clarification['question']}")
+        options_str = " / ".join(clarification['options'])
+        lines.append(f"   _Options: {options_str}_")
+        lines.append("")
+        thought_items.append((item_num, thought.id))
+        item_num += 1
     
-    # Mark these as asked
-    ClarificationQueue.mark_asked([q.id for q in questions])
+    lines.append("_Reply with the number and your answer (e.g., \"1: tomorrow\" or \"3: task\")_")
+    
+    # Mark task questions as asked
+    if asked_question_ids:
+        ClarificationQueue.mark_asked(asked_question_ids)
     
     return "\n".join(lines)
 
@@ -241,3 +326,141 @@ def parse_clarification_response(text: str) -> Optional[tuple]:
         return int(match.group(1)), match.group(2).strip()
     
     return None
+
+
+def resolve_thought_clarification(
+    thought_id: int,
+    resolution: str,
+) -> Optional[dict]:
+    """
+    Resolve an ambiguous thought based on user's clarification response.
+    
+    Args:
+        thought_id: The thought to resolve
+        resolution: User's answer (e.g., "task", "project", "today")
+    
+    Returns:
+        Dict with result info or None if thought not found
+    """
+    from ..fast.capture import get_thought, update_thought
+    from ..services import task_service, project_service
+    from ..parser.task_parser import parse_task
+    
+    thought = get_thought(thought_id)
+    if not thought:
+        return None
+    
+    resolution_lower = resolution.lower().strip()
+    result = {"thought_id": thought_id, "action": None}
+    
+    # Handle different resolution types
+    if resolution_lower in ("task", "create task", "it's a task"):
+        # Create a task from the thought
+        parsed = parse_task(thought.raw_text)
+        if parsed.name:
+            task = task_service.create_task(
+                name=parsed.name,
+                due_date=parsed.due_date,
+                due_time=parsed.due_time,
+                importance=parsed.importance,
+                tags=parsed.tags,
+            )
+            update_thought(thought_id, status="clarified", linked_task_id=task.id)
+            result["action"] = "task_created"
+            result["task_id"] = task.id
+            result["task_name"] = task.name
+        else:
+            result["action"] = "parse_failed"
+    
+    elif resolution_lower in ("project", "new project"):
+        # Create a project from the thought
+        # Use the raw text as project name (first 50 chars)
+        name = thought.raw_text[:50].strip()
+        if name:
+            project = project_service.create_project(name)
+            update_thought(thought_id, status="clarified", linked_project_id=project.id)
+            result["action"] = "project_created"
+            result["project_id"] = project.id
+            result["project_name"] = project.name
+        else:
+            result["action"] = "name_too_short"
+    
+    elif resolution_lower in ("note", "just remember it", "it's a note"):
+        # Keep as a note (processed but not linked)
+        update_thought(thought_id, status="clarified", kind="note")
+        result["action"] = "kept_as_note"
+    
+    elif resolution_lower in ("skip", "skip for now", "ignore"):
+        # Skip this thought for now
+        update_thought(thought_id, status="clarified")
+        result["action"] = "skipped"
+    
+    elif resolution_lower in ("today", "tomorrow", "this week", "no deadline"):
+        # Timing clarification - create task with the specified timing
+        from ..parser.natural_date import parse_datetime
+        parsed = parse_task(thought.raw_text)
+        
+        # Parse the timing
+        if resolution_lower != "no deadline":
+            dt_result = parse_datetime(resolution_lower)
+            due_date = dt_result.date
+        else:
+            due_date = None
+        
+        if parsed.name:
+            task = task_service.create_task(
+                name=parsed.name,
+                due_date=due_date,
+                importance=parsed.importance,
+                tags=parsed.tags,
+            )
+            update_thought(thought_id, status="clarified", linked_task_id=task.id)
+            result["action"] = "task_created_with_timing"
+            result["task_id"] = task.id
+            result["task_name"] = task.name
+            result["due_date"] = str(due_date) if due_date else None
+        else:
+            result["action"] = "parse_failed"
+    
+    else:
+        # Treat as additional context - append to thought and keep pending
+        # Or create task with the response as additional info
+        parsed = parse_task(f"{thought.raw_text} {resolution}")
+        if parsed.name:
+            task = task_service.create_task(
+                name=parsed.name,
+                due_date=parsed.due_date,
+                due_time=parsed.due_time,
+                importance=parsed.importance,
+                tags=parsed.tags,
+            )
+            update_thought(thought_id, status="clarified", linked_task_id=task.id)
+            result["action"] = "task_created_with_context"
+            result["task_id"] = task.id
+            result["task_name"] = task.name
+        else:
+            update_thought(thought_id, status="clarified")
+            result["action"] = "clarified_generic"
+    
+    return result
+
+
+def get_pending_clarification_count() -> dict:
+    """
+    Get count of items pending clarification.
+    """
+    task_count = ClarificationQueue.get_pending_count()
+    
+    with get_db() as conn:
+        thought_count = conn.execute(
+            """
+            SELECT COUNT(*) FROM thoughts
+            WHERE kind = 'ambiguous' AND status = 'pending'
+            """
+        ).fetchone()[0]
+    
+    return {
+        "tasks": task_count,
+        "thoughts": thought_count,
+        "total": task_count + thought_count,
+    }

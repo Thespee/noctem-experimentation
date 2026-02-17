@@ -9,7 +9,7 @@ from typing import List, Optional
 import logging
 
 from ..db import get_db
-from ..services import task_service, habit_service, project_service
+from ..services import task_service, project_service
 
 logger = logging.getLogger(__name__)
 
@@ -81,22 +81,6 @@ def get_stale_projects(days_inactive: int = 7) -> List[dict]:
         return [dict(row) for row in rows]
 
 
-def get_habits_status() -> dict:
-    """Get summary of habit status for today."""
-    stats = habit_service.get_all_habits_stats()
-    
-    done_today = [s for s in stats if s.get("done_today")]
-    pending_today = [s for s in stats if not s.get("done_today")]
-    
-    return {
-        "total": len(stats),
-        "done_today": len(done_today),
-        "pending_today": len(pending_today),
-        "pending_names": [s["name"] for s in pending_today[:5]],  # First 5
-        "streaks": [(s["name"], s["streak"]) for s in stats if s.get("streak", 0) >= 3],
-    }
-
-
 def get_unclear_tasks_count() -> int:
     """Count tasks tagged as unclear."""
     with get_db() as conn:
@@ -117,7 +101,6 @@ def generate_update_message() -> str:
     - Overdue tasks (urgent)
     - Tasks due today
     - Tasks due this week
-    - Habits status
     - Stale projects
     - Unclear items needing review
     
@@ -167,23 +150,6 @@ def generate_update_message() -> str:
             lines.append(f"  _...and {len(due_week) - 3} more_")
         lines.append("")
     
-    # === HABITS ===
-    habits = get_habits_status()
-    if habits["total"] > 0:
-        if habits["pending_today"] > 0:
-            pending_str = ", ".join(habits["pending_names"][:3])
-            if len(habits["pending_names"]) > 3:
-                pending_str += "..."
-            lines.append(f"🔄 **Habits**: {habits['done_today']}/{habits['total']} done — pending: {pending_str}")
-        else:
-            lines.append(f"🔄 **Habits**: All {habits['total']} complete! ✓")
-        
-        # Show notable streaks
-        if habits["streaks"]:
-            streak_strs = [f"{name} 🔥{streak}" for name, streak in habits["streaks"][:3]]
-            lines.append(f"  Streaks: {', '.join(streak_strs)}")
-        lines.append("")
-    
     # === STALE PROJECTS ===
     stale = get_stale_projects()
     if stale:
@@ -208,7 +174,6 @@ def generate_brief_update() -> str:
     """Generate a shorter update for less busy days."""
     overdue = get_overdue_tasks()
     due_today = get_tasks_due_today()
-    habits = get_habits_status()
     
     parts = []
     
@@ -219,8 +184,5 @@ def generate_brief_update() -> str:
         parts.append(f"📌 {len(due_today)} due today")
     else:
         parts.append("📌 Nothing due today")
-    
-    if habits["total"] > 0:
-        parts.append(f"🔄 {habits['done_today']}/{habits['total']} habits")
     
     return " • ".join(parts)

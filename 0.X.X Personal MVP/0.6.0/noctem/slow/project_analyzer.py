@@ -2,6 +2,7 @@
 Project Analyzer for Noctem v0.6.0 slow mode.
 
 Analyzes projects to suggest what the user should do next.
+Uses prompt_service for editable/versioned prompts.
 """
 import logging
 from typing import Optional, List
@@ -9,24 +10,10 @@ from typing import Optional, List
 from ..db import get_db
 from ..models import Project
 from ..services import project_service, task_service
+from ..services.prompt_service import render_prompt
 from .ollama import llm_generate
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """You are a helpful assistant analyzing projects and their tasks.
-Your job is to suggest the most important next action the person should take.
-Be specific, concrete, and actionable. Focus on one clear next step.
-Keep your response to 2-3 sentences maximum."""
-
-PROJECT_PROMPT_TEMPLATE = """Project: {name}
-Summary: {summary}
-Status: {status}
-
-Current Tasks:
-{task_list}
-
-What should the person do next to make progress on this project?
-Suggest one specific, concrete action. Consider task priorities, dependencies, and what might be blocking progress."""
 
 
 def analyze_project_for_next_action(project: Project) -> Optional[str]:
@@ -62,14 +49,16 @@ def analyze_project_for_next_action(project: Project) -> Optional[str]:
     else:
         task_list = "  (No tasks yet)"
     
-    prompt = PROJECT_PROMPT_TEMPLATE.format(
-        name=project.name,
-        summary=project.summary or "No summary",
-        status=project.status,
-        task_list=task_list,
-    )
+    # Use prompt service for editable prompts
+    system_prompt = render_prompt("project_analyzer_system")
+    user_prompt = render_prompt("project_analyzer_user", {
+        "name": project.name,
+        "summary": project.summary or "No summary",
+        "status": project.status,
+        "task_list": task_list,
+    })
     
-    suggestion = llm_generate(prompt, system=SYSTEM_PROMPT)
+    suggestion = llm_generate(user_prompt, system=system_prompt)
     
     if suggestion:
         logger.info(f"Generated next action suggestion for project {project.id}")

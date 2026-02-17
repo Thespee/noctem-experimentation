@@ -185,14 +185,24 @@
   },
   "active": "ae962e7e91f42280",
   "lastOpenFiles": [
+    "noctem/data/noctem.db-journal",
+    "noctem/services/__pycache__/conversation_service.cpython-310.pyc",
+    "tests/__pycache__/test_v060_final_polish.cpython-310-pytest-9.0.1.pyc",
+    "tests/test_v060_final_polish.py",
+    "noctem/web/templates/prompts.html",
+    "noctem/services/__pycache__/forecast_service.cpython-310.pyc",
+    "noctem/web/templates/dashboard_old.html",
+    "noctem/web/templates/dashboard_new.html",
+    "noctem/services/forecast_service.py",
+    "noctem/services/conversation_service.py",
+    "noctem/services/__pycache__/prompt_service.cpython-310.pyc",
     "Research/Noctem 0.5 from Scratch.md",
+    "1000003716.jpg",
     "Research/improvements.md",
+    "v0.6.0 Polish Implementation Plan.md",
     "IMPLEMENTATION_PLAN_v0.6.0 - 2.md",
     "USER_GUIDE.md",
     "SETUP.md",
-    "COMMANDS.md",
-    "noctem/data/noctem.db-journal",
-    "noctem/data/voice_journals/20260216_181350_5baa7099.ogg",
-    "noctem/data/voice_journals"
+    "COMMANDS.md"
   ]
 }

@@ -19,7 +19,7 @@ from .db import init_db
 from .config import Config
 from .parser.task_parser import parse_task, format_task_confirmation
 from .parser.command import parse_command, CommandType
-from .services import task_service, habit_service, project_service, goal_service
+from .services import task_service, project_service, goal_service
 from .services.briefing import generate_morning_briefing, generate_today_view, generate_week_view
 from .services.message_logger import MessageLog
 from .session import get_session, SessionMode
@@ -28,6 +28,8 @@ from .handlers.interactive import (
     start_update_mode, handle_update_input,
     handle_correction,
 )
+from .fast.capture import process_input, get_pending_voice_confirmations
+from .fast.classifier import ThoughtKind
 
 
 def print_help():
@@ -38,16 +40,13 @@ Commands:
   today           Show morning briefing
   week            Show week view
   projects        List projects
-  habits          Show habit status
   goals           List goals
   
   done <n|name>   Mark task done
   skip <n|name>   Defer to tomorrow
   delete <name>   Delete task (or 'remove')
-  habit done <n>  Log habit
   
   /project <name> Create project
-  /habit <name>   Create habit
   /goal <name>    Create goal
   /prioritize <n> Reorder top n tasks
   /update <n>     Fill in missing info for n items
@@ -449,19 +448,6 @@ def handle_input(text: str, log: MessageLog = None) -> bool:
                 tasks = task_service.get_project_tasks(p.id)
                 print(f"  • {p.name} ({len(tasks)} tasks)")
     
-    elif cmd.type == CommandType.HABITS:
-        if log:
-            log.set_action("list_habits")
-            log.set_result(True)
-        stats = habit_service.get_all_habits_stats()
-        if not stats:
-            print("No habits. Create with: /habit <name>")
-        else:
-            for s in stats:
-                done = "✓" if s["done_today"] else "○"
-                streak = f"🔥{s['streak']}" if s["streak"] > 0 else ""
-                print(f"  {done} {s['name']} ({s['completions_this_week']}/{s['target_this_week']}) {streak}")
-    
     elif cmd.type == CommandType.GOALS:
         if log:
             log.set_action("list_goals")
@@ -482,17 +468,6 @@ def handle_input(text: str, log: MessageLog = None) -> bool:
             print(f"✓ Created project: {project.name}")
         else:
             print("Usage: /project <name>")
-    
-    elif cmd.type == CommandType.HABIT:
-        if cmd.args:
-            habit = habit_service.create_habit(" ".join(cmd.args))
-            if log:
-                log.set_action("create_habit")
-                log.set_result(True, {"habit_id": habit.id})
-            session.set_last_entity("habit", habit.id)
-            print(f"✓ Created habit: {habit.name}")
-        else:
-            print("Usage: /habit <name>")
     
     elif cmd.type == CommandType.PRIORITIZE:
         count = int(cmd.args[0]) if cmd.args and cmd.args[0].isdigit() else 5
@@ -574,78 +549,90 @@ def handle_input(text: str, log: MessageLog = None) -> bool:
                 log.set_result(False, {"error": "task_not_found"})
             print("❌ Task not found")
     
-    elif cmd.type == CommandType.HABIT_DONE:
-        habit = habit_service.get_habit_by_name(cmd.target_name)
-        if habit:
-            habit_service.log_habit(habit.id)
-            stats = habit_service.get_habit_stats(habit.id)
-            if log:
-                log.set_action("log_habit")
-                log.set_result(True, {"habit_id": habit.id, "name": habit.name})
-            streak = f"🔥 {stats['streak']}!" if stats['streak'] > 0 else ""
-            print(f"✓ Logged: {habit.name} {streak}")
-        else:
-            if log:
-                log.set_action("log_habit")
-                log.set_result(False, {"error": "habit_not_found"})
-            print("❌ Habit not found")
-    
     elif cmd.type == CommandType.NEW_TASK:
-        parsed = parse_task(text)
-        if not parsed.name:
-            if log:
-                log.set_action("create_task")
-                log.set_result(False, {"error": "parse_failed"})
-            print("Couldn't parse task.")
-            return True
+        # Use thoughts-first capture system (royal scribe pattern)
+        result = process_input(text, source="cli")
         
-        project_id = None
-        if parsed.project_name:
-            project = project_service.get_project_by_name(parsed.project_name)
-            if project:
-                project_id = project.id
-        
-        task = task_service.create_task(
-            name=parsed.name,
-            project_id=project_id,
-            due_date=parsed.due_date,
-            due_time=parsed.due_time,
-            importance=parsed.importance,
-            tags=parsed.tags,
-            recurrence_rule=parsed.recurrence_rule,
-        )
-        session.set_last_entity("task", task.id)
         if log:
-            log.set_action("create_task")
+            log.set_action(f"capture_{result.kind.value}")
             log.set_result(True, {
-                "task_id": task.id,
-                "name": task.name,
-                "due_date": str(parsed.due_date) if parsed.due_date else None,
-                "importance": parsed.importance,
-                "project": parsed.project_name
+                "thought_id": result.thought_id,
+                "kind": result.kind.value,
+                "confidence": result.confidence,
+                "task_id": result.task.id if result.task else None,
             })
-        print(format_task_confirmation(parsed))
+        
+        print(result.response)
     
     return True
 
 
+def show_thinking_feed(limit: int = 10):
+    """Display recent thinking feed entries."""
+    try:
+        from .services.conversation_service import get_thinking_feed
+        entries = get_thinking_feed(limit=limit, level_filter='activity')
+        
+        if not entries:
+            print("  No recent system activity")
+            return
+        
+        for e in reversed(entries):  # Show oldest first
+            timestamp = e.created_at.strftime("%H:%M:%S") if e.created_at else "--:--:--"
+            level_marker = "🔸" if e.thinking_level == "decision" else "  "
+            source = e.source or "system"
+            summary = e.thinking_summary or e.content or ""
+            print(f"  {level_marker}[{timestamp}] {source}: {summary[:60]}")
+    except Exception as ex:
+        print(f"  (thinking feed unavailable: {ex})")
+
+
 def main():
-    print("🌙 Noctem CLI v0.6.0")
-    print("Type 'help' for commands, 'quit' to exit.\n")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Noctem CLI v0.6.0")
+    parser.add_argument('mode', nargs='?', default='normal', 
+                        help="Mode: 'all' for verbose output, 'quiet' for minimal")
+    args = parser.parse_args()
+    
+    verbose = args.mode.lower() == 'all'
+    quiet = args.mode.lower() == 'quiet'
+    
+    if not quiet:
+        print("🌙 Noctem CLI v0.6.0")
+        if verbose:
+            print("  Verbose mode enabled - showing system thinking")
+        print("Type 'help' for commands, 'quit' to exit.\n")
     
     init_db()
-    print(generate_today_view())
-    print()
+    
+    if not quiet:
+        print(generate_today_view())
+        print()
+    
+    # Show thinking feed on verbose startup
+    if verbose:
+        print("\n🧠 Recent System Activity:")
+        show_thinking_feed(limit=15)
+        print()
     
     while True:
         try:
-            text = input("noctem> ")
+            prompt = "noctem> " if not quiet else "> "
+            text = input(prompt)
             with MessageLog(text, source="cli") as log:
                 if not handle_input(text, log):
-                    print("Goodbye!")
+                    if not quiet:
+                        print("Goodbye!")
                     break
+                
+                # Show thinking update in verbose mode
+                if verbose and text.strip():
+                    print("  🧠 thinking...")
+                    show_thinking_feed(limit=3)
         except (KeyboardInterrupt, EOFError):
-            print("\nGoodbye!")
+            if not quiet:
+                print("\nGoodbye!")
             break
         except Exception as e:
             print(f"Error: {e}")

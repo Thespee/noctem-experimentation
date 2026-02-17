@@ -24,7 +24,6 @@ SERVICE_MODULES = [
     "noctem.services.task_service",
     "noctem.services.project_service",
     "noctem.services.goal_service",
-    "noctem.services.habit_service",
     "noctem.services.briefing",
     "noctem.services.message_logger",
     "noctem.services.ics_import",

@@ -243,3 +243,67 @@ def get_transcription_stats() -> Dict[str, int]:
         stats[row["status"]] = row["count"]
     
     return stats
+
+
+def update_transcription(journal_id: int, new_text: str) -> bool:
+    """
+    Update/edit the transcription for a voice journal.
+    
+    Saves the edited text and marks the transcription as edited.
+    
+    Args:
+        journal_id: The voice journal ID
+        new_text: The edited transcription text
+        
+    Returns:
+        True if successful
+    """
+    with get_db() as conn:
+        # Check if this column exists (transcription_edited was added in Phase 1)
+        # If columns don't exist, just update the transcription field
+        try:
+            conn.execute(
+                """
+                UPDATE voice_journals
+                SET transcription_edited = ?,
+                    transcription_edited_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (new_text, journal_id)
+            )
+        except Exception:
+            # Fallback: update main transcription if edited columns don't exist
+            conn.execute(
+                """
+                UPDATE voice_journals
+                SET transcription = ?
+                WHERE id = ?
+                """,
+                (new_text, journal_id)
+            )
+    
+    logger.info(f"Voice journal {journal_id} transcription edited: {len(new_text)} chars")
+    return True
+
+
+def get_transcription(journal_id: int) -> Optional[str]:
+    """
+    Get the transcription for a voice journal.
+    
+    Returns the edited version if available, otherwise the original.
+    
+    Args:
+        journal_id: The voice journal ID
+        
+    Returns:
+        The transcription text or None
+    """
+    journal = get_journal(journal_id)
+    if not journal:
+        return None
+    
+    # Return edited version if available
+    if journal.get('transcription_edited'):
+        return journal['transcription_edited']
+    
+    return journal.get('transcription')

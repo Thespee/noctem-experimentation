@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 from ..db import get_db
 from ..models import Task, TimeBlock
-from . import task_service, habit_service
+from . import task_service
 
 
 def get_time_blocks_for_date(target_date: date) -> list[TimeBlock]:
@@ -81,18 +81,6 @@ def generate_morning_briefing(target_date: Optional[date] = None) -> str:
             else:
                 due_str = ""
             lines.append(f"{i}. {score_str}{task.name} {due_str}")
-        lines.append("")
-    
-    # Habits section
-    habits_stats = habit_service.get_all_habits_stats()
-    habits_due = [h for h in habits_stats if not h.get("done_today", True)]
-    
-    if habits_stats:
-        lines.append("🔄 HABITS TODAY")
-        for stat in habits_stats:
-            done_marker = "✓" if stat["done_today"] else ""
-            week_progress = f"({stat['completions_this_week']}/{stat['target_this_week']} this week)"
-            lines.append(f"• {stat['name']} {week_progress} {done_marker}")
         lines.append("")
     
     # Quick actions hint

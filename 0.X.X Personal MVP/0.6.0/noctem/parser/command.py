@@ -17,8 +17,6 @@ class CommandType(Enum):
     WEEK = "week"
     PROJECTS = "projects"
     PROJECT = "project"  # /project <name> - create project
-    HABITS = "habits"
-    HABIT = "habit"  # /habit <name> <freq> - create habit
     GOALS = "goals"
     SETTINGS = "settings"
     PRIORITIZE = "prioritize"  # /prioritize n - reorder top n tasks
@@ -29,7 +27,6 @@ class CommandType(Enum):
     DONE = "done"
     SKIP = "skip"
     DELETE = "delete"
-    HABIT_DONE = "habit_done"
     CORRECT = "correct"  # * prefix to update last entity
     
     # Default: new task
@@ -56,7 +53,6 @@ def parse_command(text: str) -> ParsedCommand:
     - "done 1" -> DONE with target_id=1
     - "done buy milk" -> DONE with target_name="buy milk"
     - "skip 2" -> SKIP with target_id=2
-    - "habit done exercise" -> HABIT_DONE with target_name="exercise"
     - "buy groceries tomorrow" -> NEW_TASK
     - "* !1 tomorrow" -> CORRECT (update last entity)
     - "/prioritize 5" -> PRIORITIZE with count=5
@@ -87,8 +83,6 @@ def parse_command(text: str) -> ParsedCommand:
             'week': CommandType.WEEK,
             'projects': CommandType.PROJECTS,
             'project': CommandType.PROJECT,
-            'habits': CommandType.HABITS,
-            'habit': CommandType.HABIT,
             'goals': CommandType.GOALS,
             'settings': CommandType.SETTINGS,
             'prioritize': CommandType.PRIORITIZE,
@@ -163,17 +157,6 @@ def parse_command(text: str) -> ParsedCommand:
             target_name=target_name,
         )
     
-    # Habit done: "habit done <name>"
-    match = re.match(r'^habit\s+done\s+(.+)$', text_lower)
-    if match:
-        target_name = match.group(1).strip()
-        return ParsedCommand(
-            type=CommandType.HABIT_DONE,
-            args=[target_name],
-            raw_text=text,
-            target_name=target_name,
-        )
-    
     # Just "today" or "week" without slash
     if text_lower == 'today':
         return ParsedCommand(type=CommandType.TODAY, args=[], raw_text=text)
@@ -181,8 +164,6 @@ def parse_command(text: str) -> ParsedCommand:
         return ParsedCommand(type=CommandType.WEEK, args=[], raw_text=text)
     if text_lower == 'projects':
         return ParsedCommand(type=CommandType.PROJECTS, args=[], raw_text=text)
-    if text_lower == 'habits':
-        return ParsedCommand(type=CommandType.HABITS, args=[], raw_text=text)
     if text_lower == 'goals':
         return ParsedCommand(type=CommandType.GOALS, args=[], raw_text=text)
     if text_lower == 'web':

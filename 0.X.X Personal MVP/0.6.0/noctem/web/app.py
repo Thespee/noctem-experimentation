@@ -1,6 +1,6 @@
 """
 Flask web dashboard for Noctem.
-Read-only view of goals, projects, tasks, and habits.
+Read-only view of goals, projects, and tasks.
 """
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from datetime import date, datetime, timedelta
@@ -8,7 +8,7 @@ import io
 import sys
 
 from ..config import Config
-from ..services import task_service, project_service, goal_service, habit_service
+from ..services import task_service, project_service, goal_service
 from ..services.briefing import get_time_blocks_for_date
 from ..slow.loop import get_slow_mode_status
 from ..butler.protocol import get_butler_status
@@ -18,7 +18,8 @@ from ..services.ics_import import (
     get_saved_urls, save_url, remove_url, refresh_all_urls, refresh_url
 )
 from ..voice.journals import (
-    save_voice_journal, get_all_journals, get_transcription_stats
+    save_voice_journal, get_all_journals, get_transcription_stats,
+    get_journal, update_transcription
 )
 from ..seed.loader import (
     load_seed_data, export_seed_data, validate_seed_data, ConflictAction
@@ -90,9 +91,6 @@ def create_app() -> Flask:
         # Inbox (tasks without project)
         inbox_tasks = task_service.get_inbox_tasks()
         
-        # Habits with stats
-        habits_stats = habit_service.get_all_habits_stats()
-        
         # Week view (with calendar events)
         week_data = []
         for i in range(7):
@@ -134,6 +132,11 @@ def create_app() -> Flask:
         tasks_with_suggestions = task_service.get_tasks_with_suggestions(limit=5)
         projects_with_suggestions = project_service.get_projects_with_suggestions(limit=3)
         
+        # v0.6.0 Final: Forecast data
+        from ..services.forecast_service import get_14_day_forecast, get_7_day_table_data
+        forecast_14 = get_14_day_forecast()
+        week_table = get_7_day_table_data()
+        
         return render_template(
             "dashboard.html",
             today=today,
@@ -144,7 +147,6 @@ def create_app() -> Flask:
             goals_data=goals_data,
             standalone_projects=standalone_data,
             inbox_tasks=inbox_tasks,
-            habits_stats=habits_stats,
             week_data=week_data,
             graph_tasks=graph_tasks,
             # v0.6.0 data
@@ -154,12 +156,20 @@ def create_app() -> Flask:
             ollama_msg=ollama_msg,
             tasks_with_suggestions=tasks_with_suggestions,
             projects_with_suggestions=projects_with_suggestions,
+            # v0.6.0 Final data
+            forecast_14=forecast_14,
+            week_table=week_table,
         )
     
     @app.route("/health")
     def health():
         """Health check endpoint."""
         return {"status": "ok", "time": datetime.now().isoformat()}
+    
+    @app.route("/prompts")
+    def prompts():
+        """Prompt editor page - view and edit LLM prompts."""
+        return render_template("prompts.html")
     
     @app.route("/calendar", methods=["GET", "POST"])
     def calendar_upload():
@@ -452,6 +462,73 @@ def create_app() -> Flask:
             "stats": stats,
         })
     
+    @app.route("/api/voice/<int:journal_id>/download")
+    def api_voice_download(journal_id):
+        """
+        Download the audio file for a voice journal.
+        
+        Returns: Audio file with appropriate content-type
+        """
+        from flask import send_file
+        from pathlib import Path
+        
+        journal = get_journal(journal_id)
+        if not journal:
+            return jsonify({"error": "Journal not found"}), 404
+        
+        audio_path = Path(journal['audio_path'])
+        if not audio_path.exists():
+            return jsonify({"error": "Audio file not found"}), 404
+        
+        # Determine mime type from extension
+        ext = audio_path.suffix.lower()
+        mime_types = {
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg',
+            '.m4a': 'audio/mp4',
+            '.webm': 'audio/webm',
+            '.flac': 'audio/flac',
+        }
+        mime_type = mime_types.get(ext, 'audio/mpeg')
+        
+        # Use original filename if available
+        download_name = journal.get('original_filename') or audio_path.name
+        
+        return send_file(
+            audio_path,
+            mimetype=mime_type,
+            as_attachment=True,
+            download_name=download_name,
+        )
+    
+    @app.route("/api/voice/<int:journal_id>/transcription", methods=["PUT"])
+    def api_voice_edit_transcription(journal_id):
+        """
+        Edit the transcription for a voice journal.
+        
+        Accepts JSON: {"transcription": "edited text"}
+        Returns JSON: {"success": true}
+        """
+        journal = get_journal(journal_id)
+        if not journal:
+            return jsonify({"error": "Journal not found", "success": False}), 404
+        
+        data = request.get_json()
+        if not data or 'transcription' not in data:
+            return jsonify({"error": "No transcription provided", "success": False}), 400
+        
+        new_text = data['transcription'].strip()
+        
+        try:
+            update_transcription(journal_id, new_text)
+            return jsonify({
+                "success": True,
+                "message": "Transcription updated",
+            })
+        except Exception as e:
+            return jsonify({"error": str(e), "success": False}), 500
+    
     # =========================================================================
     # v0.6.0: Seed Data API
     # =========================================================================
@@ -590,6 +667,204 @@ def create_app() -> Flask:
             },
             "errors": stats.errors[:10] if stats.errors else [],
             "summary": stats.summary(),
+        })
+    
+    # =========================================================================
+    # v0.6.0 Final: Thinking Feed API
+    # =========================================================================
+    
+    @app.route("/api/thinking/recent")
+    def api_thinking_recent():
+        """
+        Get recent thinking feed entries.
+        
+        Query params:
+        - limit: Max entries (default 50)
+        - level: Filter by level ('all', 'activity', 'decisions')
+        - since_id: Get entries after this ID
+        """
+        from ..services.conversation_service import (
+            get_thinking_feed, get_thinking_feed_since, export_thinking_log
+        )
+        
+        limit = request.args.get('limit', 50, type=int)
+        level = request.args.get('level', 'all')
+        since_id = request.args.get('since_id', type=int)
+        
+        if since_id:
+            entries = get_thinking_feed_since(since_id)
+        else:
+            entries = get_thinking_feed(limit=limit, level_filter=level)
+        
+        return jsonify({
+            "entries": [
+                {
+                    "id": e.id,
+                    "timestamp": e.created_at.isoformat() if e.created_at else None,
+                    "source": e.source,
+                    "level": e.thinking_level,
+                    "summary": e.thinking_summary or e.content,
+                }
+                for e in entries
+            ],
+            "count": len(entries),
+        })
+    
+    @app.route("/api/thinking/export")
+    def api_thinking_export():
+        """Export thinking log as JSON file."""
+        from ..services.conversation_service import export_thinking_log
+        from flask import Response
+        import json
+        
+        level = request.args.get('level', 'all')
+        data = export_thinking_log(level_filter=level)
+        
+        json_str = json.dumps(data, indent=2, ensure_ascii=False)
+        return Response(
+            json_str,
+            mimetype='application/json',
+            headers={'Content-Disposition': 'attachment; filename=noctem-thinking-log.json'}
+        )
+    
+    # =========================================================================
+    # v0.6.0 Final: Forecast API
+    # =========================================================================
+    
+    @app.route("/api/forecast")
+    def api_forecast():
+        """Get 14-day forecast data."""
+        from ..services.forecast_service import get_14_day_forecast
+        
+        forecasts = get_14_day_forecast()
+        
+        return jsonify({
+            "days": [
+                {
+                    "date": f.date.isoformat(),
+                    "day_name": f.day_name,
+                    "is_today": f.is_today,
+                    "is_weekend": f.is_weekend,
+                    "density": f.density,
+                    "density_label": f.density_label,
+                    "task_count": f.task_count,
+                    "event_count": f.event_count,
+                    "brief": f.brief,
+                }
+                for f in forecasts
+            ],
+        })
+    
+    @app.route("/api/week")
+    def api_week():
+        """Get 7-day table data for the current week (Mon-Sun)."""
+        from ..services.forecast_service import get_7_day_table_data
+        
+        return jsonify({
+            "days": get_7_day_table_data(),
+        })
+    
+    # =========================================================================
+    # v0.6.0 Final: Prompt Management API
+    # =========================================================================
+    
+    @app.route("/api/prompts")
+    def api_prompts_list():
+        """List all prompt templates."""
+        from ..services.prompt_service import list_prompts, seed_default_prompts
+        
+        # Ensure defaults exist
+        seed_default_prompts()
+        
+        templates = list_prompts()
+        return jsonify({
+            "templates": [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "current_version": t.current_version,
+                }
+                for t in templates
+            ],
+        })
+    
+    @app.route("/api/prompts/<name>")
+    def api_prompt_get(name):
+        """Get a prompt template with current version."""
+        from ..services.prompt_service import get_prompt_with_context
+        
+        ctx = get_prompt_with_context(name)
+        if not ctx:
+            return jsonify({"error": "Prompt not found"}), 404
+        
+        return jsonify({
+            "name": ctx["template"].name,
+            "description": ctx["template"].description,
+            "current_version": ctx["template"].current_version,
+            "prompt_text": ctx["current_version"].prompt_text if ctx["current_version"] else "",
+            "variables": ctx["variables"],
+            "history_count": ctx["history_count"],
+        })
+    
+    @app.route("/api/prompts/<name>", methods=["PUT"])
+    def api_prompt_update(name):
+        """Update a prompt template (creates new version)."""
+        from ..services.prompt_service import update_prompt
+        
+        data = request.get_json()
+        if not data or 'prompt_text' not in data:
+            return jsonify({"error": "No prompt_text provided", "success": False}), 400
+        
+        new_version = update_prompt(
+            name,
+            data['prompt_text'],
+            created_by='user',
+            description=data.get('description'),
+        )
+        
+        if not new_version:
+            return jsonify({"error": "Prompt not found", "success": False}), 404
+        
+        return jsonify({
+            "success": True,
+            "new_version": new_version.version,
+        })
+    
+    @app.route("/api/prompts/<name>/history")
+    def api_prompt_history(name):
+        """Get version history for a prompt."""
+        from ..services.prompt_service import get_prompt_history
+        
+        history = get_prompt_history(name)
+        return jsonify({
+            "versions": [
+                {
+                    "version": v.version,
+                    "prompt_text": v.prompt_text,
+                    "created_at": v.created_at.isoformat() if v.created_at else None,
+                    "created_by": v.created_by,
+                }
+                for v in history
+            ],
+        })
+    
+    @app.route("/api/prompts/<name>/rollback", methods=["POST"])
+    def api_prompt_rollback(name):
+        """Rollback a prompt to a previous version."""
+        from ..services.prompt_service import rollback_prompt
+        
+        data = request.get_json()
+        if not data or 'to_version' not in data:
+            return jsonify({"error": "No to_version provided", "success": False}), 400
+        
+        new_version = rollback_prompt(name, data['to_version'])
+        
+        if not new_version:
+            return jsonify({"error": "Version not found", "success": False}), 404
+        
+        return jsonify({
+            "success": True,
+            "new_version": new_version.version,
         })
     
     return app

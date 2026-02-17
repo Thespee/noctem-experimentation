@@ -10,8 +10,8 @@ from pathlib import Path
 # Import noctem modules - DB path is handled by conftest.py
 from noctem import db
 from noctem.db import get_db, init_db
-from noctem.models import Task, Project, Goal, Habit
-from noctem.services import task_service, project_service, goal_service, habit_service
+from noctem.models import Task, Project, Goal
+from noctem.services import task_service, project_service, goal_service
 from noctem.services.briefing import generate_morning_briefing, generate_today_view, generate_week_view
 from noctem.parser.task_parser import parse_task, parse_importance
 from noctem.parser.command import parse_command, CommandType

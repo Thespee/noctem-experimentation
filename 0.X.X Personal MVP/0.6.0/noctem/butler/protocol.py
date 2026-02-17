@@ -7,7 +7,7 @@ The butler is graceful and respectful. Maximum 5 unprompted contacts per calenda
 
 User-initiated contact doesn't count against the budget.
 """
-from datetime import datetime, date
+from datetime import datetime, date, time, timedelta
 from typing import Optional, List, Tuple
 import logging
 
@@ -149,7 +149,7 @@ class ButlerProtocol:
     def get_next_scheduled_contact() -> Optional[dict]:
         """
         Get info about next scheduled contact.
-        Returns dict with 'type', 'day', 'time' or None if fully exhausted.
+        Returns dict with 'type', 'day', 'time', 'datetime' or None if fully exhausted.
         """
         status = ButlerProtocol.get_budget_status()
         
@@ -162,20 +162,71 @@ class ButlerProtocol:
         today = datetime.now()
         today_name = today.strftime("%A").lower()
         
+        # Day name to weekday number mapping
+        day_to_num = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6
+        }
+        
+        def get_next_occurrence(day_name: str, time_str: str) -> datetime:
+            """Calculate the next occurrence of a specific day and time."""
+            target_weekday = day_to_num.get(day_name.lower(), 0)
+            current_weekday = today.weekday()
+            
+            # Days until target day
+            days_ahead = target_weekday - current_weekday
+            if days_ahead <= 0:  # Target day already happened this week
+                days_ahead += 7
+            
+            # If it's today, check if time has passed
+            if days_ahead == 7 or (days_ahead == 0):
+                try:
+                    hour, minute = map(int, time_str.split(":"))
+                    contact_time = today.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if today >= contact_time:
+                        days_ahead = 7  # Next week
+                    else:
+                        days_ahead = 0  # Today
+                except ValueError:
+                    pass
+            
+            next_date = today.date() + timedelta(days=days_ahead)
+            try:
+                hour, minute = map(int, time_str.split(":"))
+                return datetime.combine(next_date, time(hour, minute))
+            except ValueError:
+                return datetime.combine(next_date, time(9, 0))
+        
+        candidates = []
+        
         # Find next update day if we can still send updates
         if status["can_send_update"]:
             for day in update_days:
-                # Simple check - in real impl would calculate actual next occurrence
-                if day != today_name:
-                    return {"type": "update", "day": day, "time": update_time}
+                next_dt = get_next_occurrence(day, update_time)
+                candidates.append({
+                    "type": "update",
+                    "day": day,
+                    "time": update_time,
+                    "datetime": next_dt,
+                })
         
         # Find next clarification day if we can still send clarifications
         if status["can_send_clarification"]:
             for day in clarification_days:
-                if day != today_name:
-                    return {"type": "clarification", "day": day, "time": clarification_time}
+                next_dt = get_next_occurrence(day, clarification_time)
+                candidates.append({
+                    "type": "clarification",
+                    "day": day,
+                    "time": clarification_time,
+                    "datetime": next_dt,
+                })
         
-        return None
+        if not candidates:
+            return None
+        
+        # Return the soonest contact
+        candidates.sort(key=lambda c: c["datetime"])
+        return candidates[0]
 
 
 def get_butler_status() -> dict:
@@ -196,18 +247,26 @@ def get_butler_status() -> dict:
 def get_butler_status_message() -> str:
     """Get a human-readable butler status string."""
     status = ButlerProtocol.get_budget_status()
+    budget = Config.get("butler_contacts_per_week", 5)
+    used = budget - status['total_remaining']
     
     lines = [
         f"📬 **Butler Status** (Week {status['week']})",
         "",
-        f"Contacts remaining: {status['total_remaining']}/5",
+        f"Contacts used: {used}/{budget} this week",
         f"• Updates: {status['updates_sent']}/3 sent",
         f"• Clarifications: {status['clarifications_sent']}/2 sent",
     ]
     
     next_contact = ButlerProtocol.get_next_scheduled_contact()
     if next_contact:
-        lines.append(f"\nNext scheduled: {next_contact['type'].title()} on {next_contact['day'].title()} at {next_contact['time']}")
+        # Format with full datetime
+        next_dt = next_contact.get('datetime')
+        if next_dt:
+            formatted = next_dt.strftime("%A %b %d at %H:%M")
+            lines.append(f"\nNext scheduled: {next_contact['type'].title()} on {formatted}")
+        else:
+            lines.append(f"\nNext scheduled: {next_contact['type'].title()} on {next_contact['day'].title()} at {next_contact['time']}")
     else:
         lines.append("\n_Budget exhausted for this week_")
     

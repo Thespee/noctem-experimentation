@@ -31,8 +31,6 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("week", handlers.cmd_week))
     app.add_handler(CommandHandler("projects", handlers.cmd_projects))
     app.add_handler(CommandHandler("project", handlers.cmd_project))
-    app.add_handler(CommandHandler("habits", handlers.cmd_habits))
-    app.add_handler(CommandHandler("habit", handlers.cmd_habit))
     app.add_handler(CommandHandler("goals", handlers.cmd_goals))
     app.add_handler(CommandHandler("settings", handlers.cmd_settings))
     app.add_handler(CommandHandler("prioritize", handlers.cmd_prioritize))

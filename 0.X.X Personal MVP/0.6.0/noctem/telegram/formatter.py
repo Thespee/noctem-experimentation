@@ -3,7 +3,7 @@ Telegram message formatting utilities.
 """
 from datetime import date, datetime
 from typing import Optional
-from ..models import Task, Habit
+from ..models import Task
 
 
 def format_task(task: Task, index: Optional[int] = None) -> str:
@@ -40,15 +40,6 @@ def format_task_list(tasks: list[Task], title: str = "Tasks") -> str:
         lines.append(format_task(task, i))
     
     return "\n".join(lines)
-
-
-def format_habit_status(habit: Habit, stats: dict) -> str:
-    """Format habit with its stats."""
-    done = "✓" if stats.get("done_today") else "○"
-    streak = f"🔥{stats['streak']}" if stats.get("streak", 0) > 0 else ""
-    week = f"({stats['completions_this_week']}/{stats['target_this_week']} this week)"
-    
-    return f"{done} {habit.name} {week} {streak}"
 
 
 def escape_markdown(text: str) -> str:

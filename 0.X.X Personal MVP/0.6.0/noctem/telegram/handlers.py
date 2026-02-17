@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 
 from ..parser.command import parse_command, CommandType
 from ..parser.task_parser import parse_task, format_task_confirmation
-from ..services import task_service, habit_service, project_service, goal_service
+from ..services import task_service, project_service, goal_service
 from ..services.briefing import generate_morning_briefing, generate_today_view, generate_week_view
 from ..services.message_logger import MessageLog
 from ..session import get_session, SessionMode
@@ -51,13 +51,11 @@ I'm your executive assistant. Here's how to use me:
 **Quick actions:**
 • `done 1` - complete task #1
 • `skip 2` - defer task to tomorrow
-• `habit done exercise` - log habit
 
 **Commands:**
 • /today - Today's briefing
 • /week - This week's view
 • /projects - List projects
-• /habits - Habit status
 • /help - Full command list
 
 Let's get started! Try adding a task."""
@@ -72,13 +70,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • /today - Today's briefing
 • /week - Week ahead
 • /projects - Active projects
-• /habits - Habit status
 • /goals - Your goals
 • `web` - Dashboard link
 
 **Create:**
 • /project <name> - New project
-• /habit <name> <freq> - New habit
 • Any text → New task
 
 **Task format:**
@@ -93,7 +89,6 @@ Examples:
 • `done 1` or `done <task name>`
 • `skip 1` - Defer to tomorrow
 • `delete <task>`
-• `habit done <name>`
 
 **Settings:**
 • /settings - View/change config"""
@@ -139,51 +134,6 @@ async def cmd_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = " ".join(context.args)
     project = project_service.create_project(name)
     await update.message.reply_text(f"✓ Created project: **{project.name}**", parse_mode="Markdown")
-
-
-async def cmd_habits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /habits command."""
-    stats = habit_service.get_all_habits_stats()
-    
-    if not stats:
-        await update.message.reply_text("No habits yet. Create one with /habit <name> <frequency>")
-        return
-    
-    lines = ["🔄 **Habits**\n"]
-    for s in stats:
-        done = "✓" if s["done_today"] else "○"
-        streak = f"🔥{s['streak']}" if s["streak"] > 0 else ""
-        week = f"({s['completions_this_week']}/{s['target_this_week']} this week)"
-        lines.append(f"{done} **{s['name']}** {week} {streak}")
-    
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
-
-async def cmd_habit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /habit <name> <frequency> command - create new habit."""
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /habit <name> [daily|weekly]")
-        return
-    
-    # Parse frequency from args
-    freq = "daily"
-    name_parts = []
-    for arg in context.args:
-        if arg.lower() in ("daily", "weekly", "custom"):
-            freq = arg.lower()
-        else:
-            name_parts.append(arg)
-    
-    if not name_parts:
-        await update.message.reply_text("Please provide a habit name")
-        return
-    
-    name = " ".join(name_parts)
-    habit = habit_service.create_habit(name, frequency=freq)
-    await update.message.reply_text(
-        f"✓ Created habit: **{habit.name}** ({habit.frequency})", 
-        parse_mode="Markdown"
-    )
 
 
 async def cmd_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -416,10 +366,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.set_action("delete_task")
             result = await handle_delete(update, cmd)
             log.set_result(result is not False, {})
-        elif cmd.type == CommandType.HABIT_DONE:
-            log.set_action("log_habit")
-            result = await handle_habit_done(update, cmd)
-            log.set_result(result is not False, {})
         elif cmd.type == CommandType.TODAY:
             log.set_action("view_today")
             await cmd_today(update, context)
@@ -431,10 +377,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif cmd.type == CommandType.PROJECTS:
             log.set_action("view_projects")
             await cmd_projects(update, context)
-            log.set_result(True, {})
-        elif cmd.type == CommandType.HABITS:
-            log.set_action("view_habits")
-            await cmd_habits(update, context)
             log.set_result(True, {})
         elif cmd.type == CommandType.GOALS:
             log.set_action("view_goals")
@@ -562,22 +504,6 @@ async def handle_delete(update: Update, cmd):
     
     task_service.delete_task(task.id)
     await update.message.reply_text(f"🗑️ Deleted: {task.name}")
-    return True
-
-
-async def handle_habit_done(update: Update, cmd):
-    """Log a habit completion."""
-    habit = habit_service.get_habit_by_name(cmd.target_name)
-    
-    if not habit:
-        await update.message.reply_text("❌ Habit not found")
-        return False
-    
-    habit_service.log_habit(habit.id)
-    stats = habit_service.get_habit_stats(habit.id)
-    
-    streak_msg = f"🔥 {stats['streak']} day streak!" if stats['streak'] > 0 else ""
-    await update.message.reply_text(f"✓ Logged: {habit.name} {streak_msg}")
     return True
 
 

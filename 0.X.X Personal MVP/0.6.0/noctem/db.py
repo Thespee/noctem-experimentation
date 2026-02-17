@@ -54,30 +54,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     suggestion_generated_at TIMESTAMP
 );
 
--- Habits
-CREATE TABLE IF NOT EXISTS habits (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    goal_id INTEGER REFERENCES goals(id),
-    frequency TEXT DEFAULT 'daily' 
-        CHECK(frequency IN ('daily', 'weekly', 'custom')),
-    target_count INTEGER DEFAULT 1,  -- times per frequency period
-    custom_days TEXT,  -- JSON array for custom, e.g., ["mon","wed","fri"]
-    time_preference TEXT DEFAULT 'anytime'
-        CHECK(time_preference IN ('morning', 'afternoon', 'evening', 'anytime')),
-    duration_minutes INTEGER,
-    active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Habit completions
-CREATE TABLE IF NOT EXISTS habit_logs (
-    id INTEGER PRIMARY KEY,
-    habit_id INTEGER REFERENCES habits(id) NOT NULL,
-    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    notes TEXT
-);
-
 -- Calendar time blocks
 CREATE TABLE IF NOT EXISTS time_blocks (
     id INTEGER PRIMARY KEY,
@@ -100,8 +76,8 @@ CREATE TABLE IF NOT EXISTS config (
 -- Action log (for extensive local records)
 CREATE TABLE IF NOT EXISTS action_log (
     id INTEGER PRIMARY KEY,
-    action_type TEXT NOT NULL,  -- task_created, task_completed, habit_logged, etc.
-    entity_type TEXT,  -- task, habit, project, etc.
+    action_type TEXT NOT NULL,  -- task_created, task_completed, etc.
+    entity_type TEXT,  -- task, project, goal, etc.
     entity_id INTEGER,
     details TEXT,  -- JSON with action-specific data
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -158,20 +134,79 @@ CREATE TABLE IF NOT EXISTS voice_journals (
     metadata TEXT,                   -- JSON with extra info (telegram message_id, etc.)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     transcribed_at TIMESTAMP,
-    error_message TEXT
+    error_message TEXT,
+    -- v0.6.0 Final: Editable transcriptions
+    transcription_edited INTEGER DEFAULT 0,
+    transcription_edited_at TIMESTAMP
+);
+
+-- v0.6.0 Final: Unified conversation log (web/CLI/Telegram)
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT,                  -- Groups related messages
+    source TEXT,                      -- 'web', 'cli', 'telegram'
+    role TEXT,                        -- 'user', 'assistant', 'system'
+    content TEXT,
+    thinking_summary TEXT,            -- Brief summary of system reasoning
+    thinking_level TEXT,              -- 'decision', 'activity', 'debug'
+    metadata TEXT,                    -- JSON: tokens, prompt_id, etc.
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- v0.6.0 Final: LLM prompt templates with versioning
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,        -- 'task_computer_help', 'project_next_action'
+    description TEXT,
+    current_version INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id INTEGER PRIMARY KEY,
+    template_id INTEGER REFERENCES prompt_templates(id) NOT NULL,
+    version INTEGER NOT NULL,
+    prompt_text TEXT NOT NULL,
+    variables TEXT,                   -- JSON array: ['task_name', 'project_context']
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT DEFAULT 'system'  -- 'system', 'user'
+);
+
+-- v0.6.0 Polish: Universal thought capture (royal scribe pattern)
+CREATE TABLE IF NOT EXISTS thoughts (
+    id INTEGER PRIMARY KEY,
+    source TEXT,                     -- 'telegram', 'cli', 'web', 'voice'
+    raw_text TEXT NOT NULL,
+    kind TEXT,                       -- 'actionable', 'note', 'ambiguous'
+    ambiguity_reason TEXT,           -- 'scope', 'timing', 'intent', null
+    confidence REAL,                 -- 0.0-1.0 classifier confidence
+    linked_task_id INTEGER,          -- Created task if actionable
+    linked_project_id INTEGER,       -- Created project if scope clarified
+    voice_journal_id INTEGER,        -- Source voice journal if from voice
+    status TEXT DEFAULT 'pending'    -- 'pending', 'processed', 'clarified'
+        CHECK(status IN ('pending', 'processed', 'clarified')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP,
+    FOREIGN KEY (linked_task_id) REFERENCES tasks(id),
+    FOREIGN KEY (linked_project_id) REFERENCES projects(id),
+    FOREIGN KEY (voice_journal_id) REFERENCES voice_journals(id)
 );
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_habit_logs_habit ON habit_logs(habit_id);
-CREATE INDEX IF NOT EXISTS idx_habit_logs_date ON habit_logs(completed_at);
 CREATE INDEX IF NOT EXISTS idx_time_blocks_start ON time_blocks(start_time);
 CREATE INDEX IF NOT EXISTS idx_action_log_type ON action_log(action_type);
 CREATE INDEX IF NOT EXISTS idx_butler_contacts_week ON butler_contacts(year, week_number);
 CREATE INDEX IF NOT EXISTS idx_slow_work_status ON slow_work_queue(status, queued_at);
 CREATE INDEX IF NOT EXISTS idx_voice_journals_status ON voice_journals(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_thoughts_status ON thoughts(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_thoughts_kind ON thoughts(kind, status);
+CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_conversations_source ON conversations(source, created_at);
+CREATE INDEX IF NOT EXISTS idx_conversations_level ON conversations(thinking_level, created_at);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_template ON prompt_versions(template_id, version);
 """
 
 
@@ -220,6 +255,8 @@ def _migrate_db():
         ("projects", "suggestion_generated_at", "TIMESTAMP"),
         # v0.6.0: Add source to message_log
         ("message_log", "source", "TEXT DEFAULT 'cli'"),
+        # v0.6.0 Polish: Add duration to tasks for context-aware suggestions
+        ("tasks", "duration_minutes", "INTEGER"),
     ]
     
     with get_db() as conn:

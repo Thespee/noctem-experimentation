@@ -37,7 +37,7 @@ class Session:
     update_index: int = 0
     
     # For * correction
-    last_entity_type: Optional[str] = None  # "task", "habit", "project", "goal"
+    last_entity_type: Optional[str] = None  # "task", "project", "goal"
     last_entity_id: Optional[int] = None
     
     def reset(self):

@@ -81,6 +81,8 @@ class Task:
     # v0.6.0: AI suggestions
     computer_help_suggestion: Optional[str] = None
     suggestion_generated_at: Optional[datetime] = None
+    # v0.6.0 Polish: Duration for context-aware suggestions
+    duration_minutes: Optional[int] = None
 
     @property
     def title(self) -> str:
@@ -148,6 +150,7 @@ class Task:
         # Safely get suggestion fields (may not exist in older DBs)
         computer_help = row["computer_help_suggestion"] if "computer_help_suggestion" in row.keys() else None
         suggestion_at = row["suggestion_generated_at"] if "suggestion_generated_at" in row.keys() else None
+        duration = row["duration_minutes"] if "duration_minutes" in row.keys() else None
         
         return cls(
             id=row["id"],
@@ -163,71 +166,12 @@ class Task:
             completed_at=row["completed_at"],
             computer_help_suggestion=computer_help,
             suggestion_generated_at=suggestion_at,
+            duration_minutes=duration,
         )
 
     def tags_json(self) -> str:
         """Return tags as JSON string for DB storage."""
         return json.dumps(self.tags) if self.tags else None
-
-
-@dataclass
-class Habit:
-    id: Optional[int] = None
-    name: str = ""
-    goal_id: Optional[int] = None
-    frequency: str = "daily"  # daily | weekly | custom
-    target_count: int = 1
-    custom_days: list[str] = field(default_factory=list)  # e.g., ["mon", "wed", "fri"]
-    time_preference: str = "anytime"  # morning | afternoon | evening | anytime
-    duration_minutes: Optional[int] = None
-    active: bool = True
-    created_at: Optional[datetime] = None
-
-    @classmethod
-    def from_row(cls, row) -> "Habit":
-        if row is None:
-            return None
-        custom_days = []
-        if row["custom_days"]:
-            try:
-                custom_days = json.loads(row["custom_days"])
-            except json.JSONDecodeError:
-                custom_days = []
-        return cls(
-            id=row["id"],
-            name=row["name"],
-            goal_id=row["goal_id"],
-            frequency=row["frequency"],
-            target_count=row["target_count"],
-            custom_days=custom_days,
-            time_preference=row["time_preference"],
-            duration_minutes=row["duration_minutes"],
-            active=bool(row["active"]),
-            created_at=row["created_at"],
-        )
-
-    def custom_days_json(self) -> str:
-        """Return custom_days as JSON string for DB storage."""
-        return json.dumps(self.custom_days) if self.custom_days else None
-
-
-@dataclass
-class HabitLog:
-    id: Optional[int] = None
-    habit_id: int = 0
-    completed_at: Optional[datetime] = None
-    notes: Optional[str] = None
-
-    @classmethod
-    def from_row(cls, row) -> "HabitLog":
-        if row is None:
-            return None
-        return cls(
-            id=row["id"],
-            habit_id=row["habit_id"],
-            completed_at=row["completed_at"],
-            notes=row["notes"],
-        )
 
 
 @dataclass
@@ -276,8 +220,8 @@ class TimeBlock:
 @dataclass
 class ActionLog:
     id: Optional[int] = None
-    action_type: str = ""  # task_created, task_completed, habit_logged, etc.
-    entity_type: Optional[str] = None  # task, habit, project, etc.
+    action_type: str = ""  # task_created, task_completed, etc.
+    entity_type: Optional[str] = None  # task, project, goal, etc.
     entity_id: Optional[int] = None
     details: dict = field(default_factory=dict)
     created_at: Optional[datetime] = None
@@ -304,3 +248,145 @@ class ActionLog:
     def details_json(self) -> str:
         """Return details as JSON string for DB storage."""
         return json.dumps(self.details) if self.details else None
+
+
+@dataclass
+class Thought:
+    """Universal capture for all inputs (royal scribe pattern)."""
+    id: Optional[int] = None
+    source: str = "cli"  # 'telegram', 'cli', 'web', 'voice'
+    raw_text: str = ""
+    kind: Optional[str] = None  # 'actionable', 'note', 'ambiguous'
+    ambiguity_reason: Optional[str] = None  # 'scope', 'timing', 'intent'
+    confidence: Optional[float] = None  # 0.0-1.0 classifier confidence
+    linked_task_id: Optional[int] = None
+    linked_project_id: Optional[int] = None
+    voice_journal_id: Optional[int] = None
+    status: str = "pending"  # 'pending', 'processed', 'clarified'
+    created_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+
+    @classmethod
+    def from_row(cls, row) -> "Thought":
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            source=row["source"],
+            raw_text=row["raw_text"],
+            kind=row["kind"],
+            ambiguity_reason=row["ambiguity_reason"] if "ambiguity_reason" in row.keys() else None,
+            confidence=row["confidence"],
+            linked_task_id=row["linked_task_id"],
+            linked_project_id=row["linked_project_id"],
+            voice_journal_id=row["voice_journal_id"] if "voice_journal_id" in row.keys() else None,
+            status=row["status"],
+            created_at=row["created_at"],
+            processed_at=row["processed_at"],
+        )
+
+
+@dataclass
+class Conversation:
+    """Unified conversation log across web/CLI/Telegram."""
+    id: Optional[int] = None
+    session_id: Optional[str] = None
+    source: str = "cli"  # 'web', 'cli', 'telegram'
+    role: str = "user"  # 'user', 'assistant', 'system'
+    content: str = ""
+    thinking_summary: Optional[str] = None
+    thinking_level: Optional[str] = None  # 'decision', 'activity', 'debug'
+    metadata: dict = field(default_factory=dict)
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_row(cls, row) -> "Conversation":
+        if row is None:
+            return None
+        metadata = {}
+        if row["metadata"]:
+            try:
+                metadata = json.loads(row["metadata"])
+            except json.JSONDecodeError:
+                metadata = {}
+        # Parse created_at if it's a string
+        created_at_val = row["created_at"]
+        if isinstance(created_at_val, str):
+            try:
+                created_at_val = datetime.fromisoformat(created_at_val)
+            except ValueError:
+                pass
+        
+        return cls(
+            id=row["id"],
+            session_id=row["session_id"],
+            source=row["source"],
+            role=row["role"],
+            content=row["content"],
+            thinking_summary=row["thinking_summary"],
+            thinking_level=row["thinking_level"],
+            metadata=metadata,
+            created_at=created_at_val,
+        )
+
+    def metadata_json(self) -> str:
+        """Return metadata as JSON string for DB storage."""
+        return json.dumps(self.metadata) if self.metadata else None
+
+
+@dataclass
+class PromptTemplate:
+    """LLM prompt template with versioning."""
+    id: Optional[int] = None
+    name: str = ""
+    description: Optional[str] = None
+    current_version: int = 1
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_row(cls, row) -> "PromptTemplate":
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            current_version=row["current_version"],
+            created_at=row["created_at"],
+        )
+
+
+@dataclass
+class PromptVersion:
+    """A specific version of a prompt template."""
+    id: Optional[int] = None
+    template_id: int = 0
+    version: int = 1
+    prompt_text: str = ""
+    variables: list[str] = field(default_factory=list)  # ['task_name', 'project_context']
+    created_at: Optional[datetime] = None
+    created_by: str = "system"  # 'system', 'user'
+
+    @classmethod
+    def from_row(cls, row) -> "PromptVersion":
+        if row is None:
+            return None
+        variables = []
+        if row["variables"]:
+            try:
+                variables = json.loads(row["variables"])
+            except json.JSONDecodeError:
+                variables = []
+        return cls(
+            id=row["id"],
+            template_id=row["template_id"],
+            version=row["version"],
+            prompt_text=row["prompt_text"],
+            variables=variables,
+            created_at=row["created_at"],
+            created_by=row["created_by"],
+        )
+
+    def variables_json(self) -> str:
+        """Return variables as JSON string for DB storage."""
+        return json.dumps(self.variables) if self.variables else None
