@@ -185,6 +185,7 @@
   },
   "active": "ae962e7e91f42280",
   "lastOpenFiles": [
+    "V0.7.0_COMPLETION_REPORT.md",
     "noctem/services/__pycache__/insight_service.cpython-310.pyc",
     "noctem/slow/__pycache__/improvement_engine.cpython-310.pyc",
     "noctem/logging/__pycache__/trace_analyzer.cpython-310.pyc",
@@ -199,7 +200,6 @@
     "README.md",
     "noctem/data/noctem.db-journal",
     "noctem/slow/improvement_engine.py",
-    "noctem/slow/log_review.py",
     "docs/USER_GUIDE.md",
     "Research/Noctem 0.5 from Scratch.md",
     "1000003716.jpg",

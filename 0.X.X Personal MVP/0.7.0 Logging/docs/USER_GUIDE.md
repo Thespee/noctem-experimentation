@@ -1,5 +1,5 @@
-# Noctem v0.6.1 User Guide
-## The Graceful Butler: Fast Capture, Slow Reflection
+# Noctem v0.7.0 User Guide
+## The Graceful Butler: Fast Capture, Slow Reflection, Self-Improvement
 
 ---
 
@@ -196,6 +196,38 @@ Fast mode catches every thought instantly (<500ms). Just type naturally:
 - Send a voice message on Telegram → auto-saved & transcribed
 - Upload audio at `/voice` on web dashboard
 - Transcription happens in background (uses Whisper)
+
+### Self-Improvement Engine (v0.7.0)
+The system learns from execution patterns and user corrections to improve future classifications.
+
+**How it works:**
+1. **Pattern Detection**: Automatically analyzes execution logs weekly (or after 50+ thoughts)
+2. **Insight Generation**: Identifies recurring issues (ambiguities, extraction failures, corrections)
+3. **User Review**: Presents max 3 insights per review for approval
+4. **Learned Rules**: Creates rules from accepted insights to improve future classifications
+
+**Pattern Types Detected:**
+- Recurring ambiguities (phrases that often cause scope/timing/intent ambiguity)
+- Time word extraction failures ("soon", "later", "weekend" without due dates)
+- User correction patterns (high confidence classifications often corrected)
+- Clarification effectiveness (which Butler questions work vs. get ignored)
+- Model performance (which models perform best for specific task types)
+
+**Trigger Conditions:**
+- **Time-based**: 7+ days since last review
+- **Volume-based**: 50+ new thoughts since last review
+- **Pattern-based**: 10+ promotable patterns detected
+- **Manual**: Run log review via CLI or Butler
+
+**Example Learning Cycle:**
+1. User says "work on the project" 10 times
+2. Each time causes scope ambiguity clarification
+3. Pattern detected: "work on" → scope ambiguity
+4. Insight generated: "Flag 'work on' phrases for clarification"
+5. User accepts insight
+6. System creates learned rule
+7. Future inputs with "work on" automatically flagged
+8. Result: Faster classification, less friction
 
 ### Butler Protocol (Scheduled Contact)
 The butler respects your time with **maximum 5 unprompted contacts per week**:
@@ -428,6 +460,18 @@ Access at http://localhost:5000 when running `noctem all` or `noctem web`.
 ---
 
 ## Version History
+
+- **v0.7.0** — Self-Improvement Engine
+  - **Pattern detection**: 5 algorithms detecting recurring ambiguities, extraction failures, corrections, clarifications, model performance
+  - **Log review skill**: Automatic analysis (weekly OR 50+ thoughts OR 10+ patterns)
+  - **Insight generation**: Max 3 insights per review with accept/dismiss workflow
+  - **Learned rules**: User-approved patterns become rules applied to future classifications
+  - **Trace analyzer**: 15+ helper functions for querying and analyzing execution logs
+  - New tables: `detected_patterns`, `learned_rules`, `feedback_events`, `experiments`, `experiment_results`
+  - New modules: `trace_analyzer.py`, `pattern_detection.py`, `log_review.py`, `improvement_engine.py`, `insight_service.py`
+  - Conservative thresholds: 5+ occurrences, 70%+ confidence to avoid false positives
+  - WorkType.LOG_REVIEW integrated into slow queue
+  - 13 new tests (pattern detection, log review, improvement engine, insight service)
 
 - **v0.6.1** — Foundation Layer
   - **Execution logging**: Full pipeline tracing from input → classify → route → complete

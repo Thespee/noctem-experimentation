@@ -14,43 +14,9 @@ This vision represents the ultimate aspiration for personal AI assistance: **com
 
 ## 1. What Noctem Is Building
 
-### 1.1 Current Architecture
+Noctem is a **self-hosted executive assistant system** that combines natural language capture, intelligent classification, respectful outreach (Butler Protocol), self-improvement learning, and complete local-first operation.
 
-Noctem is a **self-hosted executive assistant system** that combines:
-
-- **Natural Language Capture**: Voice journals, Telegram, CLI, and web interfaces feed into a unified "thoughts-first" capture system
-- **Intelligent Classification**: Rule-based fast path (0.8+ confidence) with LLM slow path for ambiguous inputs
-- **Butler Protocol**: Respectful, attention-aware outreach with strict contact budgets (max 5/week)
-- **Self-Improvement Engine (v0.7.0)**: Pattern detection learns from user corrections, generating actionable insights
-- **Local-First Operation**: SQLite database, local LLM inference via Ollama, complete data sovereignty
-
-### 1.2 The "Royal Scribe" Pattern
-
-Every input flows through a unified pipeline:
-
-```
-Any Input (text/voice)
-      │
-      ▼
-┌─────────────────────────────────┐
-│  Fast Classifier (rule-based)  │
-│  • Confidence: 0.0-1.0         │
-│  • Ambiguity detection         │
-└─────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────┐
-│  Thoughts Table (always)       │
-│  • Every input recorded        │
-│  • Execution traces logged     │
-└─────────────────────────────────┘
-      │
-      ├─── HIGH (≥0.8) ──► Create task immediately
-      ├─── MEDIUM (0.5-0.8) ──► Create with `*` review hint
-      └─── LOW (<0.5) ──► Queue for Butler clarification
-```
-
-This architecture ensures **nothing is lost** while minimizing friction for high-confidence decisions.
+See USER_GUIDE.md for architecture details and improvements.md for technical roadmap.
 
 ---
 
@@ -66,13 +32,13 @@ Modern AI assistants are evolving from command-takers to cognitive partners. Ind
 
 ### 2.2 The Jarvis Fantasy Becomes Reality
 
-The concept of a "digital butler" has evolved from science fiction to achievable architecture. Industry observers note that "the Iron Man fantasy of having a Jarvis-like AI is no longer fiction." What distinguishes serious implementations from toys is the combination of:
+The concept of a "digital butler" has evolved from science fiction to achievable architecture. What distinguishes serious implementations from toys:
 
 1. **Autonomous execution** (not just conversation)
 2. **Cross-system integration** (calendar, email, tasks, documents)
 3. **Respect for human judgment** (human-in-the-loop for risky actions)
 
-**Noctem's Position**: The system already implements autonomous task creation, calendar-aware suggestions, and Butler-gated clarifications. The roadmap toward external integrations (v1.0+) with human approval gates follows this proven pattern.
+**Noctem's Position**: Autonomous task creation, calendar-aware suggestions, and Butler-gated clarifications provide the foundation for future external integrations.
 
 ### 2.3 Attention as the Scarcest Resource
 
@@ -107,12 +73,9 @@ This tiered approach—small models for routine tasks, larger models for hard re
 
 ### 3.3 Independence from the "Useless Web Landscape"
 
-Noctem's wiki roadmap (v0.9) addresses a growing problem: the degradation of web information quality. The vision of local document processing, citation systems, and trust levels creates **information sovereignty** alongside data sovereignty.
+The wiki roadmap (v0.9) addresses degrading web information quality through local document processing, citation systems, and trust levels—creating **information sovereignty** alongside data sovereignty.
 
-Key capabilities:
-- **Source Ingestion**: PDFs, EPUBs, web pages, images → unified knowledge chunks
-- **Citation System**: Every answer includes source attribution and local file links
-- **Trust Levels**: Personal (1), curated (2), web (3) — weight retrieval appropriately
+See improvements.md for v0.9 wiki implementation details.
 
 ---
 
@@ -132,12 +95,9 @@ The pattern is straightforward:
 
 ### 4.2 The Interrupt/Resume Pattern
 
-For sophisticated AI assistants, the ability to **pause and resume** workflows is essential. Modern frameworks like LangGraph provide this through checkpointing: "The interrupt function pauses graph execution and returns a value to the caller... When you call interrupt within a node, LangGraph saves the current graph state and waits for you to resume."
+The ability to **pause and resume** workflows is essential for sophisticated AI assistants. LangGraph checkpointing enables pausing mid-task for human input, resuming after delays, and maintaining audit trails.
 
-**Noctem's Direction**: The roadmap includes per-project LangGraph graphs with SQLite checkpointing (v0.6.x priority 5). This enables:
-- Pause mid-task for human input
-- Resume exactly where stopped after hours or days
-- Audit trail of all decisions and interventions
+**Noctem's Direction**: Per-project LangGraph graphs with SQLite checkpointing planned for future phases.
 
 ### 4.3 The Butler as Orchestration Layer
 
@@ -152,80 +112,23 @@ This separation—project agents "do the work," Butler "manages humans and time"
 
 ## 5. Durable Execution: Building for Production
 
-### 5.1 The Failure Problem
+AI agents running extended workflows face context loss on failure. **Durable execution** patterns (Temporal, LangGraph checkpointing) solve this through state persistence, retry logic, and resumability.
 
-A critical insight from AI agent development: "AI agents that run for extended periods face a fundamental problem. When they fail mid-execution, they often lose their entire context and any work completed." This makes ambitious multi-step workflows unreliable.
-
-### 5.2 The Temporal Solution
-
-Temporal.io represents the gold standard for durable execution. Key capabilities:
-- **State persistence**: "If a process crashes, Temporal allows it to migrate to a new machine and resume exactly where it left off"
-- **Retry logic**: Built-in, configurable retries for transient failures
-- **Time-travel debugging**: "Developers can 'time-travel' through execution states, rolling back to prior points"
-- **Human signals**: Pause workflows for human input, then resume
-
-The Temporal/OpenAI integration demonstrates the pattern: "OpenAI agents, when wrapped in Temporal workflows, benefit from built-in retry logic, state persistence, and crash recovery."
-
-**Noctem's Path**: The medium-term roadmap includes Temporal for high-value automations (v1.0+). The current SQLite-backed state machine provides simpler durability for earlier versions.
-
-### 5.3 LangGraph for Lightweight Durability
-
-For simpler workflows, LangGraph checkpointing provides "resume-from-last-step, and long-lived agent execution" without Temporal's infrastructure overhead. The pattern:
-
-```python
-# Per-project state graph
-graph = StateGraph(...).compile(checkpointer=SqliteSaver("graph.db"))
-
-# Run with thread_id for resumption
-config = {"configurable": {"thread_id": f"project_{project_id}"}}
-graph.invoke(state, config=config)
-```
-
-This maps naturally to Noctem's project model, where each project can maintain its own resumable state.
+**Noctem's Path**: SQLite-backed state machine provides simple durability now. Temporal planned for high-value automations in v1.0+. LangGraph checkpointing provides lightweight durability for per-project workflows.
 
 ---
 
 ## 6. The Self-Improvement Loop
 
-### 6.1 Learning from Corrections
+The v0.7.0 Self-Improvement Engine learns from corrections: pattern detection → insight generation → user approval → learned rules → improved future classifications.
 
-The v0.7.0 Self-Improvement Engine implements a critical flywheel:
+**Key principles:**
+- Conservative thresholds (5+ occurrences, 70%+ confidence)
+- Max 3 insights per review (quality over quantity)
+- User approval required (no auto-application)
+- User corrections via `/summon` weighted heavily (explicit ground truth)
 
-```
-User Input → Fast Classifier → Create Thought
-              ↓
-        Execution Trace Created
-              ↓
-        Pattern Detection (weekly or trigger-based)
-              ↓
-        Generate Insights (max 3 per review)
-              ↓
-        User Accepts/Rejects
-              ↓
-        Create Learned Rules
-              ↓
-        Apply to Future Classifications
-```
-
-Key design decisions:
-- **Conservative thresholds**: 5+ occurrences, 70%+ confidence (avoid false positives)
-- **Maximum 3 insights per review**: Quality over quantity
-- **User approval required**: No auto-application of rules
-
-### 6.2 What the System Learns
-
-Pattern detection covers:
-
-| Pattern Type | Example | Learned Rule |
-|--------------|---------|--------------|
-| Ambiguity phrase | "work on X" causes scope ambiguity | Flag for clarification |
-| Extraction failure | "later" fails date parsing | Map to "today +4 hours" |
-| User correction | Classifier was overconfident | Adjust confidence threshold |
-| Model performance | Model X better for slow tasks | Route appropriately |
-
-### 6.3 The Gold Mine of Corrections
-
-User corrections via `/summon` are weighted heavily (priority=5) because they represent **explicit feedback**. When a user says "actually that task is for next week," they're providing ground truth that outweighs dozens of implicit signals.
+See USER_GUIDE.md for the v0.7.0 self-improvement engine details and examples.
 
 ---
 
@@ -266,153 +169,53 @@ None combine AI assistance with the Butler protocol's respectful attention manag
 
 ## 8. The Skills Infrastructure (v0.8)
 
-### 8.1 Skills as Packaged Knowledge
+The v0.8 roadmap introduces a **skill registry** for modular capabilities with progressive disclosure, execution logging, and user-created skills.
 
-The v0.8 roadmap introduces a **skill registry** where capabilities are modular packages:
+**Security posture:** Prefer closed/curated skill sets, default deny for OS execution, require human approval, never auto-trust third-party packages.
 
-```
-skills/
-├── meal-prep/
-│   ├── SKILL.md              # Metadata + triggers
-│   ├── instructions.md       # Full procedure
-│   └── resources/            # Templates, etc.
-```
-
-Key design principles:
-- **Progressive disclosure**: Load metadata at boot (~100 tokens), full instructions only when triggered
-- **Execution logging**: All skill invocations feed the v0.7 self-improvement infrastructure
-- **User-created skills**: "Teach me how to do X" → Noctem generates SKILL.md structure
-
-### 8.2 Security Posture
-
-Treating skills like executables requires caution. Lessons from community skill systems show risks:
-- Prefer closed/curated skill sets
-- Default deny for OS-execution tools
-- Require human approval at callsite
-- Never auto-trust third-party packages
+See improvements.md for v0.8 skills implementation details.
 
 ---
 
 ## 9. The Wiki & Digital Aristotle (v0.9)
 
-### 9.1 Personal Knowledge Independence
+The v0.9 wiki represents **knowledge sovereignty**: local document processing, vector search, citation system with trust levels (personal/curated/web).
 
-The v0.9 wiki represents **knowledge sovereignty**:
+**The Digital Aristotle** transforms Noctem from assistant to intellectual companion through query mode (grounded answers with citations), Socratic mode (questions and challenges), and review mode (spaced repetition).
 
-```sql
--- Source documents with trust levels
-CREATE TABLE sources (
-    file_path TEXT,
-    title TEXT,
-    trust_level INTEGER  -- 1=personal, 2=curated, 3=web
-);
-
--- Knowledge chunks for semantic search
-CREATE TABLE knowledge_chunks (
-    source_id INTEGER,
-    content TEXT,
-    page_or_section TEXT,
-    embedding BLOB
-);
-```
-
-Core capabilities:
-- **Local document processing**: Docling/olmOCR for multimodal parsing
-- **Vector search**: ChromaDB/LanceDB for semantic retrieval
-- **Citation system**: Direct quotes (≤30 words), source attribution, local file links
-
-### 9.2 The Digital Aristotle
-
-Beyond storage, the wiki enables:
-- **Query mode**: Grounded answers with citations; "I don't know" when sources insufficient
-- **Socratic mode**: System asks questions, challenges assumptions
-- **Review mode**: Spaced repetition (SM-2 algorithm) for studied concepts
-
-This transforms Noctem from assistant to **intellectual companion**.
+See improvements.md for v0.9 wiki schema and implementation details.
 
 ---
 
-## 10. Implementation Reality Check
+## 10. Lessons Learned
 
-### 10.1 What's Done (v0.7.0)
+**What works:**
+- Rule-based classification catches ~80% of actionable items without LLM calls
+- Ambiguity subcategories (SCOPE/TIMING/INTENT) enable targeted Butler questions
+- Execution logging adds minimal overhead (~1-2ms per trace)
+- Pattern detection is fast (<2 seconds even with 1000s of thoughts)
+- User corrections via `/summon` are explicit ground truth (weighted heavily)
 
-✅ Complete self-improvement engine infrastructure:
-- Database schema (detected_patterns, learned_rules, feedback_events)
-- Pattern detection algorithms (ambiguities, extraction failures, corrections)
-- Log review skill with automatic insight generation
-- Improvement engine with apply/dismiss workflow
+**Architecture decisions that paid off:**
+- Thoughts-first (preserves context)
+- SQLite-only for early versions (simpler, full SQL queryability)
+- Conservative thresholds (prevents false positives)
+- Max 3 insights per review (avoids overwhelming users)
 
-✅ Full execution logging:
-- ExecutionLogger integrated into task/project analyzers
-- Trace analysis helpers for querying patterns
-- JSONL export capability
-
-### 10.2 What's Needed
-
-🚧 **Integration work**:
-- Add `LOG_REVIEW` to slow work queue
-- Create insight_service.py with CRUD operations
-- CLI commands for insights and log review
-
-📋 **Testing infrastructure**:
-- test_v070_traces.py
-- test_v070_pattern_detection.py
-- test_v070_log_review.py
-
-📚 **Documentation updates**:
-- improvements.md learnings section
-- USER_GUIDE.md v0.7.0 features
-- README.md feature list
+See improvements.md for detailed implementation notes and V0.7.0_COMPLETION_REPORT.md for full status.
 
 ---
 
-## 11. Lessons from Implementation
+## 11. The Long-Term Vision
 
-### 11.1 What Works
+**Phase 1: Foundation (v0.6-0.7)** ✅ - Execution logging, correction feedback, self-improvement engine  
+**Phase 2: Skills (v0.8)** - Skill registry, progressive disclosure, user-created skills  
+**Phase 3: Knowledge (v0.9)** - Document ingestion, vector search, citation system, Digital Aristotle  
+**Phase 4: External Actions (v1.0+)** - Durable workflows (Temporal), email drafting, calendar write-back, human checkpoints  
 
-1. **Rule-based classification is surprisingly effective**: Imperative verbs + time expressions catch ~80% of actionable items without LLM calls
+See improvements.md for detailed phase roadmaps.
 
-2. **Ambiguity subcategories help Butler ask better questions**: Distinguishing SCOPE/TIMING/INTENT ambiguity enables targeted clarification
-
-3. **Execution logging is low-overhead**: Context manager pattern adds ~1-2ms per trace
-
-4. **Pattern detection is computationally cheap**: Even 1000s of thoughts analyze in <2 seconds
-
-5. **User corrections are gold**: Weight summon corrections heavily—they're explicit ground truth
-
-### 11.2 Architecture Decisions That Paid Off
-
-- **Thoughts-first, not tasks-first**: Preserves context for later review
-- **SQLite-only for early versions**: Simpler than JSONL hybrid, full SQL queryability
-- **Conservative promotion thresholds**: 5+ occurrences, 70%+ confidence prevents false positives
-- **Max 3 insights per review**: Avoids overwhelming users
-
----
-
-## 12. The Long-Term Vision
-
-### 12.1 Phase 1: Foundation (v0.6-0.7) ✅
-- Execution logging
-- Correction feedback loop
-- Self-improvement engine
-
-### 12.2 Phase 2: Skills (v0.8)
-- Skill registry and format
-- Progressive disclosure
-- User-created skills
-
-### 12.3 Phase 3: Knowledge (v0.9)
-- Document ingestion pipeline
-- Vector search + embeddings
-- Citation system
-- Digital Aristotle modes
-
-### 12.4 Phase 4: External Actions (v1.0+)
-- Durable workflows (Temporal)
-- Email drafting, calendar write-back
-- Human checkpoints for risky actions
-
-### 12.5 The Ultimate Goal
+### The Ultimate Goal
 
 A system that:
 - **Knows what you know** (wiki)

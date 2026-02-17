@@ -1,4 +1,4 @@
-# Noctem v0.6.1
+# Noctem v0.7.0
 
 A self-hosted executive assistant system for task management, voice journaling, and AI-assisted daily organization.
 
@@ -11,6 +11,7 @@ A self-hosted executive assistant system for task management, voice journaling, 
 - **Calendar Integration** - ICS import from any calendar (Google, Apple, Outlook)
 - **Web Dashboard** - Dark mode, mobile-friendly, 3-column layout with thinking feed
 - **Execution Logging** - Full pipeline tracing for debugging and self-improvement
+- **Self-Improvement Engine** - Learns from patterns, generates insights, creates learned rules
 - **Model Registry** - Dynamic local model discovery (Ollama) with benchmarking
 - **Maintenance Scanner** - System health checks and actionable recommendations
 
@@ -46,9 +47,15 @@ bash start.sh cli    # CLI only
 | **Web Dashboard** | Interactive view at `http://localhost:5000` (Voice, Calendar, Prompts, Settings) |
 | **CLI** | Configuration, direct commands, `/summon` for corrections |
 
-## v0.6.1 New Commands
+## v0.7.0 New Features
 
 ```bash
+# Self-improvement: pattern detection and learning
+# - Detects recurring issues (ambiguities, extraction failures, corrections)
+# - Generates insights from patterns (max 3 per review)
+# - Creates learned rules to improve future classifications
+# - Runs automatically (weekly OR 50+ thoughts OR 10+ patterns)
+
 # Summon Butler for corrections/queries
 noctem summon "actually that task is for next week"
 noctem summon "what's my status?"
