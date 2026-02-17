@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Noctem</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .settings-form {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 20px;
+            max-width: 600px;
+        }
+        .settings-form h2 {
+            margin-top: 0;
+            border-bottom: 1px solid var(--light-border);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: var(--text);
+        }
+        .form-group .help-text {
+            font-size: 0.85em;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="password"],
+        .form-group input[type="time"],
+        .form-group input[type="number"],
+        .form-group select {
+            width: 100%;
+            max-width: 400px;
+            padding: 10px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--link);
+        }
+        .save-btn {
+            background: var(--link);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        .save-btn:hover {
+            opacity: 0.9;
+        }
+        .flash-messages {
+            margin-bottom: 20px;
+            max-width: 600px;
+        }
+        .flash {
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .flash.success {
+            background: rgba(78, 204, 163, 0.2);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+        .flash.error {
+            background: rgba(255, 71, 87, 0.1);
+            color: var(--urgent);
+            border: 1px solid var(--urgent);
+        }
+        .back-link {
+            margin-bottom: 20px;
+            display: block;
+        }
+        .section-divider {
+            border-top: 2px solid var(--border);
+            margin: 30px 0;
+            padding-top: 20px;
+        }
+        .status-indicator {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        .status-ok {
+            background: rgba(78, 204, 163, 0.2);
+            color: var(--success);
+        }
+        .status-missing {
+            background: rgba(255, 71, 87, 0.1);
+            color: var(--urgent);
+        }
+        .test-btn {
+            background: var(--text-muted);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+        .test-btn:hover {
+            background: var(--link);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚙️ Settings</h1>
+            <a href="/" class="back-link">← Back to Dashboard</a>
+        </header>
+
+        <main>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('settings') }}">
+                <!-- Telegram Settings -->
+                <section class="settings-form">
+                    <h2>📱 Telegram Bot</h2>
+                    
+                    <div class="form-group">
+                        <label for="telegram_bot_token">
+                            Bot Token
+                            {% if config.telegram_bot_token %}
+                            <span class="status-indicator status-ok">✓ Set</span>
+                            {% else %}
+                            <span class="status-indicator status-missing">Not set</span>
+                            {% endif %}
+                        </label>
+                        <input type="password" 
+                               id="telegram_bot_token" 
+                               name="telegram_bot_token" 
+                               value="{{ config.telegram_bot_token }}"
+                               placeholder="123456789:ABCdef...">
+                        <p class="help-text">
+                            Get a token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram.
+                            Send /newbot and follow the prompts.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="telegram_chat_id">
+                            Chat ID
+                            {% if config.telegram_chat_id %}
+                            <span class="status-indicator status-ok">✓ Set</span>
+                            {% else %}
+                            <span class="status-indicator status-missing">Not set</span>
+                            {% endif %}
+                        </label>
+                        <input type="text" 
+                               id="telegram_chat_id" 
+                               name="telegram_chat_id" 
+                               value="{{ config.telegram_chat_id }}"
+                               placeholder="Auto-set when you /start the bot">
+                        <p class="help-text">
+                            This is set automatically when you send /start to your bot.
+                            You can also find it by messaging @userinfobot.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Time Settings -->
+                <section class="settings-form">
+                    <h2>🕐 Time & Schedule</h2>
+                    
+                    <div class="form-group">
+                        <label for="timezone">Timezone</label>
+                        <select id="timezone" name="timezone">
+                            {% for tz in timezones %}
+                            <option value="{{ tz }}" {% if tz == config.timezone %}selected{% endif %}>{{ tz }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="help-text">
+                            Used for scheduling and date calculations.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="morning_message_time">Morning Briefing Time</label>
+                        <input type="time" 
+                               id="morning_message_time" 
+                               name="morning_message_time" 
+                               value="{{ config.morning_message_time }}">
+                        <p class="help-text">
+                            When to send the daily morning briefing via Telegram.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Web Dashboard Settings -->
+                <section class="settings-form">
+                    <h2>🌐 Web Dashboard</h2>
+                    
+                    <div class="form-group">
+                        <label for="web_host">Listen Address</label>
+                        <input type="text" 
+                               id="web_host" 
+                               name="web_host" 
+                               value="{{ config.web_host }}"
+                               placeholder="0.0.0.0">
+                        <p class="help-text">
+                            Use 0.0.0.0 to allow access from other devices, or 127.0.0.1 for local only.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="web_port">Port</label>
+                        <input type="number" 
+                               id="web_port" 
+                               name="web_port" 
+                               value="{{ config.web_port }}"
+                               min="1024" max="65535">
+                        <p class="help-text">
+                            Default is 5000. Change if there's a conflict.
+                        </p>
+                    </div>
+                </section>
+
+                <button type="submit" class="save-btn">💾 Save Settings</button>
+            </form>
+
+            <!-- System Info -->
+            <section class="settings-form section-divider">
+                <h2>ℹ️ System Info</h2>
+                <p><strong>Version:</strong> Noctem 0.5.0</p>
+                <p><strong>Database:</strong> noctem/data/noctem.db</p>
+                <p><strong>Dashboard URL:</strong> http://{{ request.host }}</p>
+            </section>
+
+            <!-- Test Connection -->
+            <section class="settings-form">
+                <h2>🔧 Test Connection</h2>
+                <form method="POST" action="{{ url_for('settings_test') }}">
+                    <button type="submit" class="test-btn">Send Test Message to Telegram</button>
+                </form>
+                <p class="help-text" style="margin-top: 10px;">
+                    Sends a test message to verify your Telegram bot is working.
+                </p>
+            </section>
+        </main>
+
+        <footer>
+            <p>Noctem v0.5</p>
+        </footer>
+    </div>
+</body>
+</html>

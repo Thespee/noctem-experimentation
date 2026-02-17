@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/improvements.md",
+                "file": "docs/USER_GUIDE.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "improvements"
+              "title": "USER_GUIDE"
             }
           }
         ]
@@ -185,19 +185,22 @@
   },
   "active": "ae962e7e91f42280",
   "lastOpenFiles": [
-    "README.md",
+    "noctem/services/__pycache__/insight_service.cpython-310.pyc",
+    "noctem/slow/__pycache__/improvement_engine.cpython-310.pyc",
+    "noctem/logging/__pycache__/trace_analyzer.cpython-310.pyc",
+    "noctem/slow/__pycache__/log_review.cpython-310.pyc",
+    "noctem/slow/__pycache__/pattern_detection.cpython-310.pyc",
+    "tests/__pycache__/test_v070_self_improvement.cpython-310-pytest-9.0.1.pyc",
+    "tests/test_v070_self_improvement.py",
+    "noctem/services/insight_service.py",
     "docs/improvements.md",
-    "docs/USER_GUIDE.md",
+    "V0.7.0_IMPLEMENTATION_STATUS.md",
+    "Noctem v0.7.0 Self-Improvement Engine Implementation.md",
+    "README.md",
     "noctem/data/noctem.db-journal",
-    "noctem/data/voice_journals/20260217_002026_ada49138.ogg",
-    "tests/__pycache__/test_v060_polish.cpython-310-pytest-9.0.2.pyc",
-    "tests/__pycache__/test_v060_final_polish.cpython-310-pytest-9.0.2.pyc",
-    "noctem/maintenance/__pycache__/scanner.cpython-310.pyc",
-    "noctem/maintenance/__pycache__/__init__.cpython-310.pyc",
-    "noctem/maintenance/__pycache__",
-    "noctem/slow/__pycache__/model_registry.cpython-310.pyc",
-    "noctem/butler/__pycache__/summon.cpython-310.pyc",
-    "noctem/logging/__pycache__/__init__.cpython-310.pyc",
+    "noctem/slow/improvement_engine.py",
+    "noctem/slow/log_review.py",
+    "docs/USER_GUIDE.md",
     "Research/Noctem 0.5 from Scratch.md",
     "1000003716.jpg",
     "Research/improvements.md",

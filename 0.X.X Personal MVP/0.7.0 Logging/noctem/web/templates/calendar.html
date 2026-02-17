@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendar - Noctem</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .upload-form {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .upload-form input[type="file"] {
+            margin-right: 10px;
+        }
+        .upload-form button {
+            background: var(--link);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .upload-form button:hover {
+            opacity: 0.9;
+        }
+        .clear-btn {
+            background: var(--urgent) !important;
+            margin-left: 10px;
+        }
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+        .flash {
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .flash.success {
+            background: rgba(78, 204, 163, 0.2);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+        .flash.error {
+            background: rgba(255, 71, 87, 0.1);
+            color: var(--urgent);
+            border: 1px solid var(--urgent);
+        }
+        .event-list {
+            list-style: none;
+            padding: 0;
+        }
+        .event-list li {
+            padding: 10px;
+            border-bottom: 1px solid var(--light-border);
+            display: flex;
+            gap: 15px;
+        }
+        .event-time {
+            color: var(--text-muted);
+            font-family: monospace;
+            min-width: 120px;
+        }
+        .event-title {
+            flex: 1;
+        }
+        .back-link {
+            margin-bottom: 20px;
+            display: block;
+        }
+        .saved-urls {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .saved-url-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid var(--light-border);
+            gap: 10px;
+        }
+        .saved-url-item:last-child {
+            border-bottom: none;
+        }
+        .saved-url-name {
+            font-weight: bold;
+            flex: 1;
+        }
+        .saved-url-url {
+            color: var(--text-muted);
+            font-size: 0.85em;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .url-actions {
+            display: flex;
+            gap: 5px;
+        }
+        .url-actions button {
+            padding: 4px 10px;
+            font-size: 0.85em;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .refresh-btn {
+            background: var(--link);
+            color: white;
+        }
+        .remove-btn {
+            background: var(--urgent);
+            color: white;
+        }
+        .refresh-all-btn {
+            background: var(--success);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📅 Calendar</h1>
+            <a href="/" class="back-link">← Back to Dashboard</a>
+        </header>
+
+        <main>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            {% if saved_urls %}
+            <section class="saved-urls">
+                <h2>📌 Saved Calendars</h2>
+                <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display: inline;">
+                    <button type="submit" class="refresh-all-btn">🔄 Refresh All</button>
+                </form>
+                
+                {% for u in saved_urls %}
+                <div class="saved-url-item">
+                    <span class="saved-url-name">{{ u.name }}</span>
+                    <span class="saved-url-url" title="{{ u.url }}">{{ u.url }}</span>
+                    <div class="url-actions">
+                        <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display: inline;">
+                            <input type="hidden" name="url" value="{{ u.url }}">
+                            <button type="submit" class="refresh-btn">↻ Refresh</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('calendar_remove_url') }}" style="display: inline;">
+                            <input type="hidden" name="url" value="{{ u.url }}">
+                            <button type="submit" class="remove-btn" onclick="return confirm('Remove this calendar?')">✕</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </section>
+            {% endif %}
+
+            <section class="upload-form">
+                <h2>➕ Add Calendar</h2>
+                
+                <form method="POST" enctype="multipart/form-data">
+                    <div style="margin-bottom: 15px;">
+                        <label><strong>Calendar URL</strong> (saved for easy refresh)</label><br>
+                        <input type="text" name="url_name" placeholder="Calendar name (optional)" style="width: 100%; max-width: 200px; padding: 8px; margin-top: 5px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+                        <input type="url" name="ics_url" placeholder="https://example.com/calendar.ics" style="width: 100%; max-width: 400px; padding: 8px; margin-top: 5px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+                    </div>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label><strong>Or upload a file</strong> (one-time import)</label><br>
+                        <input type="file" name="ics_file" accept=".ics" style="margin-top: 5px;">
+                    </div>
+                    
+                    <button type="submit">Add Calendar</button>
+                </form>
+                
+                <form method="POST" action="{{ url_for('calendar_clear') }}" style="margin-top: 15px;">
+                    <button type="submit" class="clear-btn" onclick="return confirm('Clear all imported calendar events?')">Clear All Events</button>
+                </form>
+            </section>
+
+            <section>
+                <h2>Upcoming Events ({{ events|length }})</h2>
+                {% if events %}
+                <ul class="event-list">
+                    {% for event in events %}
+                    <li>
+                        <span class="event-time">
+                            {{ event.start_time[:16] if event.start_time else '?' }}
+                        </span>
+                        <span class="event-title">{{ event.title }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p>No upcoming events. Upload an .ics file to import your calendar.</p>
+                {% endif %}
+            </section>
+
+            <section>
+                <h3>How to export your calendar:</h3>
+                <ul>
+                    <li><strong>Google Calendar:</strong> Settings → Import & Export → Export → Download .ics</li>
+                    <li><strong>Apple Calendar:</strong> File → Export → Export...</li>
+                    <li><strong>Outlook:</strong> File → Save Calendar → Save as .ics</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>Noctem v0.5</p>
+        </footer>
+    </div>
+</body>
+</html>
