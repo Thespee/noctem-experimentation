@@ -93,8 +93,11 @@ noctem/
 
 ## Documentation
 
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - User guide with all features
+- [docs/USER_GUIDE_v0.7.0.md](docs/USER_GUIDE_v0.7.0.md) - User guide with all features
 - [docs/improvements.md](docs/improvements.md) - Design notes, roadmap, learnings
+- [docs/Ideals_v0.7.0.md](docs/Ideals_v0.7.0.md) - Aspirational vision and philosophy
+- [docs/discussion_v0.7.0.md](docs/discussion_v0.7.0.md) - Critical analysis and technical review
+- [V0.7.0_COMPLETION_REPORT.md](V0.7.0_COMPLETION_REPORT.md) - Implementation completion report
 - [SETUP.md](SETUP.md) - Detailed setup guide
 - [COMMANDS.md](COMMANDS.md) - All commands reference
 
