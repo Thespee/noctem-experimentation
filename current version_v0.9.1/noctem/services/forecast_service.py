@@ -308,6 +308,43 @@ def get_week_summary(start_date: Optional[date] = None) -> dict:
     }
 
 
+def _build_table_day(day: date, today: date) -> dict:
+    """Build a single day dict for table views."""
+    forecast = _build_day_forecast(day, today)
+    tasks = task_service.get_tasks_due_on(day)
+    events = get_time_blocks_for_date(day)
+    
+    return {
+        "date": day.isoformat(),
+        "date_display": day.strftime("%d"),
+        "day_name": day.strftime("%a"),
+        "is_today": day == today,
+        "is_weekend": day.weekday() >= 5,
+        "density": forecast.density,
+        "density_label": forecast.density_label,
+        "brief": forecast.brief,
+        "recommendations": forecast.recommendations,
+        "tasks": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "importance": t.importance,
+                "status": t.status,
+                "due_time": str(t.due_time) if t.due_time else None,
+            }
+            for t in tasks
+        ],
+        "events": [
+            {
+                "title": e.title,
+                "start_time": e.start_time.strftime("%H:%M") if hasattr(e.start_time, 'strftime') else str(e.start_time)[:5] if e.start_time else None,
+                "end_time": e.end_time.strftime("%H:%M") if hasattr(e.end_time, 'strftime') else str(e.end_time)[:5] if e.end_time else None,
+            }
+            for e in events
+        ],
+    }
+
+
 def get_7_day_table_data(start_date: Optional[date] = None) -> list[dict]:
     """
     Get data for the 7-day table view (Mon-Sun).
@@ -319,45 +356,20 @@ def get_7_day_table_data(start_date: Optional[date] = None) -> list[dict]:
         # Go to Monday of this week
         start_date = today - timedelta(days=today.weekday())
     
-    result = []
     today = date.today()
+    return [_build_table_day(start_date + timedelta(days=i), today) for i in range(7)]
+
+
+def get_14_day_table_data() -> dict:
+    """
+    Get data for the 2-week dashboard view.
+    Returns current week (Mon-Sun) and next week (Mon-Sun) as two separate lists.
+    """
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    next_monday = this_monday + timedelta(days=7)
     
-    for i in range(7):
-        day = start_date + timedelta(days=i)
-        forecast = _build_day_forecast(day, today)
-        
-        # Get tasks with details
-        tasks = task_service.get_tasks_due_on(day)
-        events = get_time_blocks_for_date(day)
-        
-        result.append({
-            "date": day.isoformat(),
-            "date_display": day.strftime("%d"),
-            "day_name": day.strftime("%a"),
-            "is_today": day == today,
-            "is_weekend": day.weekday() >= 5,
-            "density": forecast.density,
-            "density_label": forecast.density_label,
-            "brief": forecast.brief,
-            "recommendations": forecast.recommendations,
-            "tasks": [
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "importance": t.importance,
-                    "status": t.status,
-                    "due_time": str(t.due_time) if t.due_time else None,
-                }
-                for t in tasks
-            ],
-            "events": [
-                {
-                    "title": e.title,
-                    "start_time": e.start_time.strftime("%H:%M") if hasattr(e.start_time, 'strftime') else str(e.start_time)[:5] if e.start_time else None,
-                    "end_time": e.end_time.strftime("%H:%M") if hasattr(e.end_time, 'strftime') else str(e.end_time)[:5] if e.end_time else None,
-                }
-                for e in events
-            ],
-        })
-    
-    return result
+    return {
+        "current_week": [_build_table_day(this_monday + timedelta(days=i), today) for i in range(7)],
+        "next_week": [_build_table_day(next_monday + timedelta(days=i), today) for i in range(7)],
+    }

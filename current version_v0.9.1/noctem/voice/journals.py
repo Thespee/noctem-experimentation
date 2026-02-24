@@ -226,6 +226,38 @@ def fail_transcription(journal_id: int, error_message: str):
     logger.error(f"Voice journal {journal_id} transcription failed: {error_message}")
 
 
+def retry_failed_journals() -> int:
+    """Reset all failed journals back to pending so they get retried.
+    Returns count of journals reset."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE voice_journals
+            SET status = 'pending', error_message = NULL
+            WHERE status = 'failed'
+            """
+        )
+        count = cursor.rowcount
+    if count:
+        logger.info(f"Reset {count} failed voice journals to pending for retry")
+    return count
+
+
+def retry_journal(journal_id: int) -> bool:
+    """Reset a single failed journal back to pending.
+    Returns True if reset."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE voice_journals
+            SET status = 'pending', error_message = NULL
+            WHERE id = ? AND status = 'failed'
+            """,
+            (journal_id,)
+        )
+        return cursor.rowcount > 0
+
+
 def get_transcription_stats() -> Dict[str, int]:
     """Get counts of journals by status."""
     with get_db() as conn:

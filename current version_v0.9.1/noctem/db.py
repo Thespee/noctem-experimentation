@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS time_blocks (
     gcal_event_id TEXT,
     block_type TEXT DEFAULT 'other'
         CHECK(block_type IN ('meeting', 'focus', 'personal', 'other')),
+    all_day INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -531,6 +532,8 @@ def _migrate_db():
         ("thoughts", "summon_mode", "INTEGER DEFAULT 0"),
         # v0.7.0: Add project_id to execution_logs for project-level trace linking
         ("execution_logs", "project_id", "INTEGER REFERENCES projects(id)"),
+        # v0.9.2: All-day flag for calendar events
+        ("time_blocks", "all_day", "INTEGER DEFAULT 0"),
     ]
     
     with get_db() as conn:

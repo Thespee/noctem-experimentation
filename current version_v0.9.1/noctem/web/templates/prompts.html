@@ -1,242 +1,85 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prompt Editor - Noctem</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        .prompts-layout {
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            min-height: 100vh;
-            gap: 0;
-        }
+{% extends "base.html" %}
+{% block title %}Prompt Editor - Noctem{% endblock %}
+
+{% block extra_style %}
+.prompts-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 0px);
+    gap: 0;
+}
         
-        /* Sidebar */
-        .prompts-sidebar {
-            background: #0a0a1a;
-            border-right: 1px solid #222;
-            padding: 1rem;
-        }
-        .sidebar-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        .sidebar-header h2 {
-            margin: 0;
-            font-size: 1rem;
-        }
-        .prompt-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .prompt-item {
-            padding: 0.75rem;
-            border-radius: 6px;
-            margin-bottom: 0.5rem;
-            cursor: pointer;
-            background: #1a1a2e;
-        }
-        .prompt-item:hover {
-            background: #2a2a4e;
-        }
-        .prompt-item.active {
-            background: #2a3a5e;
-            border-left: 3px solid #3b82f6;
-        }
-        .prompt-item .name {
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
-        .prompt-item .description {
-            font-size: 0.75rem;
-            color: #888;
-            margin-top: 0.25rem;
-        }
-        .prompt-item .version {
-            font-size: 0.7rem;
-            color: #666;
-            margin-top: 0.25rem;
-        }
+/* Prompt sidebar */
+.prompts-sidebar {
+    background: #1a1a1a;
+    border-right: 1px solid #3c3c3c;
+    padding: 1rem;
+    overflow-y: auto;
+}
+.sidebar-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+}
+.sidebar-header h2 { margin: 0; font-size: 1rem; color: #e8eaed; }
+.prompt-list { list-style: none; padding: 0; margin: 0; }
+.prompt-item {
+    padding: 0.65rem; border-radius: 6px; margin-bottom: 0.4rem;
+    cursor: pointer; background: #2d2d2d; border: 1px solid #3c3c3c;
+}
+.prompt-item:hover { background: #3c3c3c; }
+.prompt-item.active { background: #3c4043; border-left: 3px solid #8ab4f8; }
+.prompt-item .name { font-weight: 600; font-size: 0.85rem; color: #e8eaed; }
+.prompt-item .description { font-size: 0.72rem; color: #5f6368; margin-top: 0.2rem; }
+.prompt-item .version { font-size: 0.68rem; color: #5f6368; margin-top: 0.15rem; }
         
-        /* Main Editor */
-        .prompts-main {
-            padding: 1.5rem;
-            overflow-y: auto;
-        }
-        .editor-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        .editor-header h1 {
-            margin: 0;
-            font-size: 1.25rem;
-        }
-        .editor-actions button {
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            border: none;
-            cursor: pointer;
-            margin-left: 0.5rem;
-        }
-        .btn-save {
-            background: #22c55e;
-            color: #fff;
-        }
-        .btn-secondary {
-            background: #333;
-            color: #ccc;
-        }
+/* Main Editor */
+.prompts-main { padding: 1.5rem; overflow-y: auto; }
+.editor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.editor-header h1 { margin: 0; font-size: 1.15rem; color: #e8eaed; }
+.editor-actions button { padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer; margin-left: 0.5rem; }
+.btn-save { background: #81c995; color: #1f1f1f; }
+.btn-secondary { background: #3c3c3c; color: #9aa0a6; }
         
-        .editor-description {
-            color: #888;
-            font-size: 0.9rem;
-            margin-bottom: 1rem;
-        }
+.editor-description { color: #5f6368; font-size: 0.85rem; margin-bottom: 1rem; }
+.variables-section { background: #2d2d2d; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; border: 1px solid #3c3c3c; }
+.variables-section h3 { margin: 0 0 0.5rem 0; font-size: 0.8rem; color: #5f6368; }
+.variable-tag { display: inline-block; background: #3c4043; padding: 0.2rem 0.5rem; border-radius: 3px; font-family: monospace; font-size: 0.78rem; margin-right: 0.5rem; margin-bottom: 0.25rem; color: #8ab4f8; }
         
-        /* Variables */
-        .variables-section {
-            background: #1a1a2e;
-            padding: 0.75rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-        }
-        .variables-section h3 {
-            margin: 0 0 0.5rem 0;
-            font-size: 0.85rem;
-            color: #888;
-        }
-        .variable-tag {
-            display: inline-block;
-            background: #2a3a4e;
-            padding: 0.2rem 0.5rem;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 0.8rem;
-            margin-right: 0.5rem;
-            margin-bottom: 0.25rem;
-        }
+.prompt-textarea {
+    width: 100%; min-height: 300px; background: #1f1f1f; border: 1px solid #3c3c3c;
+    border-radius: 6px; padding: 1rem; color: #e8eaed; font-family: 'Fira Code', monospace;
+    font-size: 0.85rem; line-height: 1.5; resize: vertical;
+}
+.prompt-textarea:focus { outline: none; border-color: #8ab4f8; }
         
-        /* Textarea */
-        .prompt-textarea {
-            width: 100%;
-            min-height: 300px;
-            background: #0a0a1a;
-            border: 1px solid #333;
-            border-radius: 6px;
-            padding: 1rem;
-            color: #fff;
-            font-family: 'Fira Code', monospace;
-            font-size: 0.9rem;
-            line-height: 1.5;
-            resize: vertical;
-        }
-        .prompt-textarea:focus {
-            outline: none;
-            border-color: #3b82f6;
-        }
+.history-section { margin-top: 2rem; border-top: 1px solid #3c3c3c; padding-top: 1rem; }
+.history-section h3 { margin: 0 0 1rem 0; font-size: 1rem; color: #e8eaed; }
+.version-item { background: #2d2d2d; padding: 0.65rem; border-radius: 6px; margin-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center; border: 1px solid #3c3c3c; }
+.version-item.current { border-left: 3px solid #81c995; }
+.version-info .version-number { font-weight: 600; color: #e8eaed; }
+.version-info .version-meta { font-size: 0.72rem; color: #5f6368; }
+.version-actions button { padding: 0.25rem 0.5rem; font-size: 0.72rem; background: #3c3c3c; color: #9aa0a6; border: none; border-radius: 3px; cursor: pointer; margin-left: 0.5rem; }
+.version-actions button:hover { background: #5f6368; }
         
-        /* Version History */
-        .history-section {
-            margin-top: 2rem;
-            border-top: 1px solid #222;
-            padding-top: 1rem;
-        }
-        .history-section h3 {
-            margin: 0 0 1rem 0;
-            font-size: 1rem;
-        }
-        .version-item {
-            background: #1a1a2e;
-            padding: 0.75rem;
-            border-radius: 6px;
-            margin-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .version-item.current {
-            border-left: 3px solid #22c55e;
-        }
-        .version-info .version-number {
-            font-weight: bold;
-        }
-        .version-info .version-meta {
-            font-size: 0.75rem;
-            color: #666;
-        }
-        .version-actions button {
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            background: #333;
-            color: #ccc;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            margin-left: 0.5rem;
-        }
-        .version-actions button:hover {
-            background: #444;
-        }
-        
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: #666;
-        }
-        .empty-state h2 {
-            margin-bottom: 0.5rem;
-        }
-        
-        /* Back Link */
-        .back-link {
-            display: inline-block;
-            color: #888;
-            text-decoration: none;
-            margin-bottom: 1rem;
-            font-size: 0.85rem;
-        }
-        .back-link:hover {
-            color: #fff;
-        }
-        
-        /* Status Messages */
-        .status-message {
-            padding: 0.75rem;
-            border-radius: 4px;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        .status-message.success {
-            display: block;
-            background: #1a3a2e;
-            border: 1px solid #22c55e;
-            color: #22c55e;
-        }
-        .status-message.error {
-            display: block;
-            background: #3a1a1e;
-            border: 1px solid #ef4444;
-            color: #ef4444;
-        }
-    </style>
-</head>
-<body>
+.empty-state { text-align: center; padding: 3rem; color: #5f6368; }
+.empty-state h2 { margin-bottom: 0.5rem; color: #9aa0a6; }
+.status-message { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; display: none; font-size: 0.85rem; }
+.status-message.success { display: block; background: rgba(129,201,149,0.15); border: 1px solid #81c995; color: #81c995; }
+.status-message.error { display: block; background: rgba(242,139,130,0.15); border: 1px solid #f28b82; color: #f28b82; }
+@media (max-width: 768px) {
+    .prompts-layout { grid-template-columns: 1fr; }
+    .prompts-sidebar { border-right: none; border-bottom: 1px solid #3c3c3c; max-height: 200px; }
+}
+body.force-mobile .prompts-layout { grid-template-columns: 1fr; }
+body.force-mobile .prompts-sidebar { border-right: none; border-bottom: 1px solid #3c3c3c; max-height: 200px; }
+{% endblock %}
+
+{% block content %}
     <div class="prompts-layout">
         <!-- Sidebar: Prompt List -->
         <div class="prompts-sidebar">
             <div class="sidebar-header">
-                <h2>🔧 LLM Prompts</h2>
+                <h2>⚙️ LLM Prompts</h2>
             </div>
-            <a href="/" class="back-link">← Back to Dashboard</a>
-            
             <ul class="prompt-list" id="prompt-list">
                 <!-- Populated by JS -->
             </ul>
@@ -252,9 +95,10 @@
             </div>
         </div>
     </div>
-    
-    {% raw %}
-    <script>
+{% endblock %}
+
+{% block extra_script %}
+{% raw %}
         let currentPrompt = null;
         let prompts = [];
         
@@ -430,11 +274,9 @@
             }
         }
         
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            loadPromptList();
-        });
-    </script>
-    {% endraw %}
-</body>
-</html>
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadPromptList();
+});
+{% endraw %}
+{% endblock %}

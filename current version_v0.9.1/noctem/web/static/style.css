@@ -1,19 +1,27 @@
 /* Noctem Dashboard - Dark Mode */
 
 :root {
-    --bg: #1a1a2e;
-    --bg-secondary: #16213e;
-    --text: #e8e8e8;
-    --text-muted: #a0a0a0;
-    --link: #6eb5ff;
-    --border: #3a3a5c;
-    --light-border: #2a2a4a;
-    --important: #ff6b6b;   /* !1 */
-    --medium: #ffd93d;      /* !2 */
-    --low: #6bcb77;         /* !3 */
-    --urgent: #ff4757;
-    --success: #4ecca3;
-    --card-bg: #1f1f3a;
+    /* Google Calendar dark mode palette */
+    --bg: #1f1f1f;
+    --bg-secondary: #2d2d2d;
+    --text: #e8eaed;
+    --text-muted: #9aa0a6;
+    --link: #8ab4f8;
+    --border: #3c3c3c;
+    --light-border: #333333;
+    --important: #f28b82;   /* !1 */
+    --medium: #fdd663;      /* !2 */
+    --low: #81c995;         /* !3 */
+    --urgent: #f28b82;
+    --success: #81c995;
+    --card-bg: #2d2d2d;
+    --sidebar-bg: #1a1a1a;
+    --surface: #292929;
+    --density-free: #81c995;
+    --density-light: #a8dab5;
+    --density-moderate: #fdd663;
+    --density-busy: #fcad70;
+    --density-packed: #f28b82;
 }
 
 * {

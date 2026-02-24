@@ -17,6 +17,19 @@ DEFAULT_DEVICE = "cpu"
 DEFAULT_COMPUTE_TYPE = "int8"  # Quantized for CPU efficiency
 
 
+# Try to import faster_whisper at module level; gracefully degrade if missing
+try:
+    from faster_whisper import WhisperModel as _WhisperModel
+    _FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    _FASTER_WHISPER_AVAILABLE = False
+    _WhisperModel = None
+    logger.warning(
+        "faster-whisper not installed. Voice transcription will be unavailable. "
+        "Install with: pip install faster-whisper"
+    )
+
+
 class WhisperService:
     """Local whisper transcription service."""
     
@@ -33,11 +46,14 @@ class WhisperService:
     
     def _ensure_model(self):
         """Lazy-load the model on first use."""
+        if not _FASTER_WHISPER_AVAILABLE:
+            raise ImportError(
+                "faster-whisper is not installed. "
+                "Install with: pip install faster-whisper"
+            )
         if self._model is None:
-            from faster_whisper import WhisperModel
-            
             logger.info(f"Loading Whisper model: {self.model_size} on {self.device}")
-            self._model = WhisperModel(
+            self._model = _WhisperModel(
                 self.model_size,
                 device=self.device,
                 compute_type=self.compute_type,
@@ -91,11 +107,7 @@ class WhisperService:
     
     def is_ready(self) -> bool:
         """Check if the service can be initialized."""
-        try:
-            from faster_whisper import WhisperModel
-            return True
-        except ImportError:
-            return False
+        return _FASTER_WHISPER_AVAILABLE
     
     def preload(self) -> bool:
         """

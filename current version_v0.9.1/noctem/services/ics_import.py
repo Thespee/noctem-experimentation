@@ -42,12 +42,14 @@ def parse_vevent(component) -> dict:
         # Get title
         summary = str(component.get('summary', 'Untitled'))
         
-        # Get start time
+        # Detect all-day events: DTSTART;VALUE=DATE gives a date, not datetime
         dtstart = component.get('dtstart')
+        is_all_day = False
         if dtstart:
             start = dtstart.dt
             if isinstance(start, date) and not isinstance(start, datetime):
-                # All-day event
+                # All-day event (DTSTART;VALUE=DATE)
+                is_all_day = True
                 start = datetime.combine(start, datetime.min.time())
         else:
             return None
@@ -57,10 +59,14 @@ def parse_vevent(component) -> dict:
         if dtend:
             end = dtend.dt
             if isinstance(end, date) and not isinstance(end, datetime):
-                end = datetime.combine(end, datetime.max.time().replace(microsecond=0))
+                # All-day event end date — use same day at 23:59
+                end = datetime.combine(end - timedelta(days=1), datetime.max.time().replace(microsecond=0))
         else:
-            # Default to 1 hour duration
-            end = start + timedelta(hours=1)
+            # Default to 1 hour duration (or end of day for all-day)
+            if is_all_day:
+                end = datetime.combine(start.date(), datetime.max.time().replace(microsecond=0))
+            else:
+                end = start + timedelta(hours=1)
         
         # Get description (optional)
         description = str(component.get('description', '')) or None
@@ -73,6 +79,7 @@ def parse_vevent(component) -> dict:
             'title': summary,
             'start_time': start,
             'end_time': end,
+            'all_day': is_all_day,
             'description': description,
             'location': location,
         }
@@ -148,23 +155,25 @@ def upsert_ics_event(event: dict) -> str:
             (event['uid'],),
         ).fetchone()
         
+        all_day = 1 if event.get('all_day', False) else 0
+        
         if existing:
             conn.execute(
                 """
                 UPDATE time_blocks 
-                SET title = ?, start_time = ?, end_time = ?
+                SET title = ?, start_time = ?, end_time = ?, all_day = ?
                 WHERE gcal_event_id = ?
                 """,
-                (event['title'], start_time, end_time, event['uid']),
+                (event['title'], start_time, end_time, all_day, event['uid']),
             )
             return 'updated'
         else:
             conn.execute(
                 """
-                INSERT INTO time_blocks (title, start_time, end_time, source, gcal_event_id, block_type)
-                VALUES (?, ?, ?, 'ics', ?, 'meeting')
+                INSERT INTO time_blocks (title, start_time, end_time, source, gcal_event_id, block_type, all_day)
+                VALUES (?, ?, ?, 'ics', ?, 'meeting', ?)
                 """,
-                (event['title'], start_time, end_time, event['uid']),
+                (event['title'], start_time, end_time, event['uid'], all_day),
             )
             return 'created'
 

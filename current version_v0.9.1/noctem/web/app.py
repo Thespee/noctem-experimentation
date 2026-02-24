@@ -133,9 +133,9 @@ def create_app() -> Flask:
         projects_with_suggestions = project_service.get_projects_with_suggestions(limit=3)
         
         # v0.6.0 Final: Forecast data
-        from ..services.forecast_service import get_14_day_forecast, get_7_day_table_data
+        from ..services.forecast_service import get_14_day_forecast, get_14_day_table_data
         forecast_14 = get_14_day_forecast()
-        week_table = get_7_day_table_data()
+        two_week_data = get_14_day_table_data()
         
         # v0.9.1: Feedback session status for dashboard widget
         try:
@@ -163,9 +163,10 @@ def create_app() -> Flask:
             ollama_msg=ollama_msg,
             tasks_with_suggestions=tasks_with_suggestions,
             projects_with_suggestions=projects_with_suggestions,
-            # v0.6.0 Final data
+            # v0.9.2 data
             forecast_14=forecast_14,
-            week_table=week_table,
+            current_week=two_week_data['current_week'],
+            next_week=two_week_data['next_week'],
             # v0.9.1 data
             feedback_status=feedback_status,
         )
@@ -538,6 +539,21 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"error": str(e), "success": False}), 500
     
+    @app.route("/api/voice/retry-all", methods=["POST"])
+    def api_voice_retry_all():
+        """Reset all failed voice journals back to pending for retry."""
+        from ..voice.journals import retry_failed_journals
+        count = retry_failed_journals()
+        return jsonify({"success": True, "count": count, "message": f"Reset {count} failed journal(s) to pending"})
+    
+    @app.route("/api/voice/<int:journal_id>/retry", methods=["POST"])
+    def api_voice_retry(journal_id):
+        """Reset a single failed voice journal back to pending."""
+        from ..voice.journals import retry_journal
+        if retry_journal(journal_id):
+            return jsonify({"success": True, "message": "Journal queued for retry"})
+        return jsonify({"success": False, "error": "Journal not found or not in failed state"}), 400
+    
     # =========================================================================
     # v0.6.0: Seed Data API
     # =========================================================================
@@ -877,6 +893,97 @@ def create_app() -> Flask:
         })
     
     # =========================================================================
+    # v0.9.2: Task CRUD API (powers inline creation & check-off)
+    # =========================================================================
+    
+    @app.route("/api/tasks", methods=["POST"])
+    def api_task_create():
+        """Create a new task. Accepts JSON: {name, due_date?, project_id?}"""
+        data = request.get_json()
+        if not data or not data.get('name', '').strip():
+            return jsonify({"error": "Task name required", "success": False}), 400
+        
+        due_date_val = None
+        if data.get('due_date'):
+            try:
+                from datetime import date as date_cls
+                due_date_val = date_cls.fromisoformat(data['due_date'])
+            except (ValueError, TypeError):
+                pass
+        
+        due_time_val = None
+        if data.get('due_time'):
+            try:
+                from datetime import time as time_cls
+                due_time_val = time_cls.fromisoformat(data['due_time'])
+            except (ValueError, TypeError):
+                pass
+        
+        task = task_service.create_task(
+            name=data['name'].strip(),
+            project_id=data.get('project_id'),
+            due_date=due_date_val,
+            due_time=due_time_val,
+            importance=data.get('importance'),
+        )
+        
+        return jsonify({
+            "success": True,
+            "task": {
+                "id": task.id,
+                "name": task.name,
+                "due_date": task.due_date.isoformat() if task.due_date else None,
+                "project_id": task.project_id,
+                "status": task.status,
+            },
+        })
+    
+    @app.route("/api/tasks/<int:task_id>/complete", methods=["POST"])
+    def api_task_complete(task_id):
+        """Mark a task as done."""
+        task = task_service.complete_task(task_id)
+        if not task:
+            return jsonify({"error": "Task not found", "success": False}), 404
+        return jsonify({"success": True, "task_id": task_id, "status": "done"})
+    
+    @app.route("/api/tasks/<int:task_id>/update", methods=["POST"])
+    def api_task_update(task_id):
+        """Update task fields. Accepts JSON with any of: name, due_date, status, project_id, importance."""
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided", "success": False}), 400
+        
+        kwargs = {}
+        if 'name' in data:
+            kwargs['name'] = data['name']
+        if 'status' in data:
+            kwargs['status'] = data['status']
+        if 'project_id' in data:
+            kwargs['project_id'] = data['project_id']
+        if 'importance' in data:
+            kwargs['importance'] = data['importance']
+        if 'due_date' in data:
+            try:
+                from datetime import date as date_cls
+                kwargs['due_date'] = date_cls.fromisoformat(data['due_date']) if data['due_date'] else None
+            except (ValueError, TypeError):
+                pass
+        
+        task = task_service.update_task(task_id, **kwargs)
+        if not task:
+            return jsonify({"error": "Task not found", "success": False}), 404
+        
+        return jsonify({
+            "success": True,
+            "task": {
+                "id": task.id,
+                "name": task.name,
+                "status": task.status,
+                "due_date": task.due_date.isoformat() if task.due_date else None,
+            },
+        })
+    
+    # =========================================================================
     # v0.9.1: Calendar View (Google Calendar-style weekly grid)
     # =========================================================================
     
@@ -940,6 +1047,9 @@ def create_app() -> Flask:
                     else:
                         end_dt = end or start_dt + timedelta(hours=1)
                     
+                    # Detect all_day from column or heuristic
+                    all_day = bool(e['all_day']) if 'all_day' in e.keys() else False
+                    
                     day_events.append({
                         'id': e['id'],
                         'title': e['title'],
@@ -948,6 +1058,7 @@ def create_app() -> Flask:
                         'start_hour': start_dt.hour + start_dt.minute / 60,
                         'end_hour': end_dt.hour + end_dt.minute / 60,
                         'source': e['source'],
+                        'all_day': all_day,
                     })
             
             days.append({
@@ -1046,7 +1157,7 @@ def create_app() -> Flask:
     @app.route("/api/tasks/projects")
     def api_tasks_projects():
         """Get tasks grouped by project for the board view."""
-        projects = project_service.get_active_projects()
+        projects = project_service.get_all_projects()
         
         columns = []
         for proj in projects:
@@ -1058,7 +1169,6 @@ def create_app() -> Flask:
             columns.append({
                 'project_id': proj.id,
                 'project_name': proj.name,
-                'status': proj.status,
                 'ai_summary': proj.next_action_suggestion,
                 'tasks': [{
                     'id': t.id,
@@ -1143,7 +1253,13 @@ def create_app() -> Flask:
             service.initialize()
         
         skills = service.list_skills(enabled_only=False)
-        return render_template("skills.html", skills=skills)
+        stats = {
+            'total': len(skills),
+            'enabled': len([s for s in skills if s.enabled]),
+            'disabled': len([s for s in skills if not s.enabled]),
+            'requires_approval': len([s for s in skills if s.requires_approval]),
+        }
+        return render_template("skills.html", skills=skills, stats=stats)
     
     @app.route("/api/skills")
     def api_skills_list():

@@ -1,240 +1,143 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calendar View - Noctem</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        body { background: #0d0d1a; }
-        .cal-layout { display: flex; min-height: 100vh; }
-        
-        /* Sidebar */
-        .cal-sidebar {
-            width: 220px; background: #0a0a18; border-right: 1px solid #222;
-            padding: 1rem; overflow-y: auto; flex-shrink: 0;
-        }
-        .cal-sidebar h2 { font-size: 0.9rem; color: #888; margin-bottom: 0.5rem; }
-        .cal-sidebar .cal-item {
-            padding: 0.4rem 0.5rem; font-size: 0.8rem; border-radius: 4px;
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 2px;
-        }
-        .cal-sidebar .cal-item:hover { background: #1a1a2e; }
-        .cal-sidebar .refresh-btn {
-            background: none; border: none; color: #6eb5ff; cursor: pointer; font-size: 0.8rem;
-        }
-        .cal-sidebar .nav-links { margin-top: 1rem; }
-        .cal-sidebar .nav-links a { display: block; color: #6eb5ff; font-size: 0.8rem; margin-bottom: 0.3rem; }
-        
-        /* Main grid */
-        .cal-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        
-        /* Header bar */
-        .cal-header {
-            display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem;
-            border-bottom: 1px solid #222; background: #0a0a18;
-        }
-        .cal-header h1 { font-size: 1.2rem; margin: 0; }
-        .cal-header .nav-btn {
-            background: #1a1a2e; border: 1px solid #333; color: #e8e8e8;
-            padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem;
-        }
-        .cal-header .nav-btn:hover { background: #2a2a4e; }
-        .cal-header .week-label { color: #888; font-size: 0.9rem; }
-        
-        /* Day header row */
-        .cal-day-headers {
-            display: grid; grid-template-columns: 50px repeat(7, 1fr);
-            border-bottom: 1px solid #222; background: #0a0a18;
-        }
-        .cal-day-header {
-            padding: 0.5rem; text-align: center; font-size: 0.8rem; color: #888;
-        }
-        .cal-day-header.today { color: #6eb5ff; font-weight: bold; }
-        .cal-day-header .day-num { font-size: 1.1rem; color: #e8e8e8; }
-        .cal-day-header.today .day-num {
-            background: #3b6abf; color: white; border-radius: 50%;
-            width: 28px; height: 28px; line-height: 28px; display: inline-block;
-        }
-        
-        /* Time grid */
-        .cal-grid-wrapper { flex: 1; overflow-y: auto; }
-        .cal-grid {
-            display: grid; grid-template-columns: 50px repeat(7, 1fr);
-            position: relative;
-        }
-        .cal-time-label {
-            padding: 0 0.25rem; font-size: 0.7rem; color: #555; text-align: right;
-            height: 60px; border-top: 1px solid #1a1a2e;
-        }
-        .cal-day-col {
-            border-left: 1px solid #1a1a2e; border-top: 1px solid #1a1a2e;
-            height: 60px; position: relative;
-        }
-        .cal-day-col.today { background: rgba(59, 130, 246, 0.03); }
-        
-        /* Event blocks */
-        .cal-event {
-            position: absolute; left: 2px; right: 2px;
-            background: #4a6fa5; border-radius: 4px; padding: 2px 4px;
-            font-size: 0.7rem; color: #e8e8e8; overflow: hidden;
-            cursor: pointer; z-index: 1; border-left: 3px solid #6b8fc4;
-        }
-        .cal-event:hover { background: #5a7fb5; }
-        .cal-event .event-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .cal-event .event-time { color: #b0c4de; font-size: 0.65rem; }
-    </style>
-</head>
-<body>
-    <div class="cal-layout">
-        <!-- Sidebar -->
-        <div class="cal-sidebar">
-            <div class="nav-links">
-                <a href="/">← Dashboard</a>
-                <a href="/calendar">Calendar Settings</a>
-                <a href="/tasks/upcoming">Upcoming Tasks</a>
-                <a href="/tasks/projects">Project Board</a>
-            </div>
-            
-            <h2 style="margin-top: 1.5rem;">📌 Calendars</h2>
-            {% for u in saved_urls %}
-            <div class="cal-item">
-                <span>{{ u.name }}</span>
-                <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display:inline; margin:0;">
-                    <input type="hidden" name="url" value="{{ u.url }}">
-                    <button type="submit" class="refresh-btn" title="Refresh">↻</button>
-                </form>
-            </div>
-            {% endfor %}
-            {% if not saved_urls %}
-            <p style="font-size: 0.75rem; color: #555;">No calendars synced.<br><a href="/calendar">Add one →</a></p>
-            {% endif %}
-        </div>
-        
-        <!-- Main calendar -->
-        <div class="cal-main">
-            <div class="cal-header">
-                <button class="nav-btn" onclick="navigateWeek(-1)">← Prev</button>
-                <button class="nav-btn" onclick="navigateWeek(0)">Today</button>
-                <button class="nav-btn" onclick="navigateWeek(1)">Next →</button>
-                <h1>📅 Calendar</h1>
-                <span class="week-label" id="weekLabel"></span>
-            </div>
-            
-            <div class="cal-day-headers" id="dayHeaders"></div>
-            
-            <div class="cal-grid-wrapper">
-                <div class="cal-grid" id="calGrid"></div>
-            </div>
-        </div>
+{% extends "base.html" %}
+{% block title %}Calendar - Noctem{% endblock %}
+
+{% block extra_style %}
+.cal-main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.cal-header { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid #3c3c3c; background: #1a1a1a; }
+.cal-header h1 { font-size: 1.2rem; margin: 0; color: #e8eaed; }
+.cal-header .nav-btn { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.cal-header .nav-btn:hover { background: #3c4043; }
+.cal-header .week-label { color: #9aa0a6; font-size: 0.9rem; }
+.cal-day-headers { display: grid; grid-template-columns: 50px repeat(7, 1fr); border-bottom: 1px solid #3c3c3c; background: #1a1a1a; }
+.cal-day-header { padding: 0.5rem; text-align: center; font-size: 0.8rem; color: #9aa0a6; }
+.cal-day-header.today { color: #8ab4f8; font-weight: bold; }
+.cal-day-header .day-num { font-size: 1.1rem; color: #e8eaed; }
+.cal-day-header.today .day-num { background: #8ab4f8; color: #1f1f1f; border-radius: 50%; width: 28px; height: 28px; line-height: 28px; display: inline-block; }
+/* All-day event banner row */
+.cal-allday-row { display: grid; grid-template-columns: 50px repeat(7, 1fr); border-bottom: 1px solid #3c3c3c; min-height: 0; }
+.cal-allday-label { font-size: 0.65rem; color: #5f6368; padding: 0.2rem 0.25rem; text-align: right; }
+.cal-allday-cell { padding: 0.15rem 2px; border-left: 1px solid #292929; }
+.cal-allday-event { background: #3c4043; border-radius: 3px; padding: 1px 4px; font-size: 0.65rem; color: #8ab4f8; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid #8ab4f8; }
+/* Time grid */
+.cal-grid-wrapper { flex: 1; overflow-y: auto; }
+.cal-grid { display: grid; grid-template-columns: 50px repeat(7, 1fr); position: relative; }
+.cal-time-label { padding: 0 0.25rem; font-size: 0.65rem; color: #5f6368; text-align: right; height: 48px; border-top: 1px solid #292929; }
+.cal-day-col { border-left: 1px solid #292929; border-top: 1px solid #292929; height: 48px; position: relative; }
+.cal-day-col.today { background: rgba(138, 180, 248, 0.03); }
+.cal-event { position: absolute; left: 2px; right: 2px; background: #394457; border-radius: 4px; padding: 2px 4px; font-size: 0.7rem; color: #e8eaed; overflow: hidden; cursor: pointer; z-index: 1; border-left: 3px solid #8ab4f8; }
+.cal-event:hover { background: #4a5568; }
+.cal-event .event-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-event .event-time { color: #9aa0a6; font-size: 0.6rem; }
+{% endblock %}
+
+{% block content %}
+<div class="cal-main">
+    <div class="cal-header">
+        <button class="nav-btn" onclick="navigateWeek(-1)">← Prev</button>
+        <button class="nav-btn" onclick="navigateWeek(0)">Today</button>
+        <button class="nav-btn" onclick="navigateWeek(1)">Next →</button>
+        <h1>📅 Calendar</h1>
+        <span class="week-label" id="weekLabel"></span>
     </div>
-    
-    <script>
-        let currentDate = new Date();
-        const START_HOUR = 7, END_HOUR = 22;
-        
-        function getMonday(d) {
-            const date = new Date(d);
-            const day = date.getDay();
-            const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-            return new Date(date.setDate(diff));
+    <div class="cal-day-headers" id="dayHeaders"></div>
+    <div class="cal-allday-row" id="allDayRow"></div>
+    <div class="cal-grid-wrapper">
+        <div class="cal-grid" id="calGrid"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let currentDate = new Date();
+const START_HOUR = 0, END_HOUR = 24;
+
+function getMonday(d) { const date = new Date(d); const day = date.getDay(); const diff = date.getDate() - day + (day === 0 ? -6 : 1); return new Date(date.setDate(diff)); }
+function formatDate(d) { return d.toISOString().split('T')[0]; }
+function navigateWeek(offset) { if (offset === 0) currentDate = new Date(); else currentDate.setDate(currentDate.getDate() + offset * 7); loadWeek(); }
+
+async function loadWeek() {
+    const monday = getMonday(currentDate);
+    const resp = await fetch(`/api/calendar/week?date=${formatDate(monday)}`);
+    const data = await resp.json();
+    renderHeaders(data.days);
+    renderAllDayRow(data.days);
+    renderGrid(data.days);
+    const sun = new Date(monday); sun.setDate(sun.getDate() + 6);
+    document.getElementById('weekLabel').textContent = `${monday.toLocaleDateString('en', {month:'short',day:'numeric'})} – ${sun.toLocaleDateString('en', {month:'short',day:'numeric',year:'numeric'})}`;
+}
+
+function renderHeaders(days) {
+    const el = document.getElementById('dayHeaders');
+    let html = '<div class="cal-day-header"></div>';
+    for (const day of days) {
+        const cls = day.is_today ? ' today' : '';
+        const d = new Date(day.date + 'T00:00:00');
+        html += `<div class="cal-day-header${cls}">${day.day_name}<br><span class="day-num">${d.getDate()}</span></div>`;
+    }
+    el.innerHTML = html;
+}
+
+function renderAllDayRow(days) {
+    const el = document.getElementById('allDayRow');
+    let html = '<div class="cal-allday-label">all-day</div>';
+    let hasAnyAllDay = false;
+    for (const day of days) {
+        const allDayEvents = day.events.filter(e => e.all_day);
+        if (allDayEvents.length > 0) hasAnyAllDay = true;
+        html += '<div class="cal-allday-cell">';
+        for (const evt of allDayEvents) {
+            html += `<div class="cal-allday-event" title="${escapeHtml(evt.title)}">${escapeHtml(evt.title)}</div>`;
         }
-        
-        function formatDate(d) {
-            return d.toISOString().split('T')[0];
+        html += '</div>';
+    }
+    el.innerHTML = html;
+    el.style.display = hasAnyAllDay ? 'grid' : 'none';
+}
+
+function renderGrid(days) {
+    const el = document.getElementById('calGrid');
+    let html = '';
+    const today = new Date().toISOString().split('T')[0];
+    for (let h = START_HOUR; h < END_HOUR; h++) {
+        const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h-12} PM`;
+        html += `<div class="cal-time-label">${label}</div>`;
+        for (let d = 0; d < 7; d++) {
+            const isToday = days[d].date === today;
+            html += `<div class="cal-day-col${isToday ? ' today' : ''}" data-day="${d}" data-hour="${h}"></div>`;
         }
-        
-        function navigateWeek(offset) {
-            if (offset === 0) currentDate = new Date();
-            else currentDate.setDate(currentDate.getDate() + offset * 7);
-            loadWeek();
+    }
+    el.innerHTML = html;
+    for (let d = 0; d < days.length; d++) {
+        for (const evt of days[d].events) {
+            if (!evt.all_day) placeEvent(d, evt);
         }
-        
-        async function loadWeek() {
-            const monday = getMonday(currentDate);
-            const dateStr = formatDate(monday);
-            
-            const resp = await fetch(`/api/calendar/week?date=${dateStr}`);
-            const data = await resp.json();
-            
-            renderHeaders(data.days);
-            renderGrid(data.days);
-            
-            const sun = new Date(monday); sun.setDate(sun.getDate() + 6);
-            document.getElementById('weekLabel').textContent = 
-                `${monday.toLocaleDateString('en', {month: 'short', day: 'numeric'})} – ${sun.toLocaleDateString('en', {month: 'short', day: 'numeric', year: 'numeric'})}`;
-        }
-        
-        function renderHeaders(days) {
-            const el = document.getElementById('dayHeaders');
-            let html = '<div class="cal-day-header"></div>'; // time column spacer
-            for (const day of days) {
-                const cls = day.is_today ? ' today' : '';
-                const d = new Date(day.date + 'T00:00:00');
-                html += `<div class="cal-day-header${cls}">
-                    ${day.day_name}<br>
-                    <span class="day-num">${d.getDate()}</span>
-                </div>`;
-            }
-            el.innerHTML = html;
-        }
-        
-        function renderGrid(days) {
-            const el = document.getElementById('calGrid');
-            let html = '';
-            const today = new Date().toISOString().split('T')[0];
-            
-            for (let h = START_HOUR; h < END_HOUR; h++) {
-                const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h-12} PM`;
-                html += `<div class="cal-time-label">${label}</div>`;
-                
-                for (let d = 0; d < 7; d++) {
-                    const isToday = days[d].date === today;
-                    html += `<div class="cal-day-col${isToday ? ' today' : ''}" data-day="${d}" data-hour="${h}"></div>`;
-                }
-            }
-            el.innerHTML = html;
-            
-            // Place events
-            for (let d = 0; d < days.length; d++) {
-                for (const evt of days[d].events) {
-                    placeEvent(d, evt);
-                }
-            }
-        }
-        
-        function placeEvent(dayIndex, evt) {
-            const startH = evt.start_hour;
-            const endH = evt.end_hour || startH + 1;
-            if (endH <= START_HOUR || startH >= END_HOUR) return;
-            
-            const clampedStart = Math.max(startH, START_HOUR);
-            const clampedEnd = Math.min(endH, END_HOUR);
-            const topPx = (clampedStart - START_HOUR) * 60;
-            const heightPx = Math.max((clampedEnd - clampedStart) * 60, 20);
-            
-            // Find the column cell for this day and hour
-            const grid = document.getElementById('calGrid');
-            const colSelector = `.cal-day-col[data-day="${dayIndex}"][data-hour="${Math.floor(clampedStart)}"]`;
-            const cell = grid.querySelector(colSelector);
-            if (!cell) return;
-            
-            const startTime = new Date(evt.start);
-            const timeStr = startTime.toLocaleTimeString('en', {hour: 'numeric', minute: '2-digit'});
-            
-            const evtEl = document.createElement('div');
-            evtEl.className = 'cal-event';
-            evtEl.style.top = `${(clampedStart - Math.floor(clampedStart)) * 60}px`;
-            evtEl.style.height = `${heightPx}px`;
-            evtEl.innerHTML = `<div class="event-time">${timeStr}</div><div class="event-title">${evt.title}</div>`;
-            evtEl.title = `${evt.title}\n${timeStr}`;
-            
-            cell.style.position = 'relative';
-            cell.appendChild(evtEl);
-        }
-        
-        loadWeek();
-    </script>
-</body>
-</html>
+    }
+    // Scroll to 7 AM by default
+    const wrapper = document.querySelector('.cal-grid-wrapper');
+    if (wrapper) wrapper.scrollTop = 7 * 48;
+}
+
+function placeEvent(dayIndex, evt) {
+    const startH = evt.start_hour;
+    const endH = evt.end_hour || startH + 1;
+    if (endH <= START_HOUR || startH >= END_HOUR) return;
+    const clampedStart = Math.max(startH, START_HOUR);
+    const clampedEnd = Math.min(endH, END_HOUR);
+    const topPx = (clampedStart - Math.floor(clampedStart)) * 48;
+    const heightPx = Math.max((clampedEnd - clampedStart) * 48, 18);
+    const cell = document.querySelector(`#calGrid .cal-day-col[data-day="${dayIndex}"][data-hour="${Math.floor(clampedStart)}"]`);
+    if (!cell) return;
+    const startTime = new Date(evt.start);
+    const timeStr = startTime.toLocaleTimeString('en', {hour:'numeric', minute:'2-digit'});
+    const evtEl = document.createElement('div');
+    evtEl.className = 'cal-event';
+    evtEl.style.top = `${topPx}px`;
+    evtEl.style.height = `${heightPx}px`;
+    evtEl.innerHTML = `<div class="event-time">${timeStr}</div><div class="event-title">${escapeHtml(evt.title)}</div>`;
+    evtEl.title = `${evt.title}\n${timeStr}`;
+    cell.style.position = 'relative';
+    cell.appendChild(evtEl);
+}
+
+loadWeek();
+{% endblock %}

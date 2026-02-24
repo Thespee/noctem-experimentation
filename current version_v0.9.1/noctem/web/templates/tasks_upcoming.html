@@ -1,223 +1,142 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upcoming Tasks - Noctem</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        body { background: #0d0d1a; }
-        .upcoming-layout { display: flex; min-height: 100vh; }
-        
-        /* Sidebar */
-        .up-sidebar {
-            width: 220px; background: #0a0a18; border-right: 1px solid #222;
-            padding: 1rem; flex-shrink: 0;
+{% extends "base.html" %}
+{% block title %}Upcoming Tasks - Noctem{% endblock %}
+
+{% block extra_style %}
+.up-main { padding: 1.5rem 2rem; overflow-y: auto; max-width: 900px; }
+.up-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.stats-bar { display: flex; gap: 1.5rem; padding: 0.75rem 0; margin-bottom: 1rem; border-bottom: 1px solid #3c3c3c; font-size: 0.8rem; color: #9aa0a6; }
+.stats-bar .stat-val { color: #e8eaed; font-weight: 600; }
+/* Day sections — vertical by default (mobile) */
+.days-container { }
+.day-section { margin-bottom: 1.5rem; }
+.day-header { font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0; border-bottom: 1px solid #3c3c3c; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+.day-header .day-name { color: #e8eaed; }
+.day-header .day-date { color: #5f6368; font-weight: 400; font-size: 0.75rem; }
+.day-header.today .day-name { color: #8ab4f8; }
+.day-header.overdue .day-name { color: #f28b82; }
+/* Task items */
+.task-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; border-radius: 4px; margin-bottom: 2px; }
+.task-item:hover { background: #2d2d2d; }
+.task-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #3c3c3c; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.task-check:hover { border-color: #81c995; background: rgba(129,201,149,0.1); }
+.task-check.p1 { border-color: #f28b82; }
+.task-check.p2 { border-color: #fdd663; }
+.task-check.p3 { border-color: #8ab4f8; }
+.task-check.done { background: #81c995; border-color: #81c995; }
+.task-check.done::after { content: '✓'; color: #1f1f1f; font-size: 0.7rem; font-weight: bold; }
+.task-content { flex: 1; min-width: 0; }
+.task-title { font-size: 0.85rem; color: #e8eaed; }
+.task-title.done { text-decoration: line-through; color: #5f6368; }
+.task-meta { font-size: 0.7rem; color: #5f6368; margin-top: 1px; }
+.task-meta .project-tag { background: #2d2d2d; padding: 1px 6px; border-radius: 3px; color: #9aa0a6; }
+.task-meta .priority-badge { font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; margin-right: 4px; }
+.task-meta .priority-badge.high { background: rgba(242,139,130,0.15); color: #f28b82; }
+.task-meta .priority-badge.medium { background: rgba(253,214,99,0.15); color: #fdd663; }
+.overdue-section { border-left: 3px solid #f28b82; padding-left: 0.75rem; margin-bottom: 2rem; }
+.overdue-count { background: rgba(242,139,130,0.15); color: #f28b82; font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; margin-left: 0.5rem; }
+.empty-day { color: #3c3c3c; font-size: 0.8rem; padding: 0.3rem 0.5rem; font-style: italic; }
+/* Inline task creation (Notion-style) */
+.add-task-btn { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #5f6368; cursor: pointer; border-radius: 4px; border: none; background: none; width: 100%; text-align: left; }
+.add-task-btn:hover { background: #2d2d2d; color: #8ab4f8; }
+.inline-form { display: none; padding: 0.5rem; background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 6px; margin-top: 0.25rem; }
+.inline-form.open { display: block; }
+.inline-form input { background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 100%; margin-bottom: 0.4rem; }
+.inline-form input:focus { outline: none; border-color: #8ab4f8; }
+.inline-form-actions { display: flex; gap: 0.5rem; }
+.inline-form-actions button { padding: 0.3rem 0.75rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; border: none; }
+.inline-form-actions .btn-save { background: #8ab4f8; color: #1f1f1f; }
+.inline-form-actions .btn-cancel { background: #3c3c3c; color: #9aa0a6; }
+/* Desktop: horizontal scroll */
+@media (min-width: 769px) {
+    body:not(.force-mobile) .days-container { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; align-items: flex-start; }
+    body:not(.force-mobile) .day-section { min-width: 260px; max-width: 320px; flex-shrink: 0; background: #2d2d2d; border-radius: 8px; padding: 0.75rem; border: 1px solid #3c3c3c; }
+    body:not(.force-mobile) .overdue-section { min-width: 260px; max-width: 320px; flex-shrink: 0; background: #2d2d2d; border-radius: 8px; padding: 0.75rem; border: 1px solid #3c3c3c; border-left: 3px solid #f28b82; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="up-main">
+    <h1>📋 Upcoming Tasks</h1>
+    <div class="stats-bar" id="statsBar"></div>
+    <div class="days-container" id="taskContainer"></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let allData = null;
+
+async function loadTasks() {
+    const resp = await fetch('/api/tasks/upcoming');
+    allData = await resp.json();
+    renderTasks();
+}
+
+function renderTasks() {
+    if (!allData) return;
+    const container = document.getElementById('taskContainer');
+    let html = '';
+    let totalTasks = 0, overdueCount = allData.overdue ? allData.overdue.length : 0;
+    if (allData.days) allData.days.forEach(d => totalTasks += d.tasks.length);
+    totalTasks += overdueCount;
+    document.getElementById('statsBar').innerHTML = `<span><span class="stat-val">${totalTasks}</span> tasks</span><span><span class="stat-val" style="color:#f28b82">${overdueCount}</span> overdue</span>`;
+
+    if (allData.overdue && allData.overdue.length > 0) {
+        html += `<div class="overdue-section"><div class="day-header overdue"><span class="day-name">Overdue <span class="overdue-count">${allData.overdue.length}</span></span></div>`;
+        allData.overdue.forEach(t => html += renderTask(t));
+        html += '</div>';
+    }
+    if (allData.days) {
+        for (const day of allData.days) {
+            const isToday = day.is_today ? ' today' : '';
+            const dayLabel = day.is_today ? `Today · ${day.day_name}` : day.day_name;
+            html += `<div class="day-section"><div class="day-header${isToday}"><span class="day-name">${dayLabel}</span><span class="day-date">${day.date}</span></div>`;
+            if (day.tasks.length > 0) day.tasks.forEach(t => html += renderTask(t));
+            else html += '<div class="empty-day">No tasks</div>';
+            html += `<button class="add-task-btn" onclick="showInlineForm(this, '${day.date}')">+ New task</button>`;
+            html += `<div class="inline-form" data-date="${day.date}"><input type="text" placeholder="Task name..." onkeydown="if(event.key==='Enter')saveInlineTask(this)" autofocus><div class="inline-form-actions"><button class="btn-save" onclick="saveInlineTask(this.parentElement.previousElementSibling)">Add</button><button class="btn-cancel" onclick="this.closest('.inline-form').classList.remove('open')">Cancel</button></div></div>`;
+            html += '</div>';
         }
-        .up-sidebar .nav-links a { display: block; color: #6eb5ff; font-size: 0.8rem; margin-bottom: 0.3rem; }
-        .up-sidebar h3 { font-size: 0.8rem; color: #888; margin-top: 1.5rem; margin-bottom: 0.5rem; }
-        .up-sidebar .filter-btn {
-            display: block; width: 100%; text-align: left; background: none; border: none;
-            color: #e8e8e8; padding: 0.3rem 0.5rem; font-size: 0.8rem; cursor: pointer;
-            border-radius: 4px; margin-bottom: 2px;
-        }
-        .up-sidebar .filter-btn:hover, .up-sidebar .filter-btn.active { background: #1a1a2e; color: #6eb5ff; }
-        
-        /* Main content */
-        .up-main { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; max-width: 800px; }
-        .up-main h1 { font-size: 1.3rem; margin-bottom: 1.5rem; }
-        
-        /* Day sections */
-        .day-section { margin-bottom: 1.5rem; }
-        .day-header {
-            font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0;
-            border-bottom: 1px solid #222; margin-bottom: 0.5rem;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .day-header .day-name { color: #e8e8e8; }
-        .day-header .day-date { color: #555; font-weight: 400; font-size: 0.75rem; }
-        .day-header.today .day-name { color: #6eb5ff; }
-        .day-header.overdue .day-name { color: #ff4757; }
-        
-        /* Task items */
-        .task-item {
-            display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.5rem;
-            border-radius: 4px; margin-bottom: 2px; cursor: pointer;
-        }
-        .task-item:hover { background: #1a1a2e; }
-        
-        .task-check {
-            width: 18px; height: 18px; border-radius: 50%; border: 2px solid #3a3a5c;
-            flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        }
-        .task-check:hover { border-color: #4ecca3; }
-        .task-check.p1 { border-color: #ff4757; }
-        .task-check.p2 { border-color: #ffa502; }
-        .task-check.p3 { border-color: #6eb5ff; }
-        
-        .task-content { flex: 1; min-width: 0; }
-        .task-title { font-size: 0.85rem; color: #e8e8e8; }
-        .task-meta { font-size: 0.7rem; color: #555; margin-top: 1px; }
-        .task-meta .project-tag {
-            background: #1a1a2e; padding: 1px 6px; border-radius: 3px; color: #888;
-        }
-        .task-meta .priority-badge {
-            font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; margin-right: 4px;
-        }
-        .task-meta .priority-badge.high { background: rgba(255, 71, 87, 0.15); color: #ff4757; }
-        .task-meta .priority-badge.medium { background: rgba(255, 165, 2, 0.15); color: #ffa502; }
-        
-        /* Overdue section */
-        .overdue-section { 
-            border-left: 3px solid #ff4757; padding-left: 0.75rem; margin-bottom: 2rem;
-        }
-        .overdue-count {
-            background: rgba(255, 71, 87, 0.15); color: #ff4757; font-size: 0.7rem;
-            padding: 1px 6px; border-radius: 10px; margin-left: 0.5rem;
-        }
-        
-        /* Empty state */
-        .empty-day { color: #333; font-size: 0.8rem; padding: 0.3rem 0.5rem; font-style: italic; }
-        
-        /* Stats bar */
-        .stats-bar {
-            display: flex; gap: 1.5rem; padding: 0.75rem 0; margin-bottom: 1rem;
-            border-bottom: 1px solid #222; font-size: 0.8rem; color: #888;
-        }
-        .stats-bar .stat-val { color: #e8e8e8; font-weight: 600; }
-    </style>
-</head>
-<body>
-    <div class="upcoming-layout">
-        <!-- Sidebar -->
-        <div class="up-sidebar">
-            <div class="nav-links">
-                <a href="/">← Dashboard</a>
-                <a href="/calendar/view">Calendar</a>
-                <a href="/tasks">Task Settings</a>
-                <a href="/tasks/projects">Project Board</a>
-            </div>
-            
-            <h3>Filter</h3>
-            <button class="filter-btn active" onclick="filterTasks('all')">All Tasks</button>
-            <button class="filter-btn" onclick="filterTasks('high')">⚡ High Priority</button>
-            <button class="filter-btn" onclick="filterTasks('has-project')">📁 With Project</button>
-            <button class="filter-btn" onclick="filterTasks('no-project')">📥 No Project</button>
-        </div>
-        
-        <!-- Main content -->
-        <div class="up-main">
-            <h1>📋 Upcoming Tasks</h1>
-            <div class="stats-bar" id="statsBar"></div>
-            <div id="taskContainer"></div>
-        </div>
-    </div>
-    
-    <script>
-        let allData = null;
-        let currentFilter = 'all';
-        
-        async function loadTasks() {
-            const resp = await fetch('/api/tasks/upcoming');
-            allData = await resp.json();
-            renderTasks();
-        }
-        
-        function filterTasks(filter) {
-            currentFilter = filter;
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
-            renderTasks();
-        }
-        
-        function applyFilter(tasks) {
-            if (currentFilter === 'all') return tasks;
-            if (currentFilter === 'high') return tasks.filter(t => (t.priority_score || 0) >= 70);
-            if (currentFilter === 'has-project') return tasks.filter(t => t.project && t.project !== 'Inbox');
-            if (currentFilter === 'no-project') return tasks.filter(t => !t.project || t.project === 'Inbox');
-            return tasks;
-        }
-        
-        function renderTasks() {
-            if (!allData) return;
-            const container = document.getElementById('taskContainer');
-            let html = '';
-            
-            // Stats
-            let totalTasks = 0, overdueCount = 0, highPriority = 0;
-            if (allData.overdue) overdueCount = allData.overdue.length;
-            if (allData.days) allData.days.forEach(d => totalTasks += d.tasks.length);
-            totalTasks += overdueCount;
-            
-            const allTasks = [];
-            if (allData.overdue) allTasks.push(...allData.overdue);
-            if (allData.days) allData.days.forEach(d => allTasks.push(...d.tasks));
-            highPriority = allTasks.filter(t => (t.priority_score || 0) >= 70).length;
-            
-            document.getElementById('statsBar').innerHTML = 
-                `<span><span class="stat-val">${totalTasks}</span> tasks this week</span>
-                 <span><span class="stat-val" style="color:#ff4757">${overdueCount}</span> overdue</span>
-                 <span><span class="stat-val" style="color:#ffa502">${highPriority}</span> high priority</span>`;
-            
-            // Overdue section
-            if (allData.overdue && allData.overdue.length > 0) {
-                const filtered = applyFilter(allData.overdue);
-                if (filtered.length > 0) {
-                    html += `<div class="overdue-section">
-                        <div class="day-header overdue">
-                            <span class="day-name">Overdue <span class="overdue-count">${filtered.length}</span></span>
-                        </div>`;
-                    filtered.forEach(t => html += renderTask(t));
-                    html += '</div>';
-                }
-            }
-            
-            // Day sections
-            if (allData.days) {
-                for (const day of allData.days) {
-                    const filtered = applyFilter(day.tasks);
-                    const isToday = day.is_today ? ' today' : '';
-                    const dayLabel = day.is_today ? `Today · ${day.day_name}` : day.day_name;
-                    
-                    html += `<div class="day-section">
-                        <div class="day-header${isToday}">
-                            <span class="day-name">${dayLabel}</span>
-                            <span class="day-date">${day.date}</span>
-                        </div>`;
-                    
-                    if (filtered.length > 0) {
-                        filtered.forEach(t => html += renderTask(t));
-                    } else {
-                        html += '<div class="empty-day">No tasks</div>';
-                    }
-                    html += '</div>';
-                }
-            }
-            
-            container.innerHTML = html || '<div class="empty-day">No upcoming tasks found.</div>';
-        }
-        
-        function renderTask(task) {
-            const score = task.priority_score || 0;
-            let checkClass = '';
-            let badge = '';
-            if (score >= 70) { checkClass = ' p1'; badge = '<span class="priority-badge high">HIGH</span>'; }
-            else if (score >= 40) { checkClass = ' p2'; badge = '<span class="priority-badge medium">MED</span>'; }
-            else if (score >= 20) { checkClass = ' p3'; }
-            
-            const project = task.project_name ? `<span class="project-tag">${task.project_name}</span>` : '';
-            const time = task.due_time ? ` · ${task.due_time}` : '';
-            
-            return `<div class="task-item" data-id="${task.id || ''}">
-                <div class="task-check${checkClass}"></div>
-                <div class="task-content">
-                    <div class="task-title">${task.name || ''}</div>
-                    <div class="task-meta">${badge}${project}${time}</div>
-                </div>
-            </div>`;
-        }
-        
-        loadTasks();
-    </script>
-</body>
-</html>
+    }
+    container.innerHTML = html || '<div class="empty-day">No upcoming tasks found.</div>';
+}
+
+function renderTask(task) {
+    const score = task.priority_score || 0;
+    let checkClass = '', badge = '';
+    if (score >= 70) { checkClass = ' p1'; badge = '<span class="priority-badge high">HIGH</span>'; }
+    else if (score >= 40) { checkClass = ' p2'; badge = '<span class="priority-badge medium">MED</span>'; }
+    else if (score >= 20) checkClass = ' p3';
+    const project = task.project_name ? `<span class="project-tag">${escapeHtml(task.project_name)}</span>` : '';
+    const time = task.due_time ? ` · ${task.due_time}` : '';
+    return `<div class="task-item" data-id="${task.id||''}"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id})"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
+}
+
+async function completeTask(el, taskId) {
+    el.classList.add('done');
+    const title = el.nextElementSibling.querySelector('.task-title');
+    if (title) title.classList.add('done');
+    try {
+        await fetch(`/api/tasks/${taskId}/complete`, {method: 'POST'});
+        setTimeout(() => { el.closest('.task-item').style.opacity = '0.3'; }, 500);
+    } catch(e) { el.classList.remove('done'); if (title) title.classList.remove('done'); }
+}
+
+function showInlineForm(btn, date) {
+    const form = btn.nextElementSibling;
+    form.classList.add('open');
+    form.querySelector('input').focus();
+}
+
+async function saveInlineTask(input) {
+    const name = input.value.trim();
+    if (!name) return;
+    const date = input.closest('.inline-form').dataset.date;
+    try {
+        const resp = await fetch('/api/tasks', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, due_date: date}) });
+        const data = await resp.json();
+        if (data.success) { input.value = ''; input.closest('.inline-form').classList.remove('open'); loadTasks(); }
+    } catch(e) {}
+}
+
+loadTasks();
+{% endblock %}
