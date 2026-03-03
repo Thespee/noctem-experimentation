@@ -78,6 +78,10 @@ def parse_date(text: str) -> Tuple[Optional[date], str]:
     if re.search(r'\btomorrow\b', text_lower):
         return today + timedelta(days=1), re.sub(r'\btomorrow\b', '', text, flags=re.IGNORECASE).strip()
     
+    # Tomorrow (tmrw alias)
+    if re.search(r'\btmrw\b', text_lower):
+        return today + timedelta(days=1), re.sub(r'\btmrw\b', '', text, flags=re.IGNORECASE).strip()
+    
     # Yesterday (for logging past tasks)
     if re.search(r'\byesterday\b', text_lower):
         return today - timedelta(days=1), re.sub(r'\byesterday\b', '', text, flags=re.IGNORECASE).strip()
