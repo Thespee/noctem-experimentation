@@ -1145,6 +1145,32 @@ def create_app() -> Flask:
             'days': days,
         })
     
+    @app.route("/api/tasks/no-due-date")
+    def api_tasks_no_due_date():
+        """Get tasks without a due date (unassigned)."""
+        tasks = task_service.get_tasks_without_due_date()
+        
+        tasks_data = []
+        for t in tasks:
+            project_name = None
+            if t.project_id:
+                p = project_service.get_project(t.project_id)
+                project_name = p.name if p else None
+            
+            tasks_data.append({
+                'id': t.id,
+                'name': t.name,
+                'importance': t.importance,
+                'priority_score': t.priority_score,
+                'project_name': project_name,
+                'project_id': t.project_id,
+                'status': t.status,
+                'tags': t.tags,
+                'created_at': t.created_at.isoformat() if t.created_at else None,
+            })
+        
+        return jsonify({'tasks': tasks_data})
+    
     # =========================================================================
     # v0.9.1: Task Projects View (Kanban-style board)
     # =========================================================================

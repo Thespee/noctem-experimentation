@@ -131,6 +131,19 @@ def get_overdue_tasks() -> list[Task]:
         return [Task.from_row(row) for row in rows]
 
 
+def get_tasks_without_due_date() -> list[Task]:
+    """Get all tasks without a due date (unassigned)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM tasks 
+            WHERE due_date IS NULL AND status NOT IN ('done', 'canceled')
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+        return [Task.from_row(row) for row in rows]
+
+
 def get_priority_tasks(max_count: int = 5) -> list[Task]:
     """Get top priority tasks sorted by calculated priority_score."""
     with get_db() as conn:

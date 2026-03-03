@@ -68,6 +68,10 @@ let allData = null;
 async function loadTasks() {
     const resp = await fetch('/api/tasks/upcoming');
     allData = await resp.json();
+    // Fetch tasks without due dates
+    const noDueDateResp = await fetch('/api/tasks/no-due-date');
+    const noDueDateData = await noDueDateResp.json();
+    allData.unassigned = noDueDateData.tasks || [];
     renderTasks();
 }
 
@@ -96,6 +100,12 @@ function renderTasks() {
             html += `<div class="inline-form" data-date="${day.date}"><input type="text" placeholder="Task name..." onkeydown="if(event.key==='Enter')saveInlineTask(this)" autofocus><div class="inline-form-actions"><button class="btn-save" onclick="saveInlineTask(this.parentElement.previousElementSibling)">Add</button><button class="btn-cancel" onclick="this.closest('.inline-form').classList.remove('open')">Cancel</button></div></div>`;
             html += '</div>';
         }
+    }
+    // Unassigned section (tasks without due date) - only show if not empty
+    if (allData.unassigned && allData.unassigned.length > 0) {
+        html += `<div class="day-section" style="border-left: 2px solid #5f6368;"><div class="day-header"><span class="day-name">Unassigned</span><span class="day-date">${allData.unassigned.length} tasks</span></div>`;
+        allData.unassigned.forEach(t => html += renderTask(t));
+        html += '</div>';
     }
     container.innerHTML = html || '<div class="empty-day">No upcoming tasks found.</div>';
 }
