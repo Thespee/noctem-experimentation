@@ -177,7 +177,7 @@ noctem/
 
 ## Documentation
 
-- [docs/USER_GUIDE_v0.9.2.md](docs/USER_GUIDE_v0.9.2.md) - v0.9.2 UI overhaul guide
+- [docs/USER_GUIDE_v0.9.2.md](current%20version_v0.9.1/docs/USER_GUIDE_v0.9.2.md) - v0.9.2 UI overhaul guide
 - [docs/USER_GUIDE_v0.9.0.md](docs/USER_GUIDE_v0.9.0.md) - User guide with all features
 - [docs/improvements.md](docs/improvements.md) - Design notes, roadmap, learnings
 - [docs/Ideals_v0.9.0.md](docs/Ideals_v0.9.0.md) - Aspirational vision and philosophy
