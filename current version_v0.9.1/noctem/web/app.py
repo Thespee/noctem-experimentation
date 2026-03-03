@@ -983,6 +983,70 @@ def create_app() -> Flask:
             },
         })
     
+    @app.route("/api/tasks/<int:task_id>/reprocess", methods=["POST"])
+    def api_task_reprocess(task_id):
+        """Reprocess task text with NLP parser - only updates fields explicitly mentioned."""
+        from ..parser.task_parser import parse_task
+        
+        data = request.get_json()
+        if not data or not data.get('text', '').strip():
+            return jsonify({"error": "Task text required", "success": False}), 400
+        
+        # Get existing task
+        existing_task = task_service.get_task(task_id)
+        if not existing_task:
+            return jsonify({"error": "Task not found", "success": False}), 404
+        
+        # Parse new text
+        parsed = parse_task(data['text'].strip())
+        
+        # Differential update: only update fields that are explicitly mentioned
+        kwargs = {}
+        
+        # Always update name (task text)
+        kwargs['name'] = parsed.name
+        
+        # Only update due_date if explicitly mentioned (parsed.date is not None)
+        if parsed.date is not None:
+            kwargs['due_date'] = parsed.date
+        
+        # Only update due_time if explicitly mentioned
+        if parsed.due_time is not None:
+            kwargs['due_time'] = parsed.due_time
+        
+        # Only update importance if explicitly mentioned
+        if parsed.importance is not None:
+            kwargs['importance'] = parsed.importance
+        
+        # Only update tags if explicitly mentioned (has tags in new text)
+        if parsed.tags:
+            kwargs['tags'] = parsed.tags
+        
+        # Only update project if explicitly mentioned
+        if parsed.project_name is not None:
+            # Look up project by name
+            from ..services import project_service
+            project = project_service.get_project_by_name(parsed.project_name)
+            if project:
+                kwargs['project_id'] = project.id
+        
+        # Update the task
+        updated_task = task_service.update_task(task_id, **kwargs)
+        
+        return jsonify({
+            "success": True,
+            "task": {
+                "id": updated_task.id,
+                "name": updated_task.name,
+                "due_date": updated_task.due_date.isoformat() if updated_task.due_date else None,
+                "due_time": updated_task.due_time.isoformat() if updated_task.due_time else None,
+                "importance": updated_task.importance,
+                "project_id": updated_task.project_id,
+                "status": updated_task.status,
+                "tags": updated_task.tags,
+            },
+        })
+    
     # =========================================================================
     # v0.9.1: Calendar View (Google Calendar-style weekly grid)
     # =========================================================================

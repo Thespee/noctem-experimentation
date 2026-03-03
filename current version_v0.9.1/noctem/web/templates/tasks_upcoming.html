@@ -15,8 +15,11 @@
 .day-header.today .day-name { color: #8ab4f8; }
 .day-header.overdue .day-name { color: #f28b82; }
 /* Task items */
-.task-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; border-radius: 4px; margin-bottom: 2px; }
+.task-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; border-radius: 4px; margin-bottom: 2px; cursor: pointer; }
 .task-item:hover { background: #2d2d2d; }
+.task-item.editing { background: #2d2d2d; border: 1px solid #8ab4f8; padding: 0.4rem; }
+.task-edit-input { background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem; border-radius: 4px; font-size: 0.85rem; width: 100%; }
+.task-edit-input:focus { outline: none; border-color: #8ab4f8; }
 .task-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #3c3c3c; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .task-check:hover { border-color: #81c995; background: rgba(129,201,149,0.1); }
 .task-check.p1 { border-color: #f28b82; }
@@ -118,7 +121,7 @@ function renderTask(task) {
     else if (score >= 20) checkClass = ' p3';
     const project = task.project_name ? `<span class="project-tag">${escapeHtml(task.project_name)}</span>` : '';
     const time = task.due_time ? ` · ${task.due_time}` : '';
-    return `<div class="task-item" data-id="${task.id||''}"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id})"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
+    return `<div class="task-item" data-id="${task.id||''}" onclick="editTask(this, ${task.id}, '${escapeHtml(task.name||'')}', event)"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id}); event.stopPropagation();"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
 }
 
 async function completeTask(el, taskId) {
@@ -146,6 +149,34 @@ async function saveInlineTask(input) {
         const data = await resp.json();
         if (data.success) { input.value = ''; input.closest('.inline-form').classList.remove('open'); loadTasks(); }
     } catch(e) {}
+}
+
+function editTask(taskEl, taskId, currentName, event) {
+    if (event.target.classList.contains('task-check')) return;
+    const contentEl = taskEl.querySelector('.task-content');
+    const titleEl = taskEl.querySelector('.task-title');
+    if (taskEl.classList.contains('editing')) return;
+    taskEl.classList.add('editing');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'task-edit-input';
+    input.value = currentName;
+    input.onblur = () => saveTaskEdit(taskEl, taskId, input);
+    input.onkeydown = (e) => { if(e.key==='Enter') input.blur(); if(e.key==='Escape') { taskEl.classList.remove('editing'); loadTasks(); } };
+    contentEl.innerHTML = '';
+    contentEl.appendChild(input);
+    input.focus();
+    input.select();
+}
+
+async function saveTaskEdit(taskEl, taskId, input) {
+    const newText = input.value.trim();
+    if (!newText) { taskEl.classList.remove('editing'); loadTasks(); return; }
+    try {
+        const resp = await fetch(`/api/tasks/${taskId}/reprocess`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: newText}) });
+        const data = await resp.json();
+        if (data.success) { taskEl.classList.remove('editing'); loadTasks(); }
+    } catch(e) { taskEl.classList.remove('editing'); loadTasks(); }
 }
 
 loadTasks();
