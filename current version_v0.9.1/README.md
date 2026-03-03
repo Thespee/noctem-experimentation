@@ -179,7 +179,7 @@ noctem/
 
 - [docs/USER_GUIDE_v0.9.2.md](current%20version_v0.9.1/docs/USER_GUIDE_v0.9.2.md) - v0.9.2 UI overhaul guide
 - [docs/USER_GUIDE_v0.9.0.md](docs/USER_GUIDE_v0.9.0.md) - User guide with all features
-- [docs/improvements.md](docs/improvements.md) - Design notes, roadmap, learnings
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) - Implementation notes, roadmap, and release changelog
 - [docs/Ideals_v0.9.0.md](docs/Ideals_v0.9.0.md) - Aspirational vision and philosophy
 - [docs/discussion_v0.7.0.md](docs/discussion_v0.7.0.md) - Critical analysis and technical review
 - [SETUP.md](SETUP.md) - Detailed setup guide

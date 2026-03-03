@@ -1,6 +1,33 @@
-# Noctem v0.9.0 — Improvements, Research, and Design Notes
+# Noctem CHANGELOG and Implementation Notes
 
-*Last updated: 2026-02-17 (v0.9.0 Wiki implementation in progress)*
+*Last updated: 2026-03-03 (v0.9.3 Phase 1 quick fixes completed)*
+
+---
+
+## v0.9.3 Phase 1 — Quick Fixes (Done)
+
+Status: **Completed on 2026-03-03**
+
+- ✅ Removed manual date field from project column task creation; NLP parsing now handles date extraction from task text.
+- ✅ Added `tmrw` date alias (equivalent to `tomorrow`) in natural language parsing.
+- ✅ Added inline task-card editing with NLP reprocessing in both **Upcoming** and **Projects** views.
+  - Differential update behavior: only fields explicitly mentioned in edited text are updated.
+- ✅ Added **Unassigned** section in Upcoming view for tasks without due dates.
+  - Ordered newest to oldest.
+  - Hidden automatically when empty.
+- ✅ Fixed recurring ICS import by expanding RRULE events into concrete occurrences within import window.
+  - Supports recurring patterns such as every-other-week schedules.
+- ✅ Restored/strengthened UI consistency and route stability:
+  - Legacy quick-link redirects now route correctly (`/tasks/settings`, `/task/settings`, `/tasks`, `/upcoming`, `/projects`).
+  - Upcoming view uses full-width horizontal layout on desktop.
+  - Unified page styling now uses base template theme without legacy global stylesheet conflicts.
+- ✅ Added Phase 1 regression tests in `tests/test_v093_quick_fixes.py` (7 tests passing).
+
+### Phase 1 Learnings
+
+- Recurrence import needed explicit RRULE expansion; relying on DTSTART alone misses most repeating events.
+- Timestamp fields may return as strings from SQLite and must be serialized defensively in API responses.
+- Inline editor handlers should avoid passing raw task text via JS string literals; using `data-*` attributes prevents quote-breaking edge cases.
 
 ---
 

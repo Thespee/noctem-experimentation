@@ -1,5 +1,42 @@
-# Noctem v0.9.2 User Guide
-## UI/UX Overhaul — Google Calendar Dark Mode
+# Noctem v0.9.3 User Guide
+## UI/UX Overhaul + Quick Fixes
+
+---
+
+## What's New in v0.9.3 (Phase 1 Quick Fixes)
+
+### NLP-First Task Editing (Upcoming + Projects)
+- Click any task card to open an inline text editor.
+- Edit in natural language, then press **Enter** to reprocess.
+- Differential update behavior:
+  - Only fields explicitly mentioned in edited text are updated.
+  - Unmentioned fields are preserved.
+- Example:
+  - Original: `take out trash on monday #home !1`
+  - Edited: `take out trash Sunday`
+  - Result: due date updates to Sunday, while tags/importance remain unchanged unless explicitly changed.
+
+### Projects Board: Date Picker Removed
+- Inline task creation in project columns no longer uses a manual date input.
+- Enter dates naturally in task text (e.g., `submit report friday 3pm`).
+
+### New Date Alias
+- `tmrw` now parses the same as `tomorrow`.
+
+### Upcoming View: Unassigned Section
+- Tasks without due dates now appear in an **Unassigned** section at the end of the upcoming board.
+- Ordered from most recently created to oldest.
+- Hidden automatically when empty.
+
+### Recurring Calendar Import Fix
+- ICS imports now expand recurring `RRULE` events into concrete occurrences in the import window.
+- Handles repeating schedules such as every-other-week sessions.
+
+### Legacy Quick-Link Compatibility
+- Old links now redirect correctly:
+  - `/tasks/settings` and `/task/settings` → Settings
+  - `/tasks` and `/upcoming` → Upcoming
+  - `/projects` → Projects board
 
 ---
 
@@ -51,6 +88,8 @@ Three new endpoints power the inline creation and check-off:
 - `POST /api/tasks` — Create task (`{name, due_date?, project_id?}`)
 - `POST /api/tasks/<id>/complete` — Mark task done
 - `POST /api/tasks/<id>/update` — Update fields (name, status, due_date, project_id, importance)
+- `POST /api/tasks/<id>/reprocess` — Reprocess edited task text with NLP (explicit-field updates only)
+- `GET /api/tasks/no-due-date` — List active tasks with no due date (for Upcoming “Unassigned” section)
 
 ### Whisper Fix
 - Wrapped `faster-whisper` import in try/except at module level
@@ -77,8 +116,11 @@ All templates now extend `base.html`:
 ## Running Tests
 
 ```powershell
-# Run v0.9.2 specific tests (32 tests)
+# Run v0.9.2 UI regression tests (32 tests)
 .\venv\Scripts\python.exe -m pytest tests/test_v092_ui_overhaul.py -v
+
+# Run v0.9.3 Phase 1 quick fix tests (7 tests)
+.\venv\Scripts\python.exe -m pytest tests/test_v093_quick_fixes.py -v
 
 # Run full test suite
 .\venv\Scripts\python.exe -m pytest tests/ -v

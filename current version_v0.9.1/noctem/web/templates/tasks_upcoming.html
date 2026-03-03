@@ -2,7 +2,7 @@
 {% block title %}Upcoming Tasks - Noctem{% endblock %}
 
 {% block extra_style %}
-.up-main { padding: 1.5rem 2rem; overflow-y: auto; max-width: 900px; }
+.up-main { padding: 1.5rem 2rem; overflow-y: auto; max-width: none; width: 100%; }
 .up-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
 .stats-bar { display: flex; gap: 1.5rem; padding: 0.75rem 0; margin-bottom: 1rem; border-bottom: 1px solid #3c3c3c; font-size: 0.8rem; color: #9aa0a6; }
 .stats-bar .stat-val { color: #e8eaed; font-weight: 600; }
@@ -121,7 +121,7 @@ function renderTask(task) {
     else if (score >= 20) checkClass = ' p3';
     const project = task.project_name ? `<span class="project-tag">${escapeHtml(task.project_name)}</span>` : '';
     const time = task.due_time ? ` · ${task.due_time}` : '';
-    return `<div class="task-item" data-id="${task.id||''}" onclick="editTask(this, ${task.id}, '${escapeHtml(task.name||'')}', event)"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id}); event.stopPropagation();"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
+    return `<div class="task-item" data-id="${task.id||''}" data-name="${escapeHtml(task.name||'')}" onclick="editTask(this, ${task.id}, event)"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id}); event.stopPropagation();"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
 }
 
 async function completeTask(el, taskId) {
@@ -151,16 +151,15 @@ async function saveInlineTask(input) {
     } catch(e) {}
 }
 
-function editTask(taskEl, taskId, currentName, event) {
+function editTask(taskEl, taskId, event) {
     if (event.target.classList.contains('task-check')) return;
     const contentEl = taskEl.querySelector('.task-content');
-    const titleEl = taskEl.querySelector('.task-title');
     if (taskEl.classList.contains('editing')) return;
     taskEl.classList.add('editing');
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'task-edit-input';
-    input.value = currentName;
+    input.value = taskEl.dataset.name || '';
     input.onblur = () => saveTaskEdit(taskEl, taskId, input);
     input.onkeydown = (e) => { if(e.key==='Enter') input.blur(); if(e.key==='Escape') { taskEl.classList.remove('editing'); loadTasks(); } };
     contentEl.innerHTML = '';

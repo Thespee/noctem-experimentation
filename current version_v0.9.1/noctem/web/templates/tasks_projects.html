@@ -15,8 +15,11 @@
 .col-body { padding: 0.5rem; max-height: 65vh; overflow-y: auto; }
 .col-ai { font-size: 0.7rem; color: #8ab4f8; padding: 0.25rem 0.75rem 0.5rem; font-style: italic; border-bottom: 1px solid #3c3c3c; }
 /* Task cards */
-.task-card { background: #1f1f1f; border: 1px solid #3c3c3c; border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; display: flex; align-items: flex-start; gap: 0.5rem; }
+.task-card { background: #1f1f1f; border: 1px solid #3c3c3c; border-radius: 6px; padding: 0.6rem; margin-bottom: 0.4rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; }
 .task-card:hover { border-color: #5f6368; }
+.task-card.editing { border-color: #8ab4f8; background: #2d2d2d; }
+.card-edit-input { background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem; border-radius: 4px; font-size: 0.82rem; width: 100%; }
+.card-edit-input:focus { outline: none; border-color: #8ab4f8; }
 .card-check { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #3c3c3c; flex-shrink: 0; cursor: pointer; margin-top: 2px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .card-check:hover { border-color: #81c995; background: rgba(129,201,149,0.1); }
 .card-check.p1 { border-color: #f28b82; }
@@ -101,8 +104,8 @@ function renderColumn(col, isInbox) {
         const tagList = Array.isArray(t.tags) ? t.tags : (t.tags ? t.tags.split(',') : []);
         const tags = tagList.filter(tg => tg).map(tg => `<span class="card-tag">${escapeHtml(String(tg).trim())}</span>`).join('');
 
-        cards += `<div class="task-card" data-id="${t.id}">
-            <div class="card-check${checkClass}" onclick="completeTask(this, ${t.id})"></div>
+        cards += `<div class="task-card" data-id="${t.id}" data-name="${escapeHtml(t.name)}" onclick="editProjectTask(this, ${t.id}, event)">
+            <div class="card-check${checkClass}" onclick="completeTask(this, ${t.id}); event.stopPropagation();"></div>
             <div class="card-body">
                 <div class="card-name">${escapeHtml(t.name)}</div>
                 <div class="card-meta">${due}${tags}</div>
@@ -160,6 +163,43 @@ async function saveColTask(input) {
         const data = await resp.json();
         if (data.success) { input.value = ''; form.classList.remove('open'); loadProjects(); }
     } catch(e) {}
+}
+
+function editProjectTask(cardEl, taskId, event) {
+    if (event.target.classList.contains('card-check')) return;
+    if (cardEl.classList.contains('editing')) return;
+    const bodyEl = cardEl.querySelector('.card-body');
+    cardEl.classList.add('editing');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'card-edit-input';
+    input.value = cardEl.dataset.name || '';
+    input.onblur = () => saveProjectTaskEdit(cardEl, taskId, input);
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') { cardEl.classList.remove('editing'); loadProjects(); }
+    };
+    bodyEl.innerHTML = '';
+    bodyEl.appendChild(input);
+    input.focus();
+    input.select();
+}
+
+async function saveProjectTaskEdit(cardEl, taskId, input) {
+    const newText = input.value.trim();
+    if (!newText) { cardEl.classList.remove('editing'); loadProjects(); return; }
+    try {
+        const resp = await fetch(`/api/tasks/${taskId}/reprocess`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: newText})
+        });
+        const data = await resp.json();
+        if (data.success) { cardEl.classList.remove('editing'); loadProjects(); }
+    } catch(e) {
+        cardEl.classList.remove('editing');
+        loadProjects();
+    }
 }
 
 loadProjects();

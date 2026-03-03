@@ -899,32 +899,65 @@ def create_app() -> Flask:
     @app.route("/api/tasks", methods=["POST"])
     def api_task_create():
         """Create a new task. Accepts JSON: {name, due_date?, project_id?}"""
+        from ..parser.task_parser import parse_task
+        
         data = request.get_json()
         if not data or not data.get('name', '').strip():
             return jsonify({"error": "Task name required", "success": False}), 400
         
-        due_date_val = None
-        if data.get('due_date'):
+        raw_name = data['name'].strip()
+        parsed = parse_task(raw_name)
+        
+        # NLP defaults
+        name_val = parsed.name or raw_name
+        due_date_val = parsed.due_date
+        due_time_val = parsed.due_time
+        importance_val = parsed.importance
+        tags_val = parsed.tags if parsed.tags else None
+        recurrence_rule_val = parsed.recurrence_rule
+        
+        project_id_val = data.get('project_id')
+        if project_id_val is None and parsed.project_name:
+            p = project_service.get_project_by_name(parsed.project_name)
+            if p:
+                project_id_val = p.id
+        
+        # Explicit payload values override parsed values
+        if 'due_date' in data and data.get('due_date'):
             try:
                 from datetime import date as date_cls
                 due_date_val = date_cls.fromisoformat(data['due_date'])
             except (ValueError, TypeError):
                 pass
+        elif 'due_date' in data and not data.get('due_date'):
+            due_date_val = None
         
-        due_time_val = None
-        if data.get('due_time'):
+        if 'due_time' in data and data.get('due_time'):
             try:
                 from datetime import time as time_cls
                 due_time_val = time_cls.fromisoformat(data['due_time'])
             except (ValueError, TypeError):
                 pass
+        elif 'due_time' in data and not data.get('due_time'):
+            due_time_val = None
+        
+        if 'importance' in data:
+            importance_val = data.get('importance')
+        if 'tags' in data:
+            tags_val = data.get('tags')
+        if 'recurrence_rule' in data:
+            recurrence_rule_val = data.get('recurrence_rule')
+        if 'project_id' in data:
+            project_id_val = data.get('project_id')
         
         task = task_service.create_task(
-            name=data['name'].strip(),
-            project_id=data.get('project_id'),
+            name=name_val,
+            project_id=project_id_val,
             due_date=due_date_val,
             due_time=due_time_val,
-            importance=data.get('importance'),
+            importance=importance_val,
+            tags=tags_val,
+            recurrence_rule=recurrence_rule_val,
         )
         
         return jsonify({
@@ -1006,9 +1039,9 @@ def create_app() -> Flask:
         # Always update name (task text)
         kwargs['name'] = parsed.name
         
-        # Only update due_date if explicitly mentioned (parsed.date is not None)
-        if parsed.date is not None:
-            kwargs['due_date'] = parsed.date
+        # Only update due_date if explicitly mentioned
+        if parsed.due_date is not None:
+            kwargs['due_date'] = parsed.due_date
         
         # Only update due_time if explicitly mentioned
         if parsed.due_time is not None:
@@ -1142,6 +1175,27 @@ def create_app() -> Flask:
     # v0.9.1: Task Upcoming View (Todoist-style rolling days)
     # =========================================================================
     
+    @app.route("/tasks")
+    def tasks_root_redirect():
+        """Legacy route redirect to upcoming tasks."""
+        return redirect(url_for("tasks_upcoming"))
+    
+    @app.route("/upcoming")
+    def upcoming_redirect():
+        """Legacy route redirect to upcoming tasks."""
+        return redirect(url_for("tasks_upcoming"))
+    
+    @app.route("/projects")
+    def projects_redirect():
+        """Legacy route redirect to projects board."""
+        return redirect(url_for("tasks_projects"))
+    
+    @app.route("/tasks/settings")
+    @app.route("/task/settings")
+    def tasks_settings_redirect():
+        """Legacy route redirect for old task settings links."""
+        return redirect(url_for("settings"))
+    
     @app.route("/tasks/upcoming")
     def tasks_upcoming():
         """Task upcoming view — rolling few days + overdue."""
@@ -1221,6 +1275,10 @@ def create_app() -> Flask:
                 p = project_service.get_project(t.project_id)
                 project_name = p.name if p else None
             
+            created_at_value = None
+            if t.created_at:
+                created_at_value = t.created_at.isoformat() if hasattr(t.created_at, "isoformat") else str(t.created_at)
+            
             tasks_data.append({
                 'id': t.id,
                 'name': t.name,
@@ -1230,7 +1288,7 @@ def create_app() -> Flask:
                 'project_id': t.project_id,
                 'status': t.status,
                 'tags': t.tags,
-                'created_at': t.created_at.isoformat() if t.created_at else None,
+                'created_at': created_at_value,
             })
         
         return jsonify({'tasks': tasks_data})
