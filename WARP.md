@@ -65,6 +65,15 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Keep the improvements summary concise and current.
 - Always start implementation work on a new development branch (never directly on `master`).
 - Make a git commit between distinct implementation tasks so each step is reviewable and reversible.
+- After significant changes, commit and push to the active branch unless explicitly told not to.
+- Never merge into `main`/`master` unless the user explicitly requests it.
+
+## Session Learnings (Mar 2026)
+
+- Calendar import via saved `.ics` URLs and Google OAuth sync were separate pipelines; one can work while the other logs as unconfigured.
+- Runtime direction is now **ICS-only calendar ingestion** (manual/saved-feed refresh), with the Google OAuth calendar sync pipeline removed.
+- Runtime direction is now **voice-processing-only scheduler jobs**; scheduled morning briefing and scheduled calendar sync are removed.
+- Avoid reintroducing `gcal_*` scheduled sync settings or morning briefing scheduler settings unless explicitly requested by the user.
 
 ## Testing
 
