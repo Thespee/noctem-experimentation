@@ -1,0 +1,83 @@
+{
+  "_noctem_seed_version": "1.0",
+  "_description": "Example seed data for Noctem - customize this for your setup",
+
+  "goals": [
+    {
+      "name": "Health & Fitness",
+      "type": "bigger_goal",
+      "description": "Maintain physical and mental wellbeing"
+    },
+    {
+      "name": "Career Growth",
+      "type": "bigger_goal",
+      "description": "Professional development and skills"
+    },
+    {
+      "name": "Personal Projects",
+      "type": "bigger_goal",
+      "description": "Side projects and hobbies"
+    }
+  ],
+
+  "projects": [
+    {
+      "name": "Morning Routine",
+      "goal": "Health & Fitness",
+      "summary": "Establish consistent morning habits",
+      "status": "in_progress"
+    },
+    {
+      "name": "Learn Python",
+      "goal": "Career Growth",
+      "summary": "Master Python programming",
+      "status": "in_progress"
+    },
+    {
+      "name": "Home Organization",
+      "goal": "Personal Projects",
+      "summary": "Declutter and organize living space",
+      "status": "backburner"
+    }
+  ],
+
+  "tasks": [
+    {
+      "name": "Set up development environment",
+      "project": "Learn Python",
+      "importance": 1.0,
+      "tags": ["setup", "one-time"]
+    },
+    {
+      "name": "Complete Python basics tutorial",
+      "project": "Learn Python",
+      "importance": 0.8,
+      "tags": ["learning"]
+    },
+    {
+      "name": "Buy resistance bands",
+      "project": "Morning Routine",
+      "importance": 0.5,
+      "tags": ["shopping"]
+    },
+    {
+      "name": "Research storage solutions",
+      "project": "Home Organization",
+      "importance": 0.3,
+      "tags": ["research"]
+    },
+    {
+      "name": "Weekly review",
+      "importance": 0.7,
+      "recurrence": "FREQ=WEEKLY;BYDAY=SU",
+      "tags": ["recurring", "review"]
+    }
+  ],
+
+  "calendar_urls": [
+    {
+      "name": "Work Calendar",
+      "url": "https://example.com/calendar.ics"
+    }
+  ]
+}

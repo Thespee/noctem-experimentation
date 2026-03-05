@@ -1,0 +1,36 @@
+# Noctem v0.6.0 Dependencies
+
+# Telegram bot
+python-telegram-bot>=20.0
+
+# Job scheduling
+APScheduler>=3.10
+
+# Web dashboard
+flask>=3.0
+jinja2>=3.0
+
+# Calendar parsing
+icalendar>=5.0
+requests>=2.28
+
+# QR code display
+qrcode[pil]>=7.0
+
+# Date parsing helpers
+python-dateutil>=2.8
+
+# v0.6.0: Voice transcription (local Whisper)
+faster-whisper>=1.0
+
+# v0.8.0: Skills infrastructure
+rapidFuzz>=3.0
+pyyaml>=6.0
+
+# v0.9.0: Personal Wiki
+chromadb>=0.4.0
+PyMuPDF>=1.23.0
+
+# Testing
+pytest>=7.0
+pytest-asyncio>=0.20

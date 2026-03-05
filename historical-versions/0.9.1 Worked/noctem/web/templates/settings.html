@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Settings - Noctem{% endblock %}
+
+{% block extra_style %}
+.set-main { padding: 1.5rem 2rem; max-width: 700px; }
+.set-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.settings-form {
+    background: #2d2d2d; border: 1px solid #3c3c3c;
+    padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem;
+}
+.settings-form h2 { margin-top: 0; border-bottom: 1px solid #3c3c3c; padding-bottom: 0.5rem; margin-bottom: 1rem; font-size: 1rem; color: #e8eaed; }
+.form-group { margin-bottom: 1.25rem; }
+.form-group label { display: block; font-weight: 600; margin-bottom: 5px; color: #e8eaed; font-size: 0.85rem; }
+.form-group .help-text { font-size: 0.78rem; color: #5f6368; margin-top: 5px; }
+.form-group .help-text a { color: #8ab4f8; }
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="time"],
+.form-group input[type="number"],
+.form-group select {
+    width: 100%; max-width: 400px; padding: 10px;
+    background: #1f1f1f; color: #e8eaed; border: 1px solid #3c3c3c;
+    border-radius: 4px; font-size: 0.9rem;
+}
+.form-group input:focus, .form-group select:focus { outline: none; border-color: #8ab4f8; }
+.save-btn {
+    background: #8ab4f8; color: #1f1f1f; border: none;
+    padding: 10px 24px; cursor: pointer; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
+}
+.save-btn:hover { opacity: 0.9; }
+.flash-messages { margin-bottom: 1rem; max-width: 600px; }
+.flash { padding: 10px 15px; border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; }
+.flash.success { background: rgba(129,201,149,0.15); color: #81c995; border: 1px solid #81c995; }
+.flash.error { background: rgba(242,139,130,0.15); color: #f28b82; border: 1px solid #f28b82; }
+.status-indicator { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.78rem; margin-left: 8px; }
+.status-ok { background: rgba(129,201,149,0.15); color: #81c995; }
+.status-missing { background: rgba(242,139,130,0.15); color: #f28b82; }
+.test-btn {
+    background: #3c3c3c; color: #9aa0a6; border: none;
+    padding: 8px 16px; cursor: pointer; border-radius: 4px; margin-left: 10px;
+}
+.test-btn:hover { background: #5f6368; color: #e8eaed; }
+{% endblock %}
+
+{% block content %}
+<div class="set-main">
+    <h1>🔧 Settings</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('settings') }}">
+        <section class="settings-form">
+            <h2>📱 Telegram Bot</h2>
+            <div class="form-group">
+                <label for="telegram_bot_token">
+                    Bot Token
+                    {% if config.telegram_bot_token %}<span class="status-indicator status-ok">✓ Set</span>
+                    {% else %}<span class="status-indicator status-missing">Not set</span>{% endif %}
+                </label>
+                <input type="password" id="telegram_bot_token" name="telegram_bot_token" value="{{ config.telegram_bot_token }}" placeholder="123456789:ABCdef...">
+                <p class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram.</p>
+            </div>
+            <div class="form-group">
+                <label for="telegram_chat_id">
+                    Chat ID
+                    {% if config.telegram_chat_id %}<span class="status-indicator status-ok">✓ Set</span>
+                    {% else %}<span class="status-indicator status-missing">Not set</span>{% endif %}
+                </label>
+                <input type="text" id="telegram_chat_id" name="telegram_chat_id" value="{{ config.telegram_chat_id }}" placeholder="Auto-set when you /start the bot">
+                <p class="help-text">Set automatically when you send /start to your bot.</p>
+            </div>
+        </section>
+
+        <section class="settings-form">
+            <h2>🕐 Time & Schedule</h2>
+            <div class="form-group">
+                <label for="timezone">Timezone</label>
+                <select id="timezone" name="timezone">
+                    {% for tz in timezones %}
+                    <option value="{{ tz }}" {% if tz == config.timezone %}selected{% endif %}>{{ tz }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="morning_message_time">Morning Briefing Time</label>
+                <input type="time" id="morning_message_time" name="morning_message_time" value="{{ config.morning_message_time }}">
+                <p class="help-text">When to send the daily morning briefing via Telegram.</p>
+            </div>
+        </section>
+
+        <section class="settings-form">
+            <h2>🌐 Web Dashboard</h2>
+            <div class="form-group">
+                <label for="web_host">Listen Address</label>
+                <input type="text" id="web_host" name="web_host" value="{{ config.web_host }}" placeholder="0.0.0.0">
+                <p class="help-text">Use 0.0.0.0 for network access, or 127.0.0.1 for local only.</p>
+            </div>
+            <div class="form-group">
+                <label for="web_port">Port</label>
+                <input type="number" id="web_port" name="web_port" value="{{ config.web_port }}" min="1024" max="65535">
+            </div>
+        </section>
+
+        <button type="submit" class="save-btn">💾 Save Settings</button>
+    </form>
+
+    <section class="settings-form" style="margin-top:2rem;">
+        <h2>ℹ️ System Info</h2>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Version:</strong> Noctem v0.9.2</p>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Database:</strong> noctem/data/noctem.db</p>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Dashboard URL:</strong> http://{{ request.host }}</p>
+    </section>
+
+    <section class="settings-form">
+        <h2>🔧 Test Connection</h2>
+        <form method="POST" action="{{ url_for('settings_test') }}">
+            <button type="submit" class="test-btn">Send Test Message to Telegram</button>
+        </form>
+        <p class="help-text" style="margin-top: 10px;">Sends a test message to verify your Telegram bot is working.</p>
+    </section>
+</div>
+{% endblock %}

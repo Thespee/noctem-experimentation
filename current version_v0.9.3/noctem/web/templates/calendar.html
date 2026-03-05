@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Calendar Import - Noctem{% endblock %}
+
+{% block extra_style %}
+.cal-main { padding: 1.5rem 2rem; max-width: 800px; }
+.cal-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.upload-form {
+    background: #2d2d2d; border: 1px solid #3c3c3c;
+    padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem;
+}
+.upload-form h2 { font-size: 1rem; color: #e8eaed; margin-bottom: 0.75rem; }
+.upload-form input[type="file"] { margin-right: 10px; color: #9aa0a6; }
+.upload-form input[type="text"],
+.upload-form input[type="url"] {
+    background: #1f1f1f; color: #e8eaed; border: 1px solid #3c3c3c;
+    padding: 8px; border-radius: 4px; margin-top: 5px;
+}
+.upload-form input[type="text"] { width: 100%; max-width: 200px; }
+.upload-form input[type="url"] { width: 100%; max-width: 400px; }
+.upload-form input:focus { outline: none; border-color: #8ab4f8; }
+.upload-form button {
+    background: #8ab4f8; color: #1f1f1f; border: none;
+    padding: 8px 16px; cursor: pointer; border-radius: 4px; font-weight: 500;
+}
+.upload-form button:hover { opacity: 0.9; }
+.clear-btn { background: #f28b82 !important; color: #1f1f1f !important; margin-left: 10px; }
+.saved-urls {
+    background: #2d2d2d; border: 1px solid #3c3c3c;
+    padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem;
+}
+.saved-urls h2 { font-size: 1rem; color: #e8eaed; margin-bottom: 0.75rem; }
+.saved-url-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.6rem; border-bottom: 1px solid #3c3c3c; gap: 10px;
+}
+.saved-url-item:last-child { border-bottom: none; }
+.saved-url-name { font-weight: 600; color: #e8eaed; flex: 1; font-size: 0.85rem; }
+.saved-url-url { color: #5f6368; font-size: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.url-actions { display: flex; gap: 5px; }
+.url-actions button { padding: 4px 10px; font-size: 0.8rem; border: none; border-radius: 4px; cursor: pointer; }
+.refresh-btn { background: #8ab4f8; color: #1f1f1f; }
+.remove-btn { background: #f28b82; color: #1f1f1f; }
+.refresh-all-btn { background: #81c995; color: #1f1f1f; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin-bottom: 10px; }
+.flash-messages { margin-bottom: 1rem; }
+.flash { padding: 10px 15px; border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; }
+.flash.success { background: rgba(129,201,149,0.15); color: #81c995; border: 1px solid #81c995; }
+.flash.error { background: rgba(242,139,130,0.15); color: #f28b82; border: 1px solid #f28b82; }
+.event-list { list-style: none; padding: 0; }
+.event-list li { padding: 0.5rem; border-bottom: 1px solid #3c3c3c; display: flex; gap: 15px; font-size: 0.85rem; }
+.event-time { color: #9aa0a6; font-family: monospace; min-width: 120px; }
+.event-title { flex: 1; color: #e8eaed; }
+.help-section { background: #2d2d2d; border: 1px solid #3c3c3c; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; }
+.help-section h3 { font-size: 0.9rem; color: #e8eaed; margin-bottom: 0.5rem; }
+.help-section ul { padding-left: 1.25rem; font-size: 0.82rem; color: #9aa0a6; }
+.help-section li { margin-bottom: 0.3rem; }
+{% endblock %}
+
+{% block content %}
+<div class="cal-main">
+    <h1>📥 Calendar Import</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% if saved_urls %}
+    <section class="saved-urls">
+        <h2>📌 Saved Calendars</h2>
+        <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display: inline;">
+            <button type="submit" class="refresh-all-btn">🔄 Refresh All</button>
+        </form>
+        {% for u in saved_urls %}
+        <div class="saved-url-item">
+            <span class="saved-url-name">{{ u.name }}</span>
+            <span class="saved-url-url" title="{{ u.url }}">{{ u.url }}</span>
+            <div class="url-actions">
+                <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display: inline;">
+                    <input type="hidden" name="url" value="{{ u.url }}">
+                    <button type="submit" class="refresh-btn">↻ Refresh</button>
+                </form>
+                <form method="POST" action="{{ url_for('calendar_remove_url') }}" style="display: inline;">
+                    <input type="hidden" name="url" value="{{ u.url }}">
+                    <button type="submit" class="remove-btn" onclick="return confirm('Remove this calendar?')">✕</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="upload-form">
+        <h2>➕ Add Calendar</h2>
+        <form method="POST" enctype="multipart/form-data">
+            <div style="margin-bottom: 15px;">
+                <label style="color:#9aa0a6;font-size:0.82rem;"><strong>Calendar URL</strong> (saved for easy refresh)</label><br>
+                <input type="text" name="url_name" placeholder="Calendar name (optional)">
+                <input type="url" name="ics_url" placeholder="https://example.com/calendar.ics">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="color:#9aa0a6;font-size:0.82rem;"><strong>Or upload a file</strong> (one-time import)</label><br>
+                <input type="file" name="ics_file" accept=".ics" style="margin-top: 5px;">
+            </div>
+            <button type="submit">Add Calendar</button>
+        </form>
+        <form method="POST" action="{{ url_for('calendar_clear') }}" style="margin-top: 15px;">
+            <button type="submit" class="clear-btn" onclick="return confirm('Clear all imported calendar events?')">Clear All Events</button>
+        </form>
+    </section>
+
+    <section style="margin-top:1.5rem;">
+        <h2 style="font-size:1rem;color:#e8eaed;margin-bottom:0.75rem;">Upcoming Events ({{ events|length }})</h2>
+        {% if events %}
+        <ul class="event-list">
+            {% for event in events %}
+            <li>
+                <span class="event-time">{{ event.start_time[:16] if event.start_time else '?' }}</span>
+                <span class="event-title">{{ event.title }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#5f6368;font-size:0.85rem;">No upcoming events. Upload an .ics file to import your calendar.</p>
+        {% endif %}
+    </section>
+
+    <section class="help-section">
+        <h3>How to export your calendar:</h3>
+        <ul>
+            <li><strong>Google Calendar:</strong> Settings → Import & Export → Export → Download .ics</li>
+            <li><strong>Apple Calendar:</strong> File → Export → Export...</li>
+            <li><strong>Outlook:</strong> File → Save Calendar → Save as .ics</li>
+        </ul>
+    </section>
+</div>
+{% endblock %}

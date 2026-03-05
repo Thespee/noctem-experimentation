@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Skills - Noctem{% endblock %}
+
+{% block extra_style %}
+.skills-main { padding: 1.5rem 2rem; max-width: 800px; }
+.skills-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.stats-bar { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.stat-item { background: #2d2d2d; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; color: #e8eaed; }
+.stat-item.total { border-left: 3px solid #8ab4f8; }
+.stat-item.enabled { border-left: 3px solid #81c995; }
+.stat-item.disabled { border-left: 3px solid #5f6368; }
+.stat-item.approval { border-left: 3px solid #fdd663; }
+.skill-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.skill-item { background: #2d2d2d; border-radius: 8px; padding: 1rem; border: 1px solid #3c3c3c; }
+.skill-item.disabled { opacity: 0.6; }
+.skill-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.skill-name { font-weight: bold; font-size: 1rem; color: #e8eaed; }
+.skill-version { font-size: 0.72rem; color: #5f6368; margin-left: 0.5rem; }
+.skill-badges { display: flex; gap: 0.5rem; }
+.skill-badge { font-size: 0.68rem; padding: 0.15rem 0.45rem; border-radius: 4px; }
+.badge-enabled { background: #81c995; color: #1f1f1f; }
+.badge-disabled { background: #3c3c3c; color: #5f6368; }
+.badge-approval { background: #fdd663; color: #1f1f1f; }
+.badge-bundled { background: #8ab4f8; color: #1f1f1f; }
+.badge-user { background: #c58af9; color: #1f1f1f; }
+.skill-description { color: #9aa0a6; font-size: 0.85rem; margin-bottom: 0.75rem; }
+.skill-triggers { background: #1f1f1f; padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; border: 1px solid #3c3c3c; }
+.skill-triggers-title { color: #5f6368; font-size: 0.72rem; margin-bottom: 0.25rem; }
+.skill-trigger { display: inline-block; background: #3c3c3c; padding: 0.15rem 0.5rem; border-radius: 3px; margin: 0.15rem 0.25rem 0.15rem 0; font-family: monospace; font-size: 0.78rem; color: #e8eaed; }
+.skill-meta { font-size: 0.78rem; color: #5f6368; margin-bottom: 0.5rem; }
+.skill-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.skill-actions button { font-size: 0.8rem; padding: 0.4rem 0.75rem; border-radius: 4px; border: none; cursor: pointer; }
+.btn-run { background: #8ab4f8; color: #1f1f1f; }
+.btn-run:hover { opacity: 0.85; }
+.btn-enable { background: #81c995; color: #1f1f1f; }
+.btn-enable:hover { opacity: 0.85; }
+.btn-disable { background: #3c3c3c; color: #9aa0a6; }
+.btn-disable:hover { background: #5f6368; }
+.empty-state { text-align: center; padding: 2rem; color: #5f6368; }
+.run-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+.run-modal.active { display: flex; }
+.modal-content { background: #2d2d2d; padding: 1.5rem; border-radius: 8px; max-width: 500px; width: 90%; border: 1px solid #3c3c3c; }
+.modal-content h3 { margin-bottom: 1rem; color: #e8eaed; }
+.modal-content label { color: #9aa0a6; font-size: 0.85rem; }
+.modal-content textarea { width: 100%; min-height: 80px; background: #1f1f1f; border: 1px solid #3c3c3c; border-radius: 4px; padding: 0.75rem; color: #e8eaed; font-family: inherit; font-size: 0.85rem; resize: vertical; margin-bottom: 1rem; }
+.modal-content textarea:focus { outline: none; border-color: #8ab4f8; }
+.modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.modal-actions button { padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer; }
+.modal-cancel { background: #3c3c3c; color: #9aa0a6; }
+.modal-submit { background: #8ab4f8; color: #1f1f1f; }
+.result-message { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; display: none; font-size: 0.85rem; }
+.result-message.success { display: block; background: rgba(129,201,149,0.15); border: 1px solid #81c995; color: #81c995; }
+.result-message.error { display: block; background: rgba(242,139,130,0.15); border: 1px solid #f28b82; color: #f28b82; }
+.section-card { background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.section-card h2 { font-size: 1rem; color: #e8eaed; margin-bottom: 0.75rem; }
+{% endblock %}
+
+{% block content %}
+<div class="skills-main">
+    <h1>🧩 Skills</h1>
+
+    <div class="stats-bar">
+        <div class="stat-item total">📦 Total: {{ stats.total }}</div>
+        <div class="stat-item enabled">✓ Enabled: {{ stats.enabled }}</div>
+        <div class="stat-item disabled">○ Disabled: {{ stats.disabled }}</div>
+        {% if stats.requires_approval > 0 %}
+        <div class="stat-item approval">🔒 Require Approval: {{ stats.requires_approval }}</div>
+        {% endif %}
+    </div>
+
+    <div class="result-message" id="result-message"></div>
+
+    <div class="section-card">
+        <h2>Available Skills</h2>
+        {% if skills %}
+        <div class="skill-list">
+            {% for skill in skills %}
+            <div class="skill-item {% if not skill.enabled %}disabled{% endif %}" data-skill-name="{{ skill.name }}">
+                <div class="skill-header">
+                    <span>
+                        <span class="skill-name">{{ skill.name }}</span>
+                        <span class="skill-version">v{{ skill.version }}</span>
+                    </span>
+                    <div class="skill-badges">
+                        {% if skill.is_bundled %}<span class="skill-badge badge-bundled">bundled</span>
+                        {% else %}<span class="skill-badge badge-user">user</span>{% endif %}
+                        {% if skill.requires_approval %}<span class="skill-badge badge-approval">🔒 approval</span>{% endif %}
+                        {% if skill.enabled %}<span class="skill-badge badge-enabled">enabled</span>
+                        {% else %}<span class="skill-badge badge-disabled">disabled</span>{% endif %}
+                    </div>
+                </div>
+                <div class="skill-description">{{ skill.description }}</div>
+                {% if skill.triggers %}
+                <div class="skill-triggers">
+                    <div class="skill-triggers-title">Triggers:</div>
+                    {% for trigger in skill.triggers %}
+                    <span class="skill-trigger">"{{ trigger.pattern }}"</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <div class="skill-meta">
+                    {% if skill.executions_total > 0 %}
+                    Executions: {{ skill.executions_total }} ({{ skill.executions_success }} success, {{ skill.executions_failed }} failed)
+                    {% else %}No executions yet{% endif %}
+                </div>
+                <div class="skill-actions">
+                    {% if skill.enabled %}
+                    <button class="btn-run" onclick="openRunModal('{{ skill.name }}')">&#9654; Run</button>
+                    <button class="btn-disable" onclick="toggleSkill('{{ skill.name }}', false)">Disable</button>
+                    {% else %}
+                    <button class="btn-enable" onclick="toggleSkill('{{ skill.name }}', true)">Enable</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No skills installed yet.</p>
+            <p class="skill-meta">Skills extend Noctem's capabilities. Create skills in <code>noctem/data/skills/</code> or use bundled skills.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Run Modal -->
+<div class="run-modal" id="run-modal">
+    <div class="modal-content">
+        <h3>Run Skill: <span id="modal-skill-name"></span></h3>
+        <label>Input (optional):</label>
+        <textarea id="skill-input" placeholder="Enter input for the skill..."></textarea>
+        <div class="modal-actions">
+            <button class="modal-cancel" onclick="closeRunModal()">Cancel</button>
+            <button class="modal-submit" onclick="runSkill()">Run</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let currentSkill = null;
+
+function openRunModal(skillName) {
+    currentSkill = skillName;
+    document.getElementById('modal-skill-name').textContent = skillName;
+    document.getElementById('skill-input').value = '';
+    document.getElementById('run-modal').classList.add('active');
+}
+function closeRunModal() {
+    document.getElementById('run-modal').classList.remove('active');
+    currentSkill = null;
+}
+async function runSkill() {
+    if (!currentSkill) return;
+    const input = document.getElementById('skill-input').value;
+    closeRunModal();
+    try {
+        const response = await fetch(`/api/skills/${encodeURIComponent(currentSkill)}/run`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({input})
+        });
+        const data = await response.json();
+        if (response.ok) showMessage(`Skill "${currentSkill}" executed successfully`, 'success');
+        else if (response.status === 202) showMessage(`Skill "${currentSkill}" requires approval. Execution ID: ${data.execution_id}`, 'success');
+        else showMessage(data.error || 'Failed to run skill', 'error');
+    } catch (err) { showMessage('Network error: ' + err.message, 'error'); }
+}
+async function toggleSkill(skillName, enable) {
+    const action = enable ? 'enable' : 'disable';
+    try {
+        const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}/${action}`, {method: 'POST'});
+        const data = await response.json();
+        if (response.ok) { showMessage(`Skill "${skillName}" ${action}d`, 'success'); setTimeout(() => location.reload(), 1000); }
+        else showMessage(data.error || `Failed to ${action} skill`, 'error');
+    } catch (err) { showMessage('Network error: ' + err.message, 'error'); }
+}
+function showMessage(text, type) {
+    const el = document.getElementById('result-message');
+    el.textContent = text; el.className = 'result-message ' + type;
+    setTimeout(() => { el.className = 'result-message'; }, 5000);
+}
+document.getElementById('run-modal').addEventListener('click', function(e) { if (e.target === this) closeRunModal(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeRunModal(); });
+{% endblock %}
