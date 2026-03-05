@@ -57,7 +57,7 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 
 ## Documentation Precedence
 
-- `docs/Plan 0.9.3.md` is the source of truth. If documentation conflicts, follow the plan.
+- `docs/Plan 0.9.4.md` is the source of truth. If documentation conflicts, follow the plan.
 
 ## Development Workflow
 
@@ -74,6 +74,32 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Runtime direction is now **ICS-only calendar ingestion** (manual/saved-feed refresh), with the Google OAuth calendar sync pipeline removed.
 - Runtime direction is now **voice-processing-only scheduler jobs**; scheduled morning briefing and scheduled calendar sync are removed.
 - Avoid reintroducing `gcal_*` scheduled sync settings or morning briefing scheduler settings unless explicitly requested by the user.
+
+## Session Learnings (Mar 2026, v0.9.4 Planning Additions)
+
+- Chat interruption behavior should support **appended follow-up instructions**, not only yes/no approvals.
+  - Prefer structured resume payloads like `decision`, `instructions`, and optional scope edits.
+  - Keep resume bound to the same interrupted workflow/thread; do not spawn parallel workflows for approval follow-ups.
+- Prioritize adopting a **LangGraph-style HITL runtime pattern**:
+  - durable interrupt/resume semantics
+  - explicit state transitions
+  - bounded memory pack assembly
+- Treat mutation history as **durable, append-only, Git-like commits** in the database:
+  - immutable commits with parent links and refs
+  - rollback via inverse commits, not destructive rewrite
+  - include task and calendar-event mutations in this history model
+- Replace in-memory mutation audit stores with persistent DB-backed history for reliability across restarts.
+- Add **entity context docs** (task/project/goal/doc/calendar) generated asynchronously:
+  - include original creation context, verified change history, related entities, and provenance
+  - use them as high-signal retrieval units to improve assistant accuracy and RAG grounding
+  - run generation in slow/background paths, not hot chat path
+- Evolve passive background work to an **inactivity-budgeted adaptive scheduler**:
+  - initial idle trigger target: 15 minutes
+  - choose jobs based on expected runtime relative to idle budget
+  - run voice processing only when there are pending/new voice memos
+- Keep human approval and verification guarantees intact while extending autonomy:
+  - preview/commit on risky operations
+  - post-commit verification before success messaging
 
 ## Testing
 
