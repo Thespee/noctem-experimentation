@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Upcoming Tasks - Noctem{% endblock %}
+
+{% block extra_style %}
+.up-main { padding: 1.5rem 2rem; overflow-y: auto; max-width: none; width: 100%; }
+.up-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.stats-bar { display: flex; gap: 1.5rem; padding: 0.75rem 0; margin-bottom: 1rem; border-bottom: 1px solid #3c3c3c; font-size: 0.8rem; color: #9aa0a6; }
+.stats-bar .stat-val { color: #e8eaed; font-weight: 600; }
+/* Day sections — vertical by default (mobile) */
+.days-container { }
+.day-section { margin-bottom: 1.5rem; }
+.day-header { font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0; border-bottom: 1px solid #3c3c3c; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+.day-header .day-name { color: #e8eaed; }
+.day-header .day-date { color: #5f6368; font-weight: 400; font-size: 0.75rem; }
+.day-header.today .day-name { color: #8ab4f8; }
+.day-header.overdue .day-name { color: #f28b82; }
+/* Task items */
+.task-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; border-radius: 4px; margin-bottom: 2px; cursor: pointer; }
+.task-item:hover { background: #2d2d2d; }
+.task-item.editing { background: #2d2d2d; border: 1px solid #8ab4f8; padding: 0.4rem; }
+.task-edit-input { background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem; border-radius: 4px; font-size: 0.85rem; width: 100%; }
+.task-edit-input:focus { outline: none; border-color: #8ab4f8; }
+.task-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #3c3c3c; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.task-check:hover { border-color: #81c995; background: rgba(129,201,149,0.1); }
+.task-check.p1 { border-color: #f28b82; }
+.task-check.p2 { border-color: #fdd663; }
+.task-check.p3 { border-color: #8ab4f8; }
+.task-check.done { background: #81c995; border-color: #81c995; }
+.task-check.done::after { content: '✓'; color: #1f1f1f; font-size: 0.7rem; font-weight: bold; }
+.task-content { flex: 1; min-width: 0; }
+.task-title { font-size: 0.85rem; color: #e8eaed; }
+.task-title.done { text-decoration: line-through; color: #5f6368; }
+.task-meta { font-size: 0.7rem; color: #5f6368; margin-top: 1px; }
+.task-meta .project-tag { background: #2d2d2d; padding: 1px 6px; border-radius: 3px; color: #9aa0a6; }
+.task-meta .priority-badge { font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; margin-right: 4px; }
+.task-meta .priority-badge.high { background: rgba(242,139,130,0.15); color: #f28b82; }
+.task-meta .priority-badge.medium { background: rgba(253,214,99,0.15); color: #fdd663; }
+.overdue-section { border-left: 3px solid #f28b82; padding-left: 0.75rem; margin-bottom: 2rem; }
+.overdue-count { background: rgba(242,139,130,0.15); color: #f28b82; font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; margin-left: 0.5rem; }
+.empty-day { color: #3c3c3c; font-size: 0.8rem; padding: 0.3rem 0.5rem; font-style: italic; }
+/* Inline task creation (Notion-style) */
+.add-task-btn { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.5rem; font-size: 0.8rem; color: #5f6368; cursor: pointer; border-radius: 4px; border: none; background: none; width: 100%; text-align: left; }
+.add-task-btn:hover { background: #2d2d2d; color: #8ab4f8; }
+.inline-form { display: none; padding: 0.5rem; background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 6px; margin-top: 0.25rem; }
+.inline-form.open { display: block; }
+.inline-form input { background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 100%; margin-bottom: 0.4rem; }
+.inline-form input:focus { outline: none; border-color: #8ab4f8; }
+.inline-form-actions { display: flex; gap: 0.5rem; }
+.inline-form-actions button { padding: 0.3rem 0.75rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; border: none; }
+.inline-form-actions .btn-save { background: #8ab4f8; color: #1f1f1f; }
+.inline-form-actions .btn-cancel { background: #3c3c3c; color: #9aa0a6; }
+/* Desktop: horizontal scroll */
+@media (min-width: 769px) {
+    body:not(.force-mobile) .days-container { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; align-items: flex-start; }
+    body:not(.force-mobile) .day-section { min-width: 260px; max-width: 320px; flex-shrink: 0; background: #2d2d2d; border-radius: 8px; padding: 0.75rem; border: 1px solid #3c3c3c; }
+    body:not(.force-mobile) .overdue-section { min-width: 260px; max-width: 320px; flex-shrink: 0; background: #2d2d2d; border-radius: 8px; padding: 0.75rem; border: 1px solid #3c3c3c; border-left: 3px solid #f28b82; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="up-main">
+    <h1>📋 Upcoming Tasks</h1>
+    <div class="stats-bar" id="statsBar"></div>
+    <div class="days-container" id="taskContainer"></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let allData = null;
+
+async function loadTasks() {
+    const resp = await fetch('/api/tasks/upcoming');
+    allData = await resp.json();
+    // Fetch tasks without due dates
+    const noDueDateResp = await fetch('/api/tasks/no-due-date');
+    const noDueDateData = await noDueDateResp.json();
+    allData.unassigned = noDueDateData.tasks || [];
+    renderTasks();
+}
+
+function renderTasks() {
+    if (!allData) return;
+    const container = document.getElementById('taskContainer');
+    let html = '';
+    let totalTasks = 0, overdueCount = allData.overdue ? allData.overdue.length : 0;
+    if (allData.days) allData.days.forEach(d => totalTasks += d.tasks.length);
+    totalTasks += overdueCount;
+    document.getElementById('statsBar').innerHTML = `<span><span class="stat-val">${totalTasks}</span> tasks</span><span><span class="stat-val" style="color:#f28b82">${overdueCount}</span> overdue</span>`;
+
+    if (allData.overdue && allData.overdue.length > 0) {
+        html += `<div class="overdue-section"><div class="day-header overdue"><span class="day-name">Overdue <span class="overdue-count">${allData.overdue.length}</span></span></div>`;
+        allData.overdue.forEach(t => html += renderTask(t));
+        html += '</div>';
+    }
+    if (allData.days) {
+        for (const day of allData.days) {
+            const isToday = day.is_today ? ' today' : '';
+            const dayLabel = day.is_today ? `Today · ${day.day_name}` : day.day_name;
+            html += `<div class="day-section"><div class="day-header${isToday}"><span class="day-name">${dayLabel}</span><span class="day-date">${day.date}</span></div>`;
+            if (day.tasks.length > 0) day.tasks.forEach(t => html += renderTask(t));
+            else html += '<div class="empty-day">No tasks</div>';
+            html += `<button class="add-task-btn" onclick="showInlineForm(this, '${day.date}')">+ New task</button>`;
+            html += `<div class="inline-form" data-date="${day.date}"><input type="text" placeholder="Task name..." onkeydown="if(event.key==='Enter')saveInlineTask(this)" autofocus><div class="inline-form-actions"><button class="btn-save" onclick="saveInlineTask(this.parentElement.previousElementSibling)">Add</button><button class="btn-cancel" onclick="this.closest('.inline-form').classList.remove('open')">Cancel</button></div></div>`;
+            html += '</div>';
+        }
+    }
+    // Unassigned section (tasks without due date) - only show if not empty
+    if (allData.unassigned && allData.unassigned.length > 0) {
+        html += `<div class="day-section" style="border-left: 2px solid #5f6368;"><div class="day-header"><span class="day-name">Unassigned</span><span class="day-date">${allData.unassigned.length} tasks</span></div>`;
+        allData.unassigned.forEach(t => html += renderTask(t));
+        html += '</div>';
+    }
+    container.innerHTML = html || '<div class="empty-day">No upcoming tasks found.</div>';
+}
+
+function renderTask(task) {
+    const score = task.priority_score || 0;
+    let checkClass = '', badge = '';
+    if (score >= 70) { checkClass = ' p1'; badge = '<span class="priority-badge high">HIGH</span>'; }
+    else if (score >= 40) { checkClass = ' p2'; badge = '<span class="priority-badge medium">MED</span>'; }
+    else if (score >= 20) checkClass = ' p3';
+    const project = task.project_name ? `<span class="project-tag">${escapeHtml(task.project_name)}</span>` : '';
+    const time = task.due_time ? ` · ${task.due_time}` : '';
+    return `<div class="task-item" data-id="${task.id||''}" data-name="${escapeHtml(task.name||'')}" onclick="editTask(this, ${task.id}, event)"><div class="task-check${checkClass}" onclick="completeTask(this, ${task.id}); event.stopPropagation();"></div><div class="task-content"><div class="task-title">${escapeHtml(task.name||'')}</div><div class="task-meta">${badge}${project}${time}</div></div></div>`;
+}
+
+async function completeTask(el, taskId) {
+    el.classList.add('done');
+    const title = el.nextElementSibling.querySelector('.task-title');
+    if (title) title.classList.add('done');
+    try {
+        await fetch(`/api/tasks/${taskId}/complete`, {method: 'POST'});
+        setTimeout(() => { el.closest('.task-item').style.opacity = '0.3'; }, 500);
+    } catch(e) { el.classList.remove('done'); if (title) title.classList.remove('done'); }
+}
+
+function showInlineForm(btn, date) {
+    const form = btn.nextElementSibling;
+    form.classList.add('open');
+    form.querySelector('input').focus();
+}
+
+async function saveInlineTask(input) {
+    const name = input.value.trim();
+    if (!name) return;
+    const date = input.closest('.inline-form').dataset.date;
+    try {
+        const resp = await fetch('/api/tasks', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, due_date: date}) });
+        const data = await resp.json();
+        if (data.success) { input.value = ''; input.closest('.inline-form').classList.remove('open'); loadTasks(); }
+    } catch(e) {}
+}
+
+function editTask(taskEl, taskId, event) {
+    if (event.target.classList.contains('task-check')) return;
+    const contentEl = taskEl.querySelector('.task-content');
+    if (taskEl.classList.contains('editing')) return;
+    taskEl.classList.add('editing');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'task-edit-input';
+    input.value = taskEl.dataset.name || '';
+    input.onblur = () => saveTaskEdit(taskEl, taskId, input);
+    input.onkeydown = (e) => { if(e.key==='Enter') input.blur(); if(e.key==='Escape') { taskEl.classList.remove('editing'); loadTasks(); } };
+    contentEl.innerHTML = '';
+    contentEl.appendChild(input);
+    input.focus();
+    input.select();
+}
+
+async function saveTaskEdit(taskEl, taskId, input) {
+    const newText = input.value.trim();
+    if (!newText) { taskEl.classList.remove('editing'); loadTasks(); return; }
+    try {
+        const resp = await fetch(`/api/tasks/${taskId}/reprocess`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: newText}) });
+        const data = await resp.json();
+        if (data.success) { taskEl.classList.remove('editing'); loadTasks(); }
+    } catch(e) { taskEl.classList.remove('editing'); loadTasks(); }
+}
+
+loadTasks();
+{% endblock %}

@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="10">
+    <title>Noctem Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Noctem</h1>
+            <p class="subtitle">{{ today.strftime('%A, %B %d, %Y') }}</p>
+        </header>
+
+        <!-- v0.6.0 System Status Bar -->
+        <div class="status-bar">
+            <span class="status-item">
+                🤖 Butler: {{ butler_status.remaining }}/{{ butler_status.budget }} contacts
+            </span>
+            <span class="status-item">
+                {% if ollama_healthy %}✅{% else %}❌{% endif %} LLM: {{ ollama_msg }}
+            </span>
+            <span class="status-item">
+                🐢 Queue: {{ slow_status.queue.pending }} pending
+            </span>
+        </div>
+
+        <main>
+            <!-- Task Priority Graph -->
+            {% if graph_tasks %}
+            <section class="task-graph">
+                <h2>📊 Priority Map</h2>
+                <svg width="100%" height="300" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet">
+                    <!-- Axes -->
+                    <line x1="50" y1="250" x2="380" y2="250" stroke="var(--border)" stroke-width="1"/>
+                    <line x1="50" y1="250" x2="50" y2="20" stroke="var(--border)" stroke-width="1"/>
+                    
+                    <!-- Labels -->
+                    <text x="215" y="290" fill="var(--text-muted)" text-anchor="middle" font-size="12">Urgency →</text>
+                    <text x="15" y="135" fill="var(--text-muted)" text-anchor="middle" font-size="12" transform="rotate(-90, 15, 135)">Importance →</text>
+                    
+                    <!-- Quadrant labels -->
+                    <text x="115" y="70" fill="var(--text-muted)" font-size="10" opacity="0.5">Important, Not Urgent</text>
+                    <text x="280" y="70" fill="var(--text-muted)" font-size="10" opacity="0.5">Do First</text>
+                    <text x="115" y="220" fill="var(--text-muted)" font-size="10" opacity="0.5">Low Priority</text>
+                    <text x="280" y="220" fill="var(--text-muted)" font-size="10" opacity="0.5">Urgent Only</text>
+                    
+                    <!-- Quadrant lines -->
+                    <line x1="215" y1="250" x2="215" y2="20" stroke="var(--light-border)" stroke-dasharray="4"/>
+                    <line x1="50" y1="135" x2="380" y2="135" stroke="var(--light-border)" stroke-dasharray="4"/>
+                    
+                    <!-- Task dots -->
+                    {% for task in graph_tasks %}
+                    <circle 
+                        cx="{{ 50 + (task.urgency * 330) }}" 
+                        cy="{{ 250 - (task.importance * 230) }}"
+                        r="8"
+                        fill="{% if task.importance >= 0.7 %}var(--important){% elif task.importance >= 0.3 %}var(--medium){% else %}var(--low){% endif %}"
+                        opacity="0.8">
+                        <title>{{ task.name }} (U:{{ "%.1f"|format(task.urgency) }}, I:{{ "%.1f"|format(task.importance) }})</title>
+                    </circle>
+                    {% endfor %}
+                </svg>
+                <div class="graph-legend">
+                    <div class="legend-item"><span class="legend-dot" style="background: var(--important)"></span> Important (!1)</div>
+                    <div class="legend-item"><span class="legend-dot" style="background: var(--medium)"></span> Medium (!2)</div>
+                    <div class="legend-item"><span class="legend-dot" style="background: var(--low)"></span> Low (!3)</div>
+                </div>
+            </section>
+            {% endif %}
+
+            <!-- Week Ahead Section (moved up) -->
+            <section class="week">
+                <h2>📅 Week Ahead</h2>
+                <div class="week-grid">
+                    {% for day in week_data %}
+                    <div class="day {% if day.is_today %}today{% endif %}">
+                        <h4>{{ day.day_name }} {{ day.date.day }}</h4>
+                        {% if day.events %}
+                        <ul class="event-list-mini">
+                            {% for event in day.events %}
+                            <li class="event-mini">📅 {{ event.start_time.strftime('%H:%M') if event.start_time else '' }} {{ event.title[:20] }}{% if event.title|length > 20 %}...{% endif %}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% if day.tasks %}
+                        <ul>
+                            {% for task in day.tasks %}
+                            <li class="task-mini">{{ task.name }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% if not day.events and not day.tasks %}
+                        <p class="empty">-</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <!-- v0.6.0 AI Suggestions Section -->
+            {% if tasks_with_suggestions or projects_with_suggestions %}
+            <section class="suggestions">
+                <h2>💡 AI Suggestions</h2>
+                {% if tasks_with_suggestions %}
+                <div class="task-suggestions">
+                    <h3>Tasks - What could a computer help with?</h3>
+                    <ul>
+                        {% for task in tasks_with_suggestions %}
+                        <li>
+                            <strong>{{ task.name }}</strong>
+                            <p class="suggestion">→ {{ task.computer_help_suggestion }}</p>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                {% if projects_with_suggestions %}
+                <div class="project-suggestions">
+                    <h3>Projects - What should you do next?</h3>
+                    <ul>
+                        {% for project in projects_with_suggestions %}
+                        <li>
+                            <strong>{{ project.name }}</strong>
+                            <p class="suggestion">→ {{ project.next_action_suggestion }}</p>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </section>
+            {% endif %}
+
+            <!-- Today Section -->
+            <section class="today">
+                <h2>📋 Today</h2>
+                
+                {% if overdue_tasks %}
+                <div class="overdue">
+                    <h3>⚠️ Overdue ({{ overdue_tasks|length }})</h3>
+                    <ul>
+                        {% for task in overdue_tasks[:5] %}
+                        <li class="task {% if task.importance >= 0.7 %}important-high{% elif task.importance >= 0.3 %}important-medium{% else %}important-low{% endif %}">
+                            {{ task.name }}
+                            <span class="due">was due {{ task.due_date }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                
+                {% if priority_tasks %}
+                <div class="priorities">
+                    <h3>⚡ Top Priorities</h3>
+                    <ol>
+                        {% for task in priority_tasks %}
+                        <li class="task {% if task.urgency > 0.7 %}urgency-high{% endif %}">
+                            {{ task.name }}
+                            {% if task.due_date %}
+                            <span class="due">
+                                {% if task.due_date == today %}due today
+                                {% else %}due {{ task.due_date }}{% endif %}
+                            </span>
+                            {% endif %}
+                            <span class="importance">{{ "%.0f"|format(task.priority_score * 100) }}%</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                {% endif %}
+            </section>
+
+            <!-- Habits Section -->
+            {% if habits_stats %}
+            <section class="habits">
+                <h2>🔄 Habits</h2>
+                <table class="habits-table">
+                    <thead>
+                        <tr>
+                            <th>Habit</th>
+                            <th>This Week</th>
+                            <th>Streak</th>
+                            <th>Today</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for stat in habits_stats %}
+                        <tr>
+                            <td>{{ stat.name }}</td>
+                            <td>{{ stat.completions_this_week }}/{{ stat.target_this_week }}</td>
+                            <td>{% if stat.streak > 0 %}🔥 {{ stat.streak }}{% else %}-{% endif %}</td>
+                            <td>{% if stat.done_today %}✓{% else %}○{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endif %}
+
+
+            <!-- Goals & Projects Section -->
+            <section class="goals">
+                <h2>🎯 Goals & Projects</h2>
+                
+                {% for gd in goals_data %}
+                <div class="goal">
+                    <h3>{{ gd.goal.name }}</h3>
+                    {% if gd.goal.description %}
+                    <p class="description">{{ gd.goal.description }}</p>
+                    {% endif %}
+                    
+                    {% for pd in gd.projects %}
+                    <div class="project">
+                        <h4>
+                            {{ pd.project.name }}
+                            <span class="progress">({{ pd.done_count }}/{{ pd.total_count }})</span>
+                            <span class="status status-{{ pd.project.status }}">{{ pd.project.status }}</span>
+                        </h4>
+                        {% if pd.tasks %}
+                        <ul class="task-list">
+                            {% for task in pd.tasks if task.status != 'done' %}
+                            <li class="task">
+                                {{ task.name }}
+                                {% if task.due_date %}<span class="due">{{ task.due_date }}</span>{% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                
+                {% if standalone_projects %}
+                <div class="standalone">
+                    <h3>Other Projects</h3>
+                    {% for pd in standalone_projects %}
+                    <div class="project">
+                        <h4>
+                            {{ pd.project.name }}
+                            <span class="progress">({{ pd.done_count }}/{{ pd.total_count }})</span>
+                        </h4>
+                        {% if pd.tasks %}
+                        <ul class="task-list">
+                            {% for task in pd.tasks if task.status != 'done' %}
+                            <li class="task">{{ task.name }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </section>
+
+            <!-- Someday/Maybe Section -->
+            {% if inbox_tasks %}
+            <section class="inbox">
+                <h2>💤 Someday / Maybe</h2>
+                <ul class="task-list">
+                    {% for task in inbox_tasks %}
+                    <li class="task">{{ task.name }}</li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+        </main>
+
+        <footer>
+            <p><a href="/calendar">📅 Calendar</a> • <a href="/settings">⚙️ Settings</a> • Noctem v0.6.0 • Auto-refreshes every 10s</p>
+        </footer>
+    </div>
+
+    <!-- v0.6.0: Chat Widget -->
+    <div id="chat-widget" class="chat-widget">
+        <div class="chat-header" onclick="toggleChat()">
+            <span>💬 Chat with Noctem</span>
+            <span class="chat-toggle" id="chat-toggle">▼</span>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-messages" id="chat-messages">
+                <div class="chat-message bot">
+                    <span class="msg">🌙 Hi! Type naturally to add tasks, or use commands like "done 1", "today", "status"...</span>
+                </div>
+            </div>
+            <form class="chat-input" onsubmit="sendMessage(event)">
+                <input type="text" id="chat-input" placeholder="buy groceries tomorrow..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let chatOpen = true;
+        
+        function toggleChat() {
+            const body = document.getElementById('chat-body');
+            const toggle = document.getElementById('chat-toggle');
+            chatOpen = !chatOpen;
+            body.style.display = chatOpen ? 'flex' : 'none';
+            toggle.textContent = chatOpen ? '▼' : '▲';
+        }
+        
+        function addMessage(text, isUser) {
+            const messages = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = 'chat-message ' + (isUser ? 'user' : 'bot');
+            div.innerHTML = '<span class="msg">' + escapeHtml(text) + '</span>';
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            // Show user message
+            addMessage(message, true);
+            input.value = '';
+            input.disabled = true;
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: message})
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage(data.response, false);
+                    // Refresh dashboard data without full page reload
+                    refreshDashboardData();
+                } else {
+                    addMessage('❌ ' + (data.error || 'Something went wrong'), false);
+                }
+            } catch (err) {
+                addMessage('❌ Connection error: ' + err.message, false);
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        }
+        
+        async function refreshDashboardData() {
+            // Fetch fresh dashboard HTML and update main content
+            try {
+                const response = await fetch('/?partial=1');
+                const html = await response.text();
+                
+                // Parse and extract main content
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const newMain = doc.querySelector('main');
+                const newStatusBar = doc.querySelector('.status-bar');
+                
+                if (newMain) {
+                    document.querySelector('main').innerHTML = newMain.innerHTML;
+                }
+                if (newStatusBar) {
+                    document.querySelector('.status-bar').innerHTML = newStatusBar.innerHTML;
+                }
+            } catch (err) {
+                console.log('Background refresh failed, will update on next auto-refresh');
+            }
+        }
+        
+        // Focus chat input on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('chat-input').focus();
+        });
+    </script>
+</body>
+</html>

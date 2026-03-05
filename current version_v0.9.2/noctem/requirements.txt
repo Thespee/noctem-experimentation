@@ -1,0 +1,21 @@
+# Noctem 0.5 Dependencies
+
+# Telegram bot
+python-telegram-bot>=20.0
+
+# Job scheduling
+APScheduler>=3.10
+
+# Google Calendar API
+google-api-python-client>=2.0
+google-auth-oauthlib>=1.0
+
+# Web dashboard
+flask>=3.0
+jinja2>=3.0
+
+# Date parsing helpers
+python-dateutil>=2.8
+
+# Testing
+pytest>=7.0
