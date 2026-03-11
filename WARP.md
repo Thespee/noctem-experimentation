@@ -101,6 +101,31 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
   - preview/commit on risky operations
   - post-commit verification before success messaging
 
+## Session Learnings (Mar 2026, v0.9.4 Decisions)
+
+- Obsidian mode: **Noctem-native web graph** with optional markdown export.
+- Version control: **internal commit graph only** (no system Git bridge in v0.9.4).
+- Memory pack budget (32k total): 4k recent chats, 5k recent commits, 7k top context docs, 6k wiki; reserve 10k for tools/output.
+- Multi-device offline editing is **future scope** (not in v0.9.4) and will require an explicit sync/conflict strategy.
+- Future multi-device outline: per-device append-only event logs, periodic event exchange, conflict detection with manual review, and merge commits as new heads.
+- CRDTs are a **future optional** merge strategy for text-heavy objects (notes/docs) if true concurrent offline edits are required.
+
+## Codebase Grounding for v0.9.4 Execution (Mar 2026)
+
+- Core schema and migrations live in `current version_v0.9.3/noctem/db.py`; additive migrations are required for object/commit history rollout.
+- MCP preview/commit logic is currently in `current version_v0.9.3/noctem/mcp/tools.py` with in-memory preview/audit/undo stores that must be replaced by DB-backed records.
+- Interrupt/resume behavior is centered in `current version_v0.9.3/noctem/agent/workflow.py`, `current version_v0.9.3/noctem/agent/interrupts.py`, and `current version_v0.9.3/noctem/agent/chat_orchestrator.py`.
+- Passive scheduling is currently voice-only in `current version_v0.9.3/noctem/scheduler/jobs.py`; ICS refresh hooks already exist in `current version_v0.9.3/noctem/services/ics_import.py`.
+- Wiki retrieval/query grounding lives in `current version_v0.9.3/noctem/wiki/retrieval.py` and `current version_v0.9.3/noctem/wiki/query.py`.
+- Web and Telegram task actions already route through MCP paths in `current version_v0.9.3/noctem/web/app.py` and `current version_v0.9.3/noctem/telegram/handlers.py`.
+
+## Active vs Deferred Scope (v0.9.4)
+
+- **Active v0.9.4 execution scope**: object core + durable history, context docs + bounded memory packs, inactivity-budgeted scheduler, retrieval integration, review/error surfaces, and Noctem-native graph interface with internal commit history.
+- **Deferred (future features)**: Universal Inbox + external connectors and other TBD deferred concepts.
+- Keep chat interaction modes unchanged for this version: web dashboard and Telegram UI.
+- External side effects remain approval-gated; never report mutation success before post-commit verification/readback.
+
 ## Testing
 
 - Not specified yet. Add when a standard test command is defined.
@@ -108,3 +133,4 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 ## Build & Deployment
 
 - Target zero-downtime deploys for the web service (graceful reloads).
+
