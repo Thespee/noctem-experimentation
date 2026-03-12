@@ -276,6 +276,38 @@ CREATE TABLE IF NOT EXISTS review_queue (
     resolved_at TIMESTAMP,
     resolution_notes TEXT
 );
+CREATE TABLE IF NOT EXISTS execution_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_type TEXT NOT NULL,
+    source TEXT,
+    thread_id TEXT,
+    payload_json TEXT NOT NULL,
+    status TEXT DEFAULT 'queued'
+        CHECK(status IN ('queued', 'processing', 'completed', 'failed', 'review_blocked', 'cancelled')),
+    attempt_count INTEGER DEFAULT 0,
+    idempotency_key TEXT,
+    priority_rank INTEGER DEFAULT 100,
+    available_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    review_created_at TIMESTAMP,
+    last_error TEXT,
+    stale_context_json TEXT,
+    result_json TEXT,
+    locked_by TEXT,
+    locked_at TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scheduler_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_name TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    duration_seconds REAL,
+    ok INTEGER NOT NULL DEFAULT 1,
+    summary_json TEXT,
+    error TEXT
+);
 
 CREATE TABLE IF NOT EXISTS object_context_docs (
     object_id TEXT PRIMARY KEY REFERENCES objects(object_id),
@@ -313,6 +345,10 @@ CREATE INDEX IF NOT EXISTS idx_object_versions_object ON object_versions(object_
 CREATE INDEX IF NOT EXISTS idx_object_events_operation ON object_events(operation, created_at);
 CREATE INDEX IF NOT EXISTS idx_mutation_previews_operation ON mutation_previews(operation, created_at);
 CREATE INDEX IF NOT EXISTS idx_review_queue_status ON review_queue(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_execution_queue_status_order ON execution_queue(status, priority_rank, available_at, id);
+CREATE INDEX IF NOT EXISTS idx_execution_queue_thread ON execution_queue(thread_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_execution_queue_idempotency ON execution_queue(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job ON scheduler_runs(job_name, started_at);
 CREATE INDEX IF NOT EXISTS idx_object_context_docs_generated ON object_context_docs(object_type, generated_at);
 """
 LEGACY_RUNTIME_TABLES = (

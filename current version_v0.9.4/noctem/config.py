@@ -22,6 +22,12 @@ DEFAULTS = {
     "chat_ollama_model": "qwen2.5:7b-instruct-q4_K_M",
     "chat_ollama_base_url": "http://localhost:11434",
     "chat_brief_mode": True,
+    "scheduler_job_config": {
+        "voice_transcription": {"interval_minutes": 1440, "enabled": True},
+        "context_doc_refresh": {"interval_minutes": 5, "enabled": True},
+        "ics_refresh": {"interval_minutes": 1440, "enabled": True},
+        "queue_retry_scan": {"interval_minutes": 240, "enabled": True},
+    },
 }
 
 
