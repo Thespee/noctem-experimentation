@@ -157,6 +157,10 @@ def create_app() -> Flask:
     def reviews():
         """Manual review queue page."""
         return render_template("reviews.html")
+    @app.route("/tools")
+    def tools():
+        """Unified tools page for queue and scheduler controls."""
+        return render_template("tools.html")
 
     @app.route("/graph")
     def graph_view():
@@ -307,21 +311,12 @@ def create_app() -> Flask:
         
         # GET - show settings form
         config = Config.get_all()
-        from ..db import get_db
-        with get_db() as conn:
-            calendar_events = conn.execute("""
-                SELECT * FROM time_blocks
-                WHERE start_time >= date('now', '-1 day')
-                ORDER BY start_time ASC
-                LIMIT 50
-            """).fetchall()
         saved_urls = get_saved_urls()
         return render_template(
             "settings.html",
             config=config,
             timezones=COMMON_TIMEZONES,
             saved_urls=saved_urls,
-            calendar_events=calendar_events,
         )
     
     @app.route("/settings/test", methods=["POST"])
@@ -687,6 +682,129 @@ def create_app() -> Flask:
             "review": updated_review,
             "resume_result": resume_result,
         })
+
+    @app.route("/api/tools")
+    def api_tools():
+        """Combined tools payload for queue and scheduler."""
+        from ..scheduler.jobs import get_scheduler_status
+        from ..services.execution_queue import list_queue_items, queue_metrics
+
+        limit = max(1, min(request.args.get("limit", 50, type=int), 500))
+        status = (request.args.get("status") or "all").strip().lower()
+        queue_items = list_queue_items(status=status, limit=limit)
+        scheduler_status = get_scheduler_status()
+        return jsonify({
+            "success": True,
+            "queue": {
+                "items": queue_items,
+                "metrics": queue_metrics(),
+            },
+            "scheduler": scheduler_status,
+        })
+
+    @app.route("/api/tools/queue")
+    def api_tools_queue_list():
+        """List queue items and queue metrics."""
+        from ..services.execution_queue import list_queue_items, queue_metrics
+
+        limit = max(1, min(request.args.get("limit", 100, type=int), 500))
+        status = (request.args.get("status") or "all").strip().lower()
+        items = list_queue_items(status=status, limit=limit)
+        return jsonify({
+            "success": True,
+            "count": len(items),
+            "items": items,
+            "metrics": queue_metrics(),
+        })
+
+    @app.route("/api/tools/queue/<int:item_id>")
+    def api_tools_queue_detail(item_id: int):
+        """Get one queue item by id."""
+        from ..services.execution_queue import get_queue_item
+
+        item = get_queue_item(item_id)
+        if item is None:
+            return jsonify({"success": False, "error": "Queue item not found"}), 404
+        return jsonify({"success": True, "item": item})
+
+    @app.route("/api/tools/queue/<int:item_id>/cancel", methods=["POST"])
+    def api_tools_queue_cancel(item_id: int):
+        """Cancel a queue item."""
+        from ..services.execution_queue import cancel_item
+
+        data = request.get_json(silent=True) or {}
+        reason = (data.get("reason") or "").strip() or None
+        updated = cancel_item(item_id, reason=reason)
+        if updated is None:
+            return jsonify({"success": False, "error": "Queue item not found"}), 404
+        return jsonify({"success": True, "item": updated})
+
+    @app.route("/api/tools/queue/<int:item_id>/requeue", methods=["POST"])
+    def api_tools_queue_requeue(item_id: int):
+        """Requeue a queue item, optionally to the front."""
+        from ..services.execution_queue import requeue_item
+
+        data = request.get_json(silent=True) or {}
+        front = bool(data.get("front"))
+        reason = (data.get("reason") or "").strip() or None
+        updated = requeue_item(item_id, front=front, reason=reason)
+        if updated is None:
+            return jsonify({"success": False, "error": "Queue item not found"}), 404
+        return jsonify({"success": True, "item": updated})
+
+    @app.route("/api/tools/scheduler/status")
+    def api_tools_scheduler_status():
+        """Get scheduler status snapshot."""
+        from ..scheduler.jobs import get_scheduler_status
+
+        return jsonify({"success": True, "scheduler": get_scheduler_status()})
+
+    @app.route("/api/tools/scheduler/history")
+    def api_tools_scheduler_history():
+        """Get scheduler run history."""
+        from ..scheduler.jobs import get_job_run_history
+
+        limit = max(1, min(request.args.get("limit", 50, type=int), 500))
+        job_name = (request.args.get("job_name") or "").strip() or None
+        history = get_job_run_history(job_name=job_name, limit=limit)
+        return jsonify({
+            "success": True,
+            "count": len(history),
+            "runs": history,
+        })
+
+    @app.route("/api/tools/scheduler/jobs/<job_name>", methods=["POST"])
+    def api_tools_scheduler_update_job(job_name: str):
+        """Update one scheduler job configuration."""
+        from ..scheduler.jobs import update_job_config
+
+        data = request.get_json(silent=True) or {}
+        interval_minutes = data.get("interval_minutes")
+        enabled = data.get("enabled")
+        try:
+            updated = update_job_config(
+                job_name=job_name,
+                interval_minutes=int(interval_minutes) if interval_minutes is not None else None,
+                enabled=bool(enabled) if enabled is not None else None,
+            )
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": True, "job": updated})
+
+    @app.route("/api/tools/scheduler/jobs/<job_name>/run", methods=["POST"])
+    def api_tools_scheduler_run_job(job_name: str):
+        """Run one scheduler job immediately."""
+        from ..scheduler.jobs import run_job_now
+
+        try:
+            result = run_job_now(job_name)
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": True, "result": result})
 
     # =========================================================================
     # v0.9.4: Object graph + internal versioning surfaces

@@ -65,7 +65,7 @@ def _queue_item_from_row(row, *, include_payload: bool = True) -> dict[str, Any]
         "status": row["status"],
         "attempt_count": int(row["attempt_count"] or 0),
         "idempotency_key": row["idempotency_key"],
-        "priority_rank": int(row["priority_rank"] or 100),
+        "priority_rank": int(row["priority_rank"]) if row["priority_rank"] is not None else 100,
         "available_at": row["available_at"],
         "review_created_at": row["review_created_at"],
         "last_error": row["last_error"],
@@ -263,6 +263,17 @@ def list_queue_items(
     return [_queue_item_from_row(row, include_payload=include_payload) for row in rows]
 
 
+def get_queue_item(item_id: int, *, include_payload: bool = True) -> dict[str, Any] | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM execution_queue WHERE id = ?",
+            (int(item_id),),
+        ).fetchone()
+    if row is None:
+        return None
+    return _queue_item_from_row(row, include_payload=include_payload)
+
+
 def claim_next_item(worker_id: str) -> dict[str, Any] | None:
     worker = str(worker_id or "").strip() or "worker"
     with get_db() as conn:
@@ -313,6 +324,49 @@ def mark_item_completed(item_id: int, result_payload: dict[str, Any] | None = No
             WHERE id = ?
             """,
             (_json_dumps(result_payload or {}), _now_iso(), int(item_id)),
+        )
+        row = conn.execute(
+            "SELECT * FROM execution_queue WHERE id = ?",
+            (int(item_id),),
+        ).fetchone()
+    if not row:
+        return None
+    return _queue_item_from_row(row)
+
+
+def requeue_item(
+    item_id: int,
+    *,
+    front: bool = False,
+    reason: str | None = None,
+    available_at: str | None = None,
+) -> dict[str, Any] | None:
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT priority_rank FROM execution_queue WHERE id = ?",
+            (int(item_id),),
+        ).fetchone()
+        if existing is None:
+            return None
+        priority_rank = 0 if bool(front) else int(existing["priority_rank"] or 100)
+        conn.execute(
+            """
+            UPDATE execution_queue
+            SET status = 'queued',
+                available_at = ?,
+                priority_rank = ?,
+                last_error = COALESCE(?, last_error),
+                completed_at = NULL,
+                locked_by = NULL,
+                locked_at = NULL
+            WHERE id = ?
+            """,
+            (
+                available_at or _now_iso(),
+                priority_rank,
+                str(reason) if reason is not None else None,
+                int(item_id),
+            ),
         )
         row = conn.execute(
             "SELECT * FROM execution_queue WHERE id = ?",

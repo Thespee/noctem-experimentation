@@ -179,22 +179,14 @@
 
     <section class="settings-form" id="calendar-import" style="margin-top:2rem;">
         <h2>📥 Calendar Import</h2>
+        <p class="help-text">Execution controls (refresh/run cadence/queue visibility) now live in the Tools tab.</p>
 
         {% if saved_urls %}
-        <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display:inline;">
-            <input type="hidden" name="next" value="settings">
-            <button type="submit" class="mini-btn refresh-all">🔄 Refresh All</button>
-        </form>
         {% for u in saved_urls %}
         <div class="calendar-row">
             <span class="calendar-name">{{ u.name }}</span>
             <span class="calendar-url" title="{{ u.url }}">{{ u.url }}</span>
             <div class="calendar-actions">
-                <form method="POST" action="{{ url_for('calendar_refresh') }}" style="display:inline;">
-                    <input type="hidden" name="next" value="settings">
-                    <input type="hidden" name="url" value="{{ u.url }}">
-                    <button type="submit" class="mini-btn refresh">↻ Refresh</button>
-                </form>
                 <form method="POST" action="{{ url_for('calendar_remove_url') }}" style="display:inline;">
                     <input type="hidden" name="next" value="settings">
                     <input type="hidden" name="url" value="{{ u.url }}">
@@ -223,27 +215,6 @@
             </div>
             <button type="submit" class="save-btn">Add Calendar</button>
         </form>
-
-        <form method="POST" action="{{ url_for('calendar_clear') }}" style="margin-top:0.75rem;">
-            <input type="hidden" name="next" value="settings">
-            <button type="submit" class="danger-btn" onclick="return confirm('Clear all imported calendar events?')">Clear All Imported Events</button>
-        </form>
-
-        <div style="margin-top:1.25rem;">
-            <h3 style="font-size:0.9rem;color:#e8eaed;margin-bottom:0.5rem;">Upcoming Imported Events ({{ calendar_events|length }})</h3>
-            {% if calendar_events %}
-            <ul class="event-list">
-                {% for event in calendar_events %}
-                <li>
-                    <span class="event-time">{{ event.start_time[:16] if event.start_time else '?' }}</span>
-                    <span class="event-title">{{ event.title }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="help-text">No upcoming imported events.</p>
-            {% endif %}
-        </div>
     </section>
 
     <section class="settings-form" style="margin-top:2rem;">
