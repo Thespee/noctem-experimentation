@@ -17,6 +17,8 @@ class CommandType(Enum):
     GOALS = "goals"
     GOAL = "goal"
     SETTINGS = "settings"
+    STATUS = "status"
+    ACCESS = "access"
     WEB = "web"
     DONE = "done"
     SKIP = "skip"
@@ -74,6 +76,8 @@ def parse_command(text: str) -> ParsedCommand:
             "goals": CommandType.GOALS,
             "goal": CommandType.GOAL,
             "settings": CommandType.SETTINGS,
+            "status": CommandType.STATUS,
+            "access": CommandType.ACCESS,
             "web": CommandType.WEB,
             "done": CommandType.DONE,
             "skip": CommandType.SKIP,
@@ -137,6 +141,16 @@ def parse_command(text: str) -> ParsedCommand:
         return ParsedCommand(type=CommandType.PROJECTS, args=[], raw_text=text)
     if text_lower == "goals":
         return ParsedCommand(type=CommandType.GOALS, args=[], raw_text=text)
+    if text_lower == "start":
+        return ParsedCommand(type=CommandType.START, args=[], raw_text=text)
+    if text_lower == "help":
+        return ParsedCommand(type=CommandType.HELP, args=[], raw_text=text)
+    if text_lower == "settings":
+        return ParsedCommand(type=CommandType.SETTINGS, args=[], raw_text=text)
+    if text_lower == "status":
+        return ParsedCommand(type=CommandType.STATUS, args=[], raw_text=text)
+    if text_lower == "access":
+        return ParsedCommand(type=CommandType.ACCESS, args=[], raw_text=text)
     if text_lower == "web":
         return ParsedCommand(type=CommandType.WEB, args=[], raw_text=text)
 

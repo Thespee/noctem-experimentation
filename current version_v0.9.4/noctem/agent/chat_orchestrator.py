@@ -8,6 +8,7 @@ import requests
 
 from ..config import Config
 from ..db import get_db
+from ..parser.command import CommandType, parse_command
 from ..services.conversation_service import (
     get_thread_context,
     record_message,
@@ -92,6 +93,11 @@ def _resolve_mode(message: str) -> tuple[str, str]:
             stripped = stripped[1:]
         return "fast", _normalize_fast_path_input(stripped)
     return "model", message
+
+
+def _is_fast_path_command(text: str) -> bool:
+    parsed = parse_command((text or "").strip())
+    return parsed.type != CommandType.NEW_TASK
 
 
 def _public_workflow_fields(result: dict | None) -> dict:
@@ -369,6 +375,7 @@ def process_chat_message(
     Behavior:
     - "." prefix (single) => deterministic fast path.
     - ".." prefix => escape literal dot, still model path.
+    - bare/slash command text => deterministic fast path.
     - default => model-first with deterministic fallback.
     """
     raw_message = (message or "").strip()
@@ -415,6 +422,32 @@ def process_chat_message(
                 "mode": "resume",
                 "requires_action": True,
                 **_public_workflow_fields(resumed_result),
+            }
+
+        if _is_fast_path_command(effective_text):
+            workflow_result = submit_input(effective_text, source=source)
+            response_text = _enforce_brief_reply(
+                workflow_result.get("response", _DEFAULT_FALLBACK_REPLY),
+                allow_long=allow_long,
+            )
+            metadata = {
+                "mode": "fast",
+                "thread_id": resolved_thread_id,
+                "forced_fast_command": True,
+                **_public_workflow_fields(workflow_result),
+            }
+            _record_assistant_reply(
+                source=source,
+                thread_id=resolved_thread_id,
+                response_text=response_text,
+                metadata=metadata,
+            )
+            return {
+                "response": response_text,
+                "thread_id": resolved_thread_id,
+                "mode": "fast",
+                "forced_fast_command": True,
+                **_public_workflow_fields(workflow_result),
             }
 
     if mode == "fast":

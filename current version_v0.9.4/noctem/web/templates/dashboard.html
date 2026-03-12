@@ -2,7 +2,7 @@
 {% block title %}Noctem Dashboard{% endblock %}
 
 {% block extra_style %}
-.dash-layout { display: grid; grid-template-columns: 1fr 260px; min-height: 100vh; }
+.dash-layout { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
 .main-column { padding: 1rem 1.5rem; overflow-y: auto; }
 .main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .main-header h1 { margin: 0; font-size: 1.3rem; color: #e8eaed; }
@@ -31,21 +31,7 @@
 .event-time { color: #5f6368; font-size: 0.7rem; }
 .task-item { display: flex; align-items: flex-start; gap: 0.25rem; }
 .task-item.high-priority::before { content: "!"; color: #f28b82; font-weight: bold; }
-.thinking-column { background: #1a1a1a; border-left: 1px solid #3c3c3c; padding: 1rem 0.75rem; display: flex; flex-direction: column; }
-.thinking-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-.thinking-header h2 { margin: 0; font-size: 0.9rem; color: #e8eaed; }
-.thinking-filter select { background: #2d2d2d; border: 1px solid #3c3c3c; color: #9aa0a6; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.7rem; }
-.thinking-feed { flex: 1; overflow-y: auto; font-size: 0.75rem; }
-.thinking-entry { padding: 0.5rem; border-bottom: 1px solid #2d2d2d; margin-bottom: 0.25rem; }
-.thinking-entry .time { color: #5f6368; font-size: 0.65rem; }
-.thinking-entry .source { color: #8ab4f8; font-size: 0.65rem; }
-.thinking-entry .summary { margin-top: 0.25rem; color: #e8eaed; }
-.thinking-entry.level-decision { border-left: 2px solid #fdd663; padding-left: 0.75rem; }
-.thinking-entry.level-activity { border-left: 2px solid #8ab4f8; padding-left: 0.75rem; }
-.thinking-actions { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #3c3c3c; }
-.thinking-actions a { font-size: 0.7rem; color: #9aa0a6; text-decoration: none; }
-.thinking-actions a:hover { color: #e8eaed; }
-.chat-widget { position: fixed; bottom: 1rem; right: 280px; width: 320px; background: #2d2d2d; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; border: 1px solid #3c3c3c; }
+.chat-widget { position: fixed; bottom: 1rem; right: 1rem; width: 320px; background: #2d2d2d; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; border: 1px solid #3c3c3c; }
 .chat-header { padding: 0.75rem; background: #3c4043; border-radius: 8px 8px 0 0; cursor: pointer; display: flex; justify-content: space-between; color: #e8eaed; }
 .chat-body { display: flex; flex-direction: column; height: 300px; }
 .chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; }
@@ -56,7 +42,7 @@
 .chat-input input { flex: 1; background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.5rem; border-radius: 4px 0 0 4px; }
 .chat-input button { background: #8ab4f8; color: #1f1f1f; border: none; padding: 0.5rem 1rem; border-radius: 0 4px 4px 0; cursor: pointer; font-weight: 500; }
 .kbd { display: inline-block; background: #3c4043; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; font-family: monospace; margin-left: 0.25rem; color: #9aa0a6; }
-@media (max-width: 1024px) { .dash-layout { grid-template-columns: 1fr; } .thinking-column { display: none; } .chat-widget { right: 1rem; width: calc(100% - 2rem); max-width: 400px; } }
+@media (max-width: 1024px) { .dash-layout { grid-template-columns: 1fr; } .chat-widget { right: 1rem; width: calc(100% - 2rem); max-width: 400px; } }
 {% endblock %}
 
 {% block content %}
@@ -97,11 +83,6 @@
             {% endfor %}
         </div>
     </div>
-    <div class="thinking-column">
-        <div class="thinking-header"><h2>🧠 System Thinking</h2><div class="thinking-filter"><select id="thinking-level" onchange="loadThinkingFeed()"><option value="all">All</option><option value="activity">Activity</option><option value="decisions">Decisions</option></select></div></div>
-        <div class="thinking-feed" id="thinking-feed"><div class="thinking-entry"><div class="time">Loading...</div></div></div>
-        <div class="thinking-actions"><a href="/api/thinking/export">📥 Export</a> <span style="margin:0 0.5rem;color:#3c3c3c">|</span> <a href="/settings">🔧 Settings</a></div>
-    </div>
 </div>
 <div id="chat-widget" class="chat-widget">
     <div class="chat-header" onclick="toggleChat()"><span>💬 Chat <span class="kbd">n</span></span><span id="chat-toggle">▼</span></div>
@@ -119,7 +100,6 @@ function toggleChat() { chatOpen = !chatOpen; document.getElementById('chat-body
 function addMessage(t, isUser) { const d = document.createElement('div'); d.className = 'chat-message ' + (isUser ? 'user' : 'bot'); d.innerHTML = '<span class="msg">' + escapeHtml(t) + '</span>'; const c = document.getElementById('chat-messages'); c.appendChild(d); c.scrollTop = c.scrollHeight; }
 async function loadChatHistory() { try { const q = chatThreadId ? `?limit=80&thread_id=${encodeURIComponent(chatThreadId)}` : '?limit=80'; const r = await fetch('/api/chat/history' + q); const d = await r.json(); const c = document.getElementById('chat-messages'); if (d.thread_id) chatThreadId = d.thread_id; c.innerHTML = ''; const msgs = Array.isArray(d.messages) ? d.messages : []; if (!msgs.length) { addMessage('🌙 Alfred here. Chat naturally, or use . for fast mode.', false); return; } msgs.forEach(m => addMessage(m.content || '', (m.role || '').toLowerCase() === 'user')); } catch(e) { const c = document.getElementById('chat-messages'); c.innerHTML = ''; addMessage('❌ Could not load chat history', false); } }
 async function sendMessage(e) { e.preventDefault(); const inp = document.getElementById('chat-input'); const m = inp.value.trim(); if(!m) return; addMessage(m, true); inp.value=''; inp.disabled=true; try { const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m, thread_id:chatThreadId})}); const d = await r.json(); if (d.thread_id) chatThreadId = d.thread_id; addMessage(d.success ? d.response : '❌ '+(d.error||'Error'), false); } catch(err) { addMessage('❌ Connection error', false); } finally { inp.disabled=false; inp.focus(); } }
-async function loadThinkingFeed() { try { const r = await fetch(`/api/thinking/recent?limit=30&level=${document.getElementById('thinking-level').value}`); const d = await r.json(); const f = document.getElementById('thinking-feed'); if(!d.entries.length) { f.innerHTML = '<div class="thinking-entry"><div class="summary" style="color:#5f6368">No activity yet</div></div>'; return; } f.innerHTML = d.entries.map(e => `<div class="thinking-entry level-${e.level||'activity'}"><div class="time">${e.timestamp?new Date(e.timestamp).toLocaleTimeString():''}</div><div class="source">${e.source||'system'}</div><div class="summary">${escapeHtml(e.summary||'')}</div></div>`).join(''); } catch(err){} }
 document.addEventListener('keydown', e => { if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return; switch(e.key.toLowerCase()) { case 'n': document.getElementById('chat-input').focus(); if(!chatOpen) toggleChat(); e.preventDefault(); break; case 'd': location.reload(); break; case '?': addMessage('Shortcuts: n=chat, d=refresh, ?=help', false); break; } });
-document.addEventListener('DOMContentLoaded', () => { loadChatHistory(); loadThinkingFeed(); setInterval(loadThinkingFeed, 30000); });
+document.addEventListener('DOMContentLoaded', () => { loadChatHistory(); });
 {% endblock %}

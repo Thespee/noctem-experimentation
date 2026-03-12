@@ -13,6 +13,8 @@ import pytest
 from datetime import date, datetime, timedelta
 
 from noctem.db import get_db
+from noctem.parser.command import CommandType, parse_command
+from noctem.parser.natural_date import parse_date
 from noctem.parser.task_parser import parse_task
 from noctem.services import project_service, task_service
 from noctem.services.ics_import import import_ics_bytes, clear_ics_events
@@ -31,6 +33,37 @@ class TestDateAlias:
     def test_parse_tmrw_alias(self):
         parsed = parse_task("pay rent tmrw")
         assert parsed.due_date == date.today() + timedelta(days=1)
+
+    def test_parse_standalone_ordinal_day(self):
+        parsed = parse_task("pay bill 18th")
+        assert parsed.due_date is not None
+        assert parsed.due_date >= date.today()
+        assert parsed.name.lower() == "pay bill"
+
+    def test_parse_weekday_ordinal_month_phrase(self):
+        parsed_date, remaining = parse_date("wednesday the 11th of march")
+        assert parsed_date is not None
+        assert parsed_date.month == 3
+        assert parsed_date.day == 11
+        assert remaining == ""
+
+
+class TestFastCommandRecognition:
+    @pytest.mark.parametrize(
+        ("text", "expected_type"),
+        [
+            (". access", CommandType.ACCESS),
+            ("access", CommandType.ACCESS),
+            (". status", CommandType.STATUS),
+            ("status", CommandType.STATUS),
+            ("start", CommandType.START),
+            ("help", CommandType.HELP),
+            ("settings", CommandType.SETTINGS),
+        ],
+    )
+    def test_parse_fast_command_variants(self, text, expected_type):
+        parsed = parse_command(text)
+        assert parsed.type == expected_type
 
 
 class TestUnassignedTasks:
@@ -111,6 +144,15 @@ class TestProjectsPageNLPInput:
         assert data["success"] is True
         assert data["task"]["name"] == "Submit report"
         assert data["task"]["due_date"] == (date.today() + timedelta(days=1)).isoformat()
+
+
+class TestDashboardCleanup:
+    def test_dashboard_has_no_system_thinking_panel_or_polling(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        html = resp.data.decode("utf-8")
+        assert "System Thinking" not in html
+        assert "/api/system/thinking" not in html
 
 
 class TestLegacyRoutes:

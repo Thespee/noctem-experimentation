@@ -308,6 +308,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.set_action("list_goals")
             log.set_result(True)
             return
+        if parsed.type == CommandType.START:
+            await cmd_start(update, context)
+            log.set_action("start")
+            log.set_result(True)
+            return
+        if parsed.type == CommandType.HELP:
+            await cmd_help(update, context)
+            log.set_action("help")
+            log.set_result(True)
+            return
+        if parsed.type == CommandType.SETTINGS:
+            await cmd_settings(update, context)
+            log.set_action("settings")
+            log.set_result(True)
+            return
+        if parsed.type == CommandType.STATUS:
+            await cmd_status(update, context)
+            log.set_action("status")
+            log.set_result(True)
+            return
+        if parsed.type == CommandType.ACCESS:
+            await cmd_access(update, context)
+            log.set_action("access")
+            log.set_result(True)
+            return
         if parsed.type == CommandType.WEB:
             await cmd_web(update, context)
             log.set_action("web_link")

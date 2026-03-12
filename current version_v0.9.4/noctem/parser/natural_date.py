@@ -69,6 +69,32 @@ def parse_date(text: str) -> Tuple[Optional[date], str]:
     """
     text_lower = text.lower()
     today = date.today()
+    month_pattern = '|'.join(MONTHS.keys())
+
+    def _resolve_month_day(month_num: int, day_num: int) -> Optional[date]:
+        try:
+            parsed_value = date(today.year, month_num, day_num)
+        except ValueError:
+            return None
+        if parsed_value < today:
+            try:
+                parsed_value = date(today.year + 1, month_num, day_num)
+            except ValueError:
+                return None
+        return parsed_value
+
+    def _next_month_day(day_num: int) -> Optional[date]:
+        # Look up to 24 months ahead for a valid, non-past day-of-month.
+        for step in range(0, 24):
+            month_num = ((today.month - 1 + step) % 12) + 1
+            year_num = today.year + ((today.month - 1 + step) // 12)
+            try:
+                candidate = date(year_num, month_num, day_num)
+            except ValueError:
+                continue
+            if candidate >= today:
+                return candidate
+        return None
     
     # Today
     if re.search(r'\btoday\b', text_lower):
@@ -91,6 +117,25 @@ def parse_date(text: str) -> Tuple[Optional[date], str]:
     if match:
         days = int(match.group(1))
         return today + timedelta(days=days), re.sub(r'\bin\s+\d+\s+days?\b', '', text, flags=re.IGNORECASE).strip()
+
+    # [weekday] the 11th of march / [weekday] 11 march
+    match = re.search(
+        rf'\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s*,?\s*(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?({month_pattern})\b',
+        text_lower,
+    )
+    if match:
+        day_num = int(match.group(1))
+        month_name = match.group(2)
+        month_num = MONTHS.get(month_name)
+        if month_num:
+            parsed = _resolve_month_day(month_num, day_num)
+            if parsed:
+                return parsed, re.sub(
+                    rf'\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s*,?\s*(?:the\s+)?\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?{month_name}\b',
+                    '',
+                    text,
+                    flags=re.IGNORECASE,
+                ).strip()
     
     # Next [weekday]
     match = re.search(r'\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b', text_lower)
@@ -148,38 +193,70 @@ def parse_date(text: str) -> Tuple[Optional[date], str]:
         except ValueError:
             pass
     
-    # Month Day: feb 15, february 15
-    month_pattern = '|'.join(MONTHS.keys())
+    # Month Day: feb 15, february 15, march 11th
     match = re.search(rf'\b({month_pattern})\s+(\d{{1,2}})\b', text_lower)
     if match:
         month_name = match.group(1)
         day = int(match.group(2))
         month_num = MONTHS.get(month_name)
         if month_num:
-            try:
-                year = today.year
-                parsed = date(year, month_num, day)
-                if parsed < today:
-                    parsed = date(year + 1, month_num, day)
+            parsed = _resolve_month_day(month_num, day)
+            if parsed:
                 return parsed, re.sub(rf'\b{month_name}\s+\d{{1,2}}\b', '', text, flags=re.IGNORECASE).strip()
-            except ValueError:
-                pass
+
+    match = re.search(rf'\b({month_pattern})\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)\b', text_lower)
+    if match:
+        month_name = match.group(1)
+        day = int(match.group(2))
+        month_num = MONTHS.get(month_name)
+        if month_num:
+            parsed = _resolve_month_day(month_num, day)
+            if parsed:
+                return parsed, re.sub(
+                    rf'\b{month_name}\s+(?:the\s+)?\d{{1,2}}(?:st|nd|rd|th)\b',
+                    '',
+                    text,
+                    flags=re.IGNORECASE,
+                ).strip()
     
-    # Day Month: 15 feb, 15 february
+    # Day Month: 15 feb, 15 february, 11th of march
     match = re.search(rf'\b(\d{{1,2}})\s+({month_pattern})\b', text_lower)
     if match:
         day = int(match.group(1))
         month_name = match.group(2)
         month_num = MONTHS.get(month_name)
         if month_num:
-            try:
-                year = today.year
-                parsed = date(year, month_num, day)
-                if parsed < today:
-                    parsed = date(year + 1, month_num, day)
+            parsed = _resolve_month_day(month_num, day)
+            if parsed:
                 return parsed, re.sub(rf'\b\d{{1,2}}\s+{month_name}\b', '', text, flags=re.IGNORECASE).strip()
-            except ValueError:
-                pass
+
+    match = re.search(rf'\b(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)\s+(?:of\s+)?({month_pattern})\b', text_lower)
+    if match:
+        day = int(match.group(1))
+        month_name = match.group(2)
+        month_num = MONTHS.get(month_name)
+        if month_num:
+            parsed = _resolve_month_day(month_num, day)
+            if parsed:
+                return parsed, re.sub(
+                    rf'\b(?:the\s+)?\d{{1,2}}(?:st|nd|rd|th)\s+(?:of\s+)?{month_name}\b',
+                    '',
+                    text,
+                    flags=re.IGNORECASE,
+                ).strip()
+
+    # Standalone ordinal day: 18th / the 18th
+    match = re.search(r'\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b', text_lower)
+    if match:
+        day = int(match.group(1))
+        parsed = _next_month_day(day)
+        if parsed:
+            return parsed, re.sub(
+                r'\b(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\b',
+                '',
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
     
     # Next week
     if re.search(r'\bnext\s+week\b', text_lower):

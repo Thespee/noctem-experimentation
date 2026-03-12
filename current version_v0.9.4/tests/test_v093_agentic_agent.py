@@ -196,6 +196,27 @@ def test_chat_dot_fast_path_handles_shorthand_done():
     assert refreshed is not None
     assert refreshed.status == "done"
 
+def test_chat_bare_command_bypasses_model_and_uses_fast_path(monkeypatch):
+    client = _client()
+    marker = f"barefast-{uuid4().hex[:10]}"
+    task = task_service.create_task(marker)
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("Model call should not occur for bare command input.")
+
+    monkeypatch.setattr("noctem.agent.chat_orchestrator.requests.post", _fail_if_called)
+
+    resp = client.post("/api/chat", json={"message": f"done {marker}"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["mode"] == "fast"
+    assert isinstance(data.get("workflow_id"), int)
+
+    refreshed = task_service.get_task(task.id)
+    assert refreshed is not None
+    assert refreshed.status == "done"
+
 
 def test_chat_double_dot_escape_uses_model_path(monkeypatch):
     class _FakeResponse:
