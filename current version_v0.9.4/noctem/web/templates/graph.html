@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% block title %}Noctem Graph{% endblock %}
+
+{% block extra_style %}
+.graph-page { padding: 1rem 1.25rem; }
+.graph-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.9rem; }
+.graph-header h1 { margin: 0; font-size: 1.2rem; color: #e8eaed; }
+.graph-controls { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
+.graph-controls select, .graph-controls button, .graph-controls input {
+    background: #2d2d2d;
+    border: 1px solid #3c3c3c;
+    color: #e8eaed;
+    border-radius: 6px;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.8rem;
+}
+.graph-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0.8rem; }
+.graph-card { background: #262626; border: 1px solid #3c3c3c; border-radius: 8px; padding: 0.7rem; }
+.graph-canvas-wrap { height: 460px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; position: relative; overflow: hidden; }
+#graph-svg { width: 100%; height: 100%; display: block; }
+.graph-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa0a6; font-size: 0.86rem; pointer-events: none; }
+.summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 0.7rem; }
+.summary-item { background: #1f1f1f; border: 1px solid #333; border-radius: 6px; padding: 0.5rem; }
+.summary-item .label { color: #9aa0a6; font-size: 0.74rem; margin-bottom: 0.18rem; }
+.summary-item .value { color: #e8eaed; font-size: 0.96rem; }
+.type-list { margin: 0; padding-left: 1rem; color: #cdd2d8; font-size: 0.8rem; max-height: 140px; overflow: auto; }
+.detail-title { font-size: 0.95rem; margin: 0 0 0.45rem; color: #e8eaed; }
+.detail-meta { color: #9aa0a6; font-size: 0.78rem; margin-bottom: 0.4rem; }
+.detail-section { margin-top: 0.7rem; }
+.detail-section h3 { margin: 0 0 0.35rem; font-size: 0.82rem; color: #8ab4f8; }
+.detail-list { margin: 0; padding-left: 1rem; color: #cdd2d8; font-size: 0.78rem; max-height: 180px; overflow: auto; }
+.detail-json { background: #1f1f1f; border: 1px solid #333; border-radius: 6px; padding: 0.5rem; margin: 0; color: #cdd2d8; font-size: 0.76rem; max-height: 200px; overflow: auto; white-space: pre-wrap; }
+.export-result { margin-top: 0.6rem; color: #9aa0a6; font-size: 0.76rem; min-height: 1.1rem; }
+.legend { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-top: 0.55rem; color: #9aa0a6; font-size: 0.75rem; }
+.legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+.legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+@media (max-width: 1000px) {
+    .graph-layout { grid-template-columns: 1fr; }
+    .graph-canvas-wrap { height: 380px; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="graph-page">
+    <div class="graph-header">
+        <h1>🕸️ Object Graph</h1>
+        <div class="graph-controls">
+            <label for="type-filter">Type</label>
+            <select id="type-filter">
+                <option value="">all</option>
+                <option value="task">task</option>
+                <option value="project">project</option>
+                <option value="goal">goal</option>
+            </select>
+            <label for="graph-limit">Limit</label>
+            <input id="graph-limit" type="number" min="1" max="5000" value="300" />
+            <button type="button" onclick="refreshGraph()">Refresh</button>
+            <button type="button" onclick="exportMarkdown()">Export Markdown</button>
+        </div>
+    </div>
+
+    <div class="graph-layout">
+        <div class="graph-card">
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="label">Objects</div>
+                    <div class="value" id="summary-objects">0</div>
+                </div>
+                <div class="summary-item">
+                    <div class="label">Relations</div>
+                    <div class="value" id="summary-edges">0</div>
+                </div>
+                <div class="summary-item">
+                    <div class="label">Manual Review</div>
+                    <div class="value" id="summary-manual">0</div>
+                </div>
+            </div>
+            <div class="graph-canvas-wrap">
+                <svg id="graph-svg" viewBox="0 0 960 460" preserveAspectRatio="xMidYMid meet"></svg>
+                <div class="graph-empty" id="graph-empty">No graph nodes available.</div>
+            </div>
+            <div class="legend">
+                <span class="legend-item"><span class="legend-dot" style="background:#8ab4f8"></span>task</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#81c995"></span>project</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#fdd663"></span>goal</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#9aa0a6"></span>other</span>
+            </div>
+        </div>
+
+        <div class="graph-card">
+            <h2 class="detail-title">Graph Summary</h2>
+            <ul class="type-list" id="type-breakdown"></ul>
+
+            <div class="detail-section">
+                <h3>Object Details</h3>
+                <div id="object-detail">
+                    <div class="detail-meta">Select a node in the graph to inspect version history.</div>
+                </div>
+            </div>
+            <div class="export-result" id="export-result"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const TYPE_COLORS = {
+    task: '#8ab4f8',
+    project: '#81c995',
+    goal: '#fdd663',
+    default: '#9aa0a6',
+};
+
+let graphState = {
+    nodes: [],
+    edges: [],
+    nodeById: {},
+};
+
+function graphColor(type) {
+    const key = String(type || '').toLowerCase();
+    return TYPE_COLORS[key] || TYPE_COLORS.default;
+}
+
+function createSvgElement(tag) {
+    return document.createElementNS('http://www.w3.org/2000/svg', tag);
+}
+
+function clearElement(element) {
+    while (element.firstChild) {
+        element.removeChild(element.firstChild);
+    }
+}
+
+async function fetchJson(url, options = null) {
+    const response = await fetch(url, options || undefined);
+    return response.json();
+}
+
+function updateSummary(stats, nodes, edges) {
+    document.getElementById('summary-objects').textContent = String((stats && stats.object_count) || nodes.length || 0);
+    document.getElementById('summary-edges').textContent = String((stats && stats.edge_count) || edges.length || 0);
+    document.getElementById('summary-manual').textContent = String((stats && stats.manual_review_count) || 0);
+    const types = (stats && stats.types) || {};
+    const typeList = document.getElementById('type-breakdown');
+    const entries = Object.entries(types).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+        typeList.innerHTML = '<li>no objects</li>';
+        return;
+    }
+    typeList.innerHTML = entries.map(([name, count]) => `<li>${escapeHtml(name)}: ${count}</li>`).join('');
+}
+
+function graphLayout(nodes, width, height) {
+    const count = nodes.length;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.max(70, Math.min(width, height) * 0.35);
+    const positions = {};
+    if (!count) {
+        return positions;
+    }
+    nodes.forEach((node, index) => {
+        const angle = (Math.PI * 2 * index) / count;
+        const jitter = ((index % 5) - 2) * 8;
+        positions[node.id] = {
+            x: centerX + Math.cos(angle) * (radius + jitter),
+            y: centerY + Math.sin(angle) * (radius + jitter),
+        };
+    });
+    return positions;
+}
+
+function drawGraph(nodes, edges) {
+    const svg = document.getElementById('graph-svg');
+    const empty = document.getElementById('graph-empty');
+    clearElement(svg);
+    if (!Array.isArray(nodes) || !nodes.length) {
+        empty.style.display = 'flex';
+        return;
+    }
+    empty.style.display = 'none';
+
+    const width = 960;
+    const height = 460;
+    const positions = graphLayout(nodes, width, height);
+
+    edges.forEach((edge) => {
+        const source = positions[edge.source];
+        const target = positions[edge.target];
+        if (!source || !target) {
+            return;
+        }
+        const line = createSvgElement('line');
+        line.setAttribute('x1', String(source.x));
+        line.setAttribute('y1', String(source.y));
+        line.setAttribute('x2', String(target.x));
+        line.setAttribute('y2', String(target.y));
+        line.setAttribute('stroke', '#4a4a4a');
+        line.setAttribute('stroke-width', '1.2');
+        line.setAttribute('opacity', '0.85');
+        svg.appendChild(line);
+    });
+
+    nodes.forEach((node) => {
+        const pos = positions[node.id];
+        if (!pos) {
+            return;
+        }
+        const group = createSvgElement('g');
+        group.style.cursor = 'pointer';
+        group.setAttribute('data-object-id', node.id);
+        group.addEventListener('click', () => loadObjectDetails(node.id));
+
+        const circle = createSvgElement('circle');
+        circle.setAttribute('cx', String(pos.x));
+        circle.setAttribute('cy', String(pos.y));
+        circle.setAttribute('r', '11');
+        circle.setAttribute('fill', graphColor(node.type));
+        circle.setAttribute('stroke', '#202124');
+        circle.setAttribute('stroke-width', '1.6');
+        group.appendChild(circle);
+
+        const label = createSvgElement('text');
+        label.setAttribute('x', String(pos.x + 13));
+        label.setAttribute('y', String(pos.y + 4));
+        label.setAttribute('fill', '#dfe3e7');
+        label.setAttribute('font-size', '11');
+        label.textContent = String(node.label || node.id).slice(0, 34);
+        group.appendChild(label);
+
+        svg.appendChild(group);
+    });
+}
+
+function renderObjectDetails(surface) {
+    const container = document.getElementById('object-detail');
+    if (!surface || !surface.object) {
+        container.innerHTML = '<div class="detail-meta">No data available for selected object.</div>';
+        return;
+    }
+    const objectNode = surface.object;
+    const versions = Array.isArray(surface.versions) ? surface.versions : [];
+    const relations = Array.isArray(surface.relations) ? surface.relations : [];
+    const events = Array.isArray(surface.events) ? surface.events : [];
+    const context = surface.context_doc && surface.context_doc.context_json ? surface.context_doc.context_json : null;
+    const versionItems = versions.slice(0, 20).map((version) => {
+        const headFlag = version.is_head ? ' (head)' : '';
+        return `<li>v${version.version_num} — ${escapeHtml(version.version_id)}${headFlag}</li>`;
+    }).join('');
+    const relationItems = relations.slice(0, 20).map((edge) => {
+        return `<li>${escapeHtml(edge.source)} → ${escapeHtml(edge.target)} <em>(${escapeHtml(edge.relation)})</em></li>`;
+    }).join('');
+    const eventItems = events.slice(0, 12).map((eventNode) => {
+        return `<li>${escapeHtml(eventNode.event_id || '')} — ${escapeHtml(eventNode.label || '')}</li>`;
+    }).join('');
+    container.innerHTML = `
+        <div class="detail-title">${escapeHtml(objectNode.label || objectNode.id)}</div>
+        <div class="detail-meta">${escapeHtml(objectNode.id)} • ${escapeHtml(objectNode.type)} • review=${escapeHtml(objectNode.review_state || 'active')}</div>
+        <div class="detail-section">
+            <h3>Versions (${versions.length})</h3>
+            <ul class="detail-list">${versionItems || '<li>none</li>'}</ul>
+        </div>
+        <div class="detail-section">
+            <h3>Relations (${relations.length})</h3>
+            <ul class="detail-list">${relationItems || '<li>none</li>'}</ul>
+        </div>
+        <div class="detail-section">
+            <h3>Events (${events.length})</h3>
+            <ul class="detail-list">${eventItems || '<li>none</li>'}</ul>
+        </div>
+        <div class="detail-section">
+            <h3>Head Snapshot</h3>
+            <pre class="detail-json">${escapeHtml(JSON.stringify(objectNode.head_snapshot || {}, null, 2))}</pre>
+        </div>
+        <div class="detail-section">
+            <h3>Context JSON</h3>
+            <pre class="detail-json">${escapeHtml(JSON.stringify(context || {}, null, 2))}</pre>
+        </div>
+    `;
+}
+
+async function loadObjectDetails(objectId) {
+    try {
+        const payload = await fetchJson(`/api/graph/object/${encodeURIComponent(objectId)}?version_limit=40`);
+        if (!payload.success) {
+            renderObjectDetails(null);
+            return;
+        }
+        renderObjectDetails(payload.surface);
+    } catch (error) {
+        renderObjectDetails(null);
+    }
+}
+
+async function refreshGraph() {
+    const typeFilter = (document.getElementById('type-filter').value || '').trim();
+    const limitRaw = Number(document.getElementById('graph-limit').value || 300);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 5000)) : 300;
+    const qs = new URLSearchParams();
+    qs.set('limit', String(limit));
+    if (typeFilter) {
+        qs.set('object_type', typeFilter);
+    }
+    try {
+        const payload = await fetchJson(`/api/graph?${qs.toString()}`);
+        if (!payload.success) {
+            return;
+        }
+        const graph = payload.graph || {};
+        const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+        const edges = Array.isArray(graph.edges) ? graph.edges : [];
+        graphState = {
+            nodes,
+            edges,
+            nodeById: Object.fromEntries(nodes.map((node) => [node.id, node])),
+        };
+        updateSummary(graph.stats || {}, nodes, edges);
+        drawGraph(nodes, edges);
+    } catch (error) {
+        updateSummary({}, [], []);
+        drawGraph([], []);
+    }
+}
+
+async function exportMarkdown() {
+    const result = document.getElementById('export-result');
+    result.textContent = 'Exporting graph markdown snapshot...';
+    const limitRaw = Number(document.getElementById('graph-limit').value || 300);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 10000)) : 300;
+    try {
+        const payload = await fetchJson('/api/graph/export/markdown', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limit, include_context_docs: true }),
+        });
+        if (!payload.success) {
+            result.textContent = `Export failed: ${payload.error || 'unknown error'}`;
+            return;
+        }
+        const manifest = payload.manifest || {};
+        result.textContent = `Exported ${manifest.file_count || 0} files to ${manifest.snapshot_dir || '(unknown)'}`;
+    } catch (error) {
+        result.textContent = 'Export failed.';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', refreshGraph);
+{% endblock %}
