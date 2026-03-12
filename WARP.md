@@ -128,6 +128,20 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Future multi-device outline: per-device append-only event logs, periodic event exchange, conflict detection with manual review, and merge commits as new heads.
 - CRDTs are a **future optional** merge strategy for text-heavy objects (notes/docs) if true concurrent offline edits are required.
 
+## Session Learnings (Mar 2026, v0.9.4 Execution Results)
+
+- Implemented Noctem-native graph/versioning surfaces:
+  - UI route: `/graph`
+  - APIs: `/api/graph`, `/api/graph/object/<object_id>`, `/api/graph/versions`, `/api/graph/export/markdown`
+  - Graph markdown snapshots are exported from internal object/commit state only.
+- Added one-time migration utility: `current version_v0.9.4/noctem/migration/v093_to_v094.py`
+  - Creates target DB backup before changes.
+  - Exports migration artifacts (`seed_snapshot.json`, row dumps, `migration_report.json`).
+  - Copies typed entities and populates internal object/versions/events/refs genesis state.
+  - Copies wiki filesystem artifacts (`sources/`, `chroma/`) when present.
+  - Runs integrity checks (count parity + object-ref/version-head integrity).
+- Full active v0.9.4 suite gate currently green: `265 passed` (legacy tests tied to removed runtime surfaces are excluded from default collection in `tests/conftest.py`).
+
 ## Codebase Grounding for v0.9.4 Execution (Mar 2026)
 
 - Core schema and migrations live in `current version_v0.9.3/noctem/db.py`; additive migrations are required for object/commit history rollout.

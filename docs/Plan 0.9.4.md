@@ -1,5 +1,5 @@
 # Noctem Plan v0.9.4 — Agentic Rebuild & Full Feature Roadmap
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-12*
 
 ## Guiding Principles
 > "I never want to touch a computer again."
@@ -49,6 +49,22 @@
 - Add brief, codebase-grounded implementation details for each feature.
 - Preserve current reliability guardrails (preview/commit, verification, idempotency) while expanding capability.
 - Upgrade history and memory so every important mutation and conversation state is durable and queryable.
+## Execution Status (2026-03-12)
+- Completed milestones:
+  - Universal object core + durable history
+  - Interrupt/resume reliability + review surfaces
+  - Context docs + bounded memory packs
+  - Retrieval/context-doc-first RAG with provenance/trust citations
+  - Obsidian-mode graph/versioning surfaces (internal commit graph only)
+- Migration implementation and execution completed via:
+  - `current version_v0.9.4/noctem/migration/v093_to_v094.py`
+  - Includes source snapshot export, typed table import, object genesis versions/events/refs generation, wiki artifact copy, and integrity verification.
+- Migration execution artifacts are written under:
+  - `current version_v0.9.4/noctem/data/migration_exports/`
+  - Includes `seed_snapshot.json`, table-row dumps, and `migration_report.json`.
+- Test gate status after migration + graph completion:
+  - Full active suite: `265 passed`
+  - Legacy tests tied to removed runtime surfaces are excluded from default collection in `current version_v0.9.4/tests/conftest.py`.
 ## Phase 0 — Pre-Development Housekeeping
 Perform these steps before any v0.9.4 implementation work begins.
 ### 0a) Directory Reorganization
