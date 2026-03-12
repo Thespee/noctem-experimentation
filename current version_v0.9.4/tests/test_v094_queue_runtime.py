@@ -8,6 +8,7 @@ from noctem.agent.execution_queue_runtime import (
     process_chat_message_via_queue,
     process_execution_queue,
 )
+from noctem.services.async_delivery import list_delivery_publications
 from noctem.services import task_service
 from noctem.services.conversation_grounding import update_conversation_state
 from noctem.services.execution_queue import enqueue_scheduled_job, list_queue_items
@@ -16,6 +17,7 @@ from noctem.services.execution_queue import enqueue_scheduled_job, list_queue_it
 def _clear_queue():
     with get_db() as conn:
         conn.execute("DELETE FROM execution_queue")
+        conn.execute("DELETE FROM delivery_publications")
         conn.execute("DELETE FROM object_versions WHERE object_id LIKE 'conversation_state:%'")
         conn.execute("DELETE FROM object_refs WHERE object_id LIKE 'conversation_state:%'")
         conn.execute("DELETE FROM objects WHERE object_type = 'conversation_state'")
@@ -75,7 +77,13 @@ def test_scheduled_job_queue_item_executes_via_runtime():
     assert matching
     assert matching[0].get("status") == "completed"
     assert matching[0].get("job_name") == "context_doc_refresh"
+    assert isinstance(matching[0].get("deliveries"), list)
+    assert any(d.get("channel") == "web" for d in matching[0].get("deliveries") or [])
 
     items = list_queue_items(status="all", limit=20)
     stored = next(item for item in items if int(item["id"]) == int(queued["id"]))
     assert stored["status"] == "completed"
+
+    delivery_rows = list_delivery_publications(queue_item_id=int(queued["id"]), limit=20)
+    assert delivery_rows
+    assert any(row["channel"] == "web" for row in delivery_rows)

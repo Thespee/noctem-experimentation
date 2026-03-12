@@ -308,6 +308,19 @@ CREATE TABLE IF NOT EXISTS scheduler_runs (
     summary_json TEXT,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS delivery_publications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    queue_item_id INTEGER,
+    thread_id TEXT,
+    channel TEXT NOT NULL
+        CHECK(channel IN ('web', 'telegram')),
+    status TEXT NOT NULL
+        CHECK(status IN ('delivered', 'failed', 'skipped')),
+    payload_json TEXT,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    delivered_at TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS object_context_docs (
     object_id TEXT PRIMARY KEY REFERENCES objects(object_id),
@@ -349,6 +362,7 @@ CREATE INDEX IF NOT EXISTS idx_execution_queue_status_order ON execution_queue(s
 CREATE INDEX IF NOT EXISTS idx_execution_queue_thread ON execution_queue(thread_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_execution_queue_idempotency ON execution_queue(idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job ON scheduler_runs(job_name, started_at);
+CREATE INDEX IF NOT EXISTS idx_delivery_publications_queue_channel ON delivery_publications(queue_item_id, channel, created_at);
 CREATE INDEX IF NOT EXISTS idx_object_context_docs_generated ON object_context_docs(object_type, generated_at);
 """
 LEGACY_RUNTIME_TABLES = (

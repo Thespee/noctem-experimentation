@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from ..db import get_db
+from ..services.async_delivery import publish_queue_result
 from ..services.ics_import import refresh_all_urls
 from ..services.object_context_docs import synthesize_stale_context_docs
 from ..services.conversation_service import resolve_thread_id
@@ -215,6 +216,7 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
             )
         final_result = {**direct_result, "queue_item_id": item["id"]}
         mark_item_completed(int(item["id"]), final_result)
+        final_result["deliveries"] = publish_queue_result(item, final_result)
         return final_result
     except Exception as exc:
         logger.exception("Queue user message item failed (%s)", item["id"])
@@ -254,6 +256,7 @@ def _process_review_resume_item(item: dict[str, Any]) -> dict[str, Any]:
         "queue_item_id": item["id"],
     }
     mark_item_completed(int(item["id"]), result)
+    result["deliveries"] = publish_queue_result(item, result)
     return result
 
 
@@ -304,13 +307,15 @@ def _process_scheduled_job_item(item: dict[str, Any]) -> dict[str, Any]:
 
     if error is not None:
         mark_item_retryable_failure(int(item["id"]), error=error)
-        return {
+        failed_result = {
             "status": status,
             "error": error,
             "queue_item_id": item["id"],
             "job_name": job_name,
             "summary": summary,
         }
+        failed_result["deliveries"] = publish_queue_result(item, failed_result)
+        return failed_result
     result = {
         "status": status,
         "response": f"Scheduled job executed: {job_name}",
@@ -319,6 +324,7 @@ def _process_scheduled_job_item(item: dict[str, Any]) -> dict[str, Any]:
         "summary": summary,
     }
     mark_item_completed(int(item["id"]), result)
+    result["deliveries"] = publish_queue_result(item, result)
     return result
 
 

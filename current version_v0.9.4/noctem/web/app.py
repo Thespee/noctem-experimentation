@@ -572,11 +572,32 @@ def create_app() -> Flask:
             "blocked_workflows": blocked,
         })
 
+    def _drain_queue_to_item(queue_item_id: int | None):
+        if queue_item_id is None:
+            return None
+        from ..agent.execution_queue_runtime import process_execution_queue
+
+        try:
+            results = process_execution_queue(
+                worker_id="review-api",
+                max_items=200,
+                stop_on_item_id=int(queue_item_id),
+            )
+        except Exception:
+            return None
+        for result in reversed(results):
+            try:
+                if int(result.get("queue_item_id") or -1) == int(queue_item_id):
+                    return result
+            except Exception:
+                continue
+        return None
+
     @app.route("/api/agent/reviews/<review_id>/approve", methods=["POST"])
     def api_agent_review_approve(review_id: str):
-        """Approve a review item and optionally resume the linked workflow."""
+        """Approve a review item and queue linked resume/requeue work."""
         from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..agent.workflow import resume_workflow
+        from ..services.execution_queue import enqueue_review_resume, requeue_item
 
         review = get_review_item(review_id)
         if not review:
@@ -587,15 +608,28 @@ def create_app() -> Flask:
         resolution = (data.get("response") or "yes").strip()
         payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
         workflow_id = payload.get("workflow_id")
+        queue_item_id = payload.get("queue_item_id")
 
+        queue_resume_item = None
         resume_result = None
+        requeued_item = None
         if workflow_id is not None:
-            try:
-                resume_result = resume_workflow(int(workflow_id), resolution)
-            except ValueError as e:
-                return jsonify({"success": False, "error": str(e)}), 400
-            except Exception as e:
-                return jsonify({"success": False, "error": str(e)}), 500
+            queue_resume_item = enqueue_review_resume(
+                workflow_id=int(workflow_id),
+                review_id=review_id,
+                resolution=resolution,
+                thread_id=str(payload.get("thread_id") or "").strip() or None,
+                review_created_at=review.get("created_at"),
+            )
+            resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
+
+        if queue_item_id is not None:
+            requeued_item = requeue_item(
+                int(queue_item_id),
+                front=True,
+                reason="review_approved",
+            )
+            _drain_queue_to_item(int(queue_item_id))
 
         updated_review = resolve_review_item(
             review_id,
@@ -606,13 +640,15 @@ def create_app() -> Flask:
             "success": True,
             "review": updated_review,
             "resume_result": resume_result,
+            "queue_resume_item": queue_resume_item,
+            "requeued_item": requeued_item,
         })
 
     @app.route("/api/agent/reviews/<review_id>/reject", methods=["POST"])
     def api_agent_review_reject(review_id: str):
-        """Reject a review item and optionally resume the linked workflow with rejection text."""
+        """Reject a review item and queue linked rejection handling."""
         from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..agent.workflow import resume_workflow
+        from ..services.execution_queue import cancel_item, enqueue_review_resume
 
         review = get_review_item(review_id)
         if not review:
@@ -623,15 +659,23 @@ def create_app() -> Flask:
         resolution = (data.get("response") or "no").strip()
         payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
         workflow_id = payload.get("workflow_id")
+        queue_item_id = payload.get("queue_item_id")
 
+        queue_resume_item = None
         resume_result = None
+        cancelled_item = None
         if workflow_id is not None:
-            try:
-                resume_result = resume_workflow(int(workflow_id), resolution)
-            except ValueError as e:
-                return jsonify({"success": False, "error": str(e)}), 400
-            except Exception as e:
-                return jsonify({"success": False, "error": str(e)}), 500
+            queue_resume_item = enqueue_review_resume(
+                workflow_id=int(workflow_id),
+                review_id=review_id,
+                resolution=resolution,
+                thread_id=str(payload.get("thread_id") or "").strip() or None,
+                review_created_at=review.get("created_at"),
+            )
+            resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
+
+        if queue_item_id is not None:
+            cancelled_item = cancel_item(int(queue_item_id), reason="review_rejected")
 
         updated_review = resolve_review_item(
             review_id,
@@ -642,13 +686,15 @@ def create_app() -> Flask:
             "success": True,
             "review": updated_review,
             "resume_result": resume_result,
+            "queue_resume_item": queue_resume_item,
+            "cancelled_item": cancelled_item,
         })
 
     @app.route("/api/agent/reviews/<review_id>/resume", methods=["POST"])
     def api_agent_review_resume(review_id: str):
-        """Resume a blocked workflow from the review queue using response text."""
+        """Resume a blocked workflow/review through queue-first execution."""
         from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..agent.workflow import resume_workflow
+        from ..services.execution_queue import enqueue_review_resume, requeue_item
 
         review = get_review_item(review_id)
         if not review:
@@ -661,16 +707,28 @@ def create_app() -> Flask:
 
         payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
         workflow_id = payload.get("workflow_id")
+        queue_item_id = payload.get("queue_item_id")
+
+        queue_resume_item = None
         resume_result = None
+        requeued_item = None
         if workflow_id is not None:
-            try:
-                resume_result = resume_workflow(int(workflow_id), resolution)
-            except ValueError as e:
-                return jsonify({"success": False, "error": str(e)}), 400
-            except Exception as e:
-                return jsonify({"success": False, "error": str(e)}), 500
-            if resume_result is None:
-                return jsonify({"success": False, "error": "No pending interrupt for workflow"}), 404
+            queue_resume_item = enqueue_review_resume(
+                workflow_id=int(workflow_id),
+                review_id=review_id,
+                resolution=resolution,
+                thread_id=str(payload.get("thread_id") or "").strip() or None,
+                review_created_at=review.get("created_at"),
+            )
+            resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
+
+        if queue_item_id is not None:
+            requeued_item = requeue_item(
+                int(queue_item_id),
+                front=True,
+                reason=f"review_resumed:{resolution}",
+            )
+            _drain_queue_to_item(int(queue_item_id))
 
         updated_review = resolve_review_item(
             review_id,
@@ -681,12 +739,15 @@ def create_app() -> Flask:
             "success": True,
             "review": updated_review,
             "resume_result": resume_result,
+            "queue_resume_item": queue_resume_item,
+            "requeued_item": requeued_item,
         })
 
     @app.route("/api/tools")
     def api_tools():
         """Combined tools payload for queue and scheduler."""
         from ..scheduler.jobs import get_scheduler_status
+        from ..services.async_delivery import delivery_metrics, list_delivery_publications
         from ..services.execution_queue import list_queue_items, queue_metrics
 
         limit = max(1, min(request.args.get("limit", 50, type=int), 500))
@@ -700,6 +761,10 @@ def create_app() -> Flask:
                 "metrics": queue_metrics(),
             },
             "scheduler": scheduler_status,
+            "delivery": {
+                "metrics": delivery_metrics(),
+                "recent": list_delivery_publications(limit=60),
+            },
         })
 
     @app.route("/api/tools/queue")
@@ -805,6 +870,26 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
         return jsonify({"success": True, "result": result})
+
+    @app.route("/api/tools/deliveries")
+    def api_tools_deliveries():
+        """List async delivery publication records."""
+        from ..services.async_delivery import delivery_metrics, list_delivery_publications
+
+        limit = max(1, min(request.args.get("limit", 80, type=int), 500))
+        queue_item_id = request.args.get("queue_item_id", type=int)
+        channel = (request.args.get("channel") or "").strip().lower() or None
+        items = list_delivery_publications(
+            queue_item_id=queue_item_id,
+            channel=channel,
+            limit=limit,
+        )
+        return jsonify({
+            "success": True,
+            "count": len(items),
+            "items": items,
+            "metrics": delivery_metrics(),
+        })
 
     # =========================================================================
     # v0.9.4: Object graph + internal versioning surfaces

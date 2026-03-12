@@ -4,8 +4,9 @@ from uuid import uuid4
 
 from noctem.config import Config
 from noctem.db import get_db
+from noctem.agent.review_queue import create_review_item
 from noctem.scheduler.jobs import SCHEDULER_JOB_DEFAULTS
-from noctem.services.execution_queue import enqueue_user_message
+from noctem.services.execution_queue import enqueue_user_message, mark_item_review_blocked
 
 
 def _client():
@@ -46,6 +47,8 @@ def test_tools_page_and_combined_api_payload():
     assert isinstance(payload["queue"]["items"], list)
     assert any(int(item["id"]) == int(queued["id"]) for item in payload["queue"]["items"])
     assert "job_config" in payload["scheduler"]
+    assert "delivery" in payload
+    assert "metrics" in payload["delivery"]
 
 
 def test_tools_queue_cancel_and_requeue_endpoints():
@@ -103,6 +106,33 @@ def test_tools_scheduler_update_run_and_history_endpoints():
     history_payload = history.get_json()
     assert history_payload["success"] is True
     assert history_payload["count"] >= 1
+
+
+def test_review_approve_requeues_review_blocked_queue_item_to_front():
+    _reset_tools_state()
+    queued = enqueue_user_message(
+        source="web",
+        thread_id=f"review-thread-{uuid4().hex[:8]}",
+        content="move those tasks",
+    )
+    mark_item_review_blocked(int(queued["id"]), reason="stale_context_reference")
+    review = create_review_item(
+        reason_code="ambiguity",
+        payload={
+            "queue_item_id": int(queued["id"]),
+            "thread_id": queued["thread_id"],
+            "original_message": "move those tasks",
+        },
+    )
+
+    client = _client()
+    approved = client.post(f"/api/agent/reviews/{review['review_id']}/approve", json={"response": "yes"})
+    assert approved.status_code == 200
+    payload = approved.get_json()
+    assert payload["success"] is True
+    assert payload["review"]["status"] == "approved"
+    assert payload["requeued_item"] is not None
+    assert int(payload["requeued_item"]["priority_rank"]) == 0
 
 
 def test_settings_calendar_controls_are_moved_to_tools():

@@ -190,6 +190,23 @@
             <tbody id="schedulerRunRows"></tbody>
         </table>
     </div>
+
+    <div class="tools-section">
+        <h2>Async Delivery</h2>
+        <div class="help-note" id="deliverySummary"></div>
+        <table class="tools-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Queue Item</th>
+                    <th>Channel</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody id="deliveryRows"></tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
 
@@ -206,6 +223,7 @@ async function refreshTools() {
     renderQueueRows(payload.queue?.items || []);
     renderSchedulerJobs(payload.scheduler || {});
     renderSchedulerRuns(payload.scheduler?.recent_runs || []);
+    renderDelivery(payload.delivery || {});
 }
 
 function renderQueueMetrics(metrics) {
@@ -252,6 +270,34 @@ function renderQueueRows(items) {
             </tr>
         `;
     }).join('');
+}
+
+function renderDelivery(delivery) {
+    const summaryEl = document.getElementById('deliverySummary');
+    const rowsEl = document.getElementById('deliveryRows');
+    const metrics = delivery.metrics || {};
+    const byChannel = metrics.by_channel || {};
+    const summaryParts = Object.keys(byChannel).map(channel => {
+        const statuses = byChannel[channel] || {};
+        const detail = Object.keys(statuses).map(k => `${k}:${statuses[k]}`).join(', ');
+        return `${channel} [${detail}]`;
+    });
+    summaryEl.textContent = summaryParts.length ? summaryParts.join(' • ') : 'No async delivery records yet.';
+
+    const items = delivery.recent || [];
+    if (!items.length) {
+        rowsEl.innerHTML = '<tr><td colspan="5">No recent deliveries.</td></tr>';
+        return;
+    }
+    rowsEl.innerHTML = items.map(item => `
+        <tr>
+            <td>${escapeHtml(String(item.created_at || ''))}</td>
+            <td>${escapeHtml(String(item.queue_item_id || ''))}</td>
+            <td>${escapeHtml(String(item.channel || ''))}</td>
+            <td>${escapeHtml(String(item.status || ''))}</td>
+            <td>${escapeHtml(String(item.error || ''))}</td>
+        </tr>
+    `).join('');
 }
 
 function renderSchedulerJobs(scheduler) {
