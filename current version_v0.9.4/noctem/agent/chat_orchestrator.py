@@ -2,7 +2,9 @@
 import json
 import logging
 import re
-from typing import Any
+import threading
+import time
+from typing import Any, Callable
 
 import requests
 
@@ -34,6 +36,19 @@ _APPROVAL_REPLY_RE = re.compile(
     r"^(?:y|yes|yep|yeah|ok|okay|confirm|confirmed|proceed|sure|n|no|nope|cancel|stop|abort)\b",
     re.IGNORECASE,
 )
+_MODEL_PROGRESS_HEARTBEAT_SECONDS = 5.0
+
+
+def _emit_model_progress(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    payload: dict[str, Any],
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(payload)
+    except Exception as exc:
+        logger.debug("Model progress callback failed: %s", exc)
 
 
 def _wants_detailed_reply(text: str) -> bool:
@@ -300,9 +315,45 @@ def _parse_model_payload(payload: Any) -> dict[str, Any] | None:
     }
 
 
-def _call_ollama_model(user_text: str, thread_id: str) -> dict[str, Any] | None:
+def _call_ollama_model(
+    user_text: str,
+    thread_id: str,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any] | None:
+    started_at = time.monotonic()
+    elapsed_seconds = lambda: round(max(0.0, time.monotonic() - started_at), 3)
     memory_pack = assemble_memory_pack(user_text, thread_id)
     payload_prompt = _memory_pack_prompt(user_text, memory_pack)
+    chunk_count = 0
+    chars_received = 0
+    heartbeat_stop = threading.Event()
+    heartbeat_thread: threading.Thread | None = None
+    _emit_model_progress(
+        progress_callback,
+        {
+            "stage": "started",
+            "elapsed_seconds": elapsed_seconds(),
+            "model": Config.chat_ollama_model(),
+            "thread_id": thread_id,
+        },
+    )
+
+    def _heartbeat() -> None:
+        while not heartbeat_stop.wait(_MODEL_PROGRESS_HEARTBEAT_SECONDS):
+            _emit_model_progress(
+                progress_callback,
+                {
+                    "stage": "heartbeat",
+                    "elapsed_seconds": elapsed_seconds(),
+                    "model": Config.chat_ollama_model(),
+                    "thread_id": thread_id,
+                    "chunk_count": chunk_count,
+                    "chars_received": chars_received,
+                },
+            )
+
+    heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+    heartbeat_thread.start()
     try:
         response = requests.post(
             f"{Config.chat_ollama_base_url()}/api/generate",
@@ -310,14 +361,53 @@ def _call_ollama_model(user_text: str, thread_id: str) -> dict[str, Any] | None:
                 "model": Config.chat_ollama_model(),
                 "prompt": payload_prompt,
                 "system": _build_model_system_prompt(),
-                "stream": False,
+                "stream": True,
                 "format": "json",
                 "options": {"temperature": 0.2},
             },
+            stream=True,
         )
         response.raise_for_status()
-        data = response.json()
-        parsed = _parse_model_payload(data.get("response"))
+        parsed: dict[str, Any] | None = None
+        iter_lines = getattr(response, "iter_lines", None)
+        if callable(iter_lines):
+            stream_parts: list[str] = []
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if raw_line is None:
+                    continue
+                line = str(raw_line).strip()
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(chunk, dict):
+                    continue
+                chunk_text = chunk.get("response")
+                if isinstance(chunk_text, str) and chunk_text:
+                    stream_parts.append(chunk_text)
+                    chunk_count += 1
+                    chars_received += len(chunk_text)
+                    if chunk_count == 1 or chunk_count % 20 == 0:
+                        _emit_model_progress(
+                            progress_callback,
+                            {
+                                "stage": "chunk_received",
+                                "elapsed_seconds": elapsed_seconds(),
+                                "model": Config.chat_ollama_model(),
+                                "thread_id": thread_id,
+                                "chunk_count": chunk_count,
+                                "chars_received": chars_received,
+                            },
+                        )
+                if chunk.get("done") is True:
+                    break
+            if stream_parts:
+                parsed = _parse_model_payload("".join(stream_parts))
+        if parsed is None:
+            data = response.json()
+            parsed = _parse_model_payload(data.get("response"))
         if parsed:
             parsed["_memory_pack"] = {
                 "budget": memory_pack.get("budget"),
@@ -325,9 +415,36 @@ def _call_ollama_model(user_text: str, thread_id: str) -> dict[str, Any] | None:
                 "total_tokens": memory_pack.get("total_tokens"),
                 "wiki_references": memory_pack.get("wiki_references"),
             }
+            _emit_model_progress(
+                progress_callback,
+                {
+                    "stage": "completed",
+                    "elapsed_seconds": elapsed_seconds(),
+                    "model": Config.chat_ollama_model(),
+                    "thread_id": thread_id,
+                    "chunk_count": chunk_count,
+                    "chars_received": chars_received,
+                },
+            )
             return parsed
     except Exception as exc:
+        _emit_model_progress(
+            progress_callback,
+            {
+                "stage": "failed",
+                "elapsed_seconds": elapsed_seconds(),
+                "model": Config.chat_ollama_model(),
+                "thread_id": thread_id,
+                "chunk_count": chunk_count,
+                "chars_received": chars_received,
+                "error": str(exc),
+            },
+        )
         logger.debug("Model-first chat call failed: %s", exc)
+    finally:
+        heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=0.2)
     return None
 
 
@@ -368,6 +485,7 @@ def process_chat_message(
     *,
     source: str = "web",
     thread_id: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict:
     """
     Process chat input with model-first orchestration.
@@ -497,7 +615,11 @@ def process_chat_message(
             **_public_workflow_fields(workflow_result),
         }
 
-    model_payload = _call_ollama_model(effective_text, resolved_thread_id)
+    model_payload = _call_ollama_model(
+        effective_text,
+        resolved_thread_id,
+        progress_callback=progress_callback,
+    )
     memory_pack_meta = {}
     if isinstance(model_payload, dict):
         memory_pack_meta = dict(model_payload.pop("_memory_pack", {}) or {})

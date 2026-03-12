@@ -25,6 +25,7 @@ from ..services.execution_queue import (
     mark_item_failed,
     mark_item_review_blocked,
     mark_item_retryable_failure,
+    update_item_processing_progress,
 )
 from ..voice.processing import process_pending_voice_journals
 from .chat_orchestrator import process_chat_message as _process_chat_message_direct
@@ -151,6 +152,7 @@ def _stale_context_requires_review(item: dict[str, Any], state: dict[str, Any], 
 
 
 def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
+    queue_item_id = int(item["id"])
     payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
     raw_message = str(payload.get("content") or "").strip()
     source = str(item.get("source") or payload.get("source") or "web").strip() or "web"
@@ -160,9 +162,9 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
             "response": "No message content provided.",
             "status": "failed",
             "error": "empty_content",
-            "queue_item_id": item["id"],
+            "queue_item_id": queue_item_id,
         }
-        mark_item_failed(int(item["id"]), error="empty_content")
+        mark_item_failed(queue_item_id, error="empty_content")
         return result
 
     state = get_conversation_state(thread_id)
@@ -178,7 +180,7 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
         review = create_review_item(
             reason_code="ambiguity",
             payload={
-                "queue_item_id": item["id"],
+                "queue_item_id": queue_item_id,
                 "thread_id": thread_id,
                 "original_message": raw_message,
                 "resolved_message": resolved_message,
@@ -186,7 +188,7 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
             },
         )
         mark_item_review_blocked(
-            int(item["id"]),
+            queue_item_id,
             reason="stale_context_reference",
             extra_payload={"review_id": review.get("review_id")},
         )
@@ -194,17 +196,43 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
             "response": "This queued request needs review before execution due to stale conversational context.",
             "status": "review_blocked",
             "review": review,
-            "queue_item_id": item["id"],
+            "queue_item_id": queue_item_id,
             "thread_id": thread_id,
             "mode": "review_blocked",
         }
+    latest_progress: dict[str, Any] = {}
+
+    def _on_model_progress(progress: dict[str, Any]) -> None:
+        if not isinstance(progress, dict):
+            return
+        latest_progress.clear()
+        latest_progress.update(progress)
+        update_item_processing_progress(
+            queue_item_id,
+            progress_payload={
+                **latest_progress,
+                "queue_item_id": queue_item_id,
+                "thread_id": thread_id,
+                "source": source,
+            },
+        )
 
     try:
         direct_result = _process_chat_message_direct(
             resolved_message,
             source=source,
             thread_id=thread_id,
+            progress_callback=_on_model_progress,
         )
+        if not isinstance(direct_result, dict):
+            direct_result = {"response": str(direct_result), "status": "completed"}
+        elif not str(direct_result.get("status") or "").strip():
+            direct_result = {**direct_result, "status": "completed"}
+        if latest_progress:
+            direct_result = {
+                **direct_result,
+                "model_progress": dict(latest_progress),
+            }
         updates = _derive_grounding_updates(raw_message, direct_result, resolved)
         if updates:
             update_conversation_state(
@@ -212,20 +240,20 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
                 source=source,
                 updates=updates,
                 summary="Grounding updated from queued user message execution",
-                reason=f"queue_item:{item['id']}",
+                reason=f"queue_item:{queue_item_id}",
             )
-        final_result = {**direct_result, "queue_item_id": item["id"]}
-        mark_item_completed(int(item["id"]), final_result)
+        final_result = {**direct_result, "queue_item_id": queue_item_id}
+        mark_item_completed(queue_item_id, final_result)
         final_result["deliveries"] = publish_queue_result(item, final_result)
         return final_result
     except Exception as exc:
-        logger.exception("Queue user message item failed (%s)", item["id"])
-        mark_item_retryable_failure(int(item["id"]), error=str(exc))
+        logger.exception("Queue user message item failed (%s)", queue_item_id)
+        mark_item_retryable_failure(queue_item_id, error=str(exc))
         return {
             "response": "Queued request failed; it will be retried.",
             "status": "queued",
             "error": str(exc),
-            "queue_item_id": item["id"],
+            "queue_item_id": queue_item_id,
             "thread_id": thread_id,
             "mode": "retry_queued",
         }

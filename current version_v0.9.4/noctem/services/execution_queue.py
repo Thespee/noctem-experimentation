@@ -334,6 +334,42 @@ def mark_item_completed(item_id: int, result_payload: dict[str, Any] | None = No
     return _queue_item_from_row(row)
 
 
+def update_item_processing_progress(
+    item_id: int,
+    *,
+    progress_payload: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    progress = dict(progress_payload or {})
+    progress.setdefault("observed_at", _now_iso())
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT result_json FROM execution_queue WHERE id = ? AND status = 'processing'",
+            (int(item_id),),
+        ).fetchone()
+        if existing is None:
+            return get_queue_item(int(item_id))
+        result_snapshot = _json_loads(existing["result_json"], {})
+        if not isinstance(result_snapshot, dict):
+            result_snapshot = {}
+        result_snapshot["status"] = QUEUE_STATUS_PROCESSING
+        result_snapshot["progress"] = progress
+        conn.execute(
+            """
+            UPDATE execution_queue
+            SET result_json = ?
+            WHERE id = ? AND status = 'processing'
+            """,
+            (_json_dumps(result_snapshot), int(item_id)),
+        )
+        row = conn.execute(
+            "SELECT * FROM execution_queue WHERE id = ?",
+            (int(item_id),),
+        ).fetchone()
+    if not row:
+        return None
+    return _queue_item_from_row(row)
+
+
 def requeue_item(
     item_id: int,
     *,

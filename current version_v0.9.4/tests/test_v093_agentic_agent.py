@@ -92,6 +92,38 @@ def test_chat_auto_resumes_clarify_interrupt_with_followup_text():
     assert any(marker in t.name.lower() for t in active)
 
 
+def test_chat_model_progress_callback_emits_start_and_completion(monkeypatch):
+    events: list[dict] = []
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "response": (
+                    '{"reply":"All good.","requires_action":false,'
+                    '"fast_path_input":null,"clarification_question":null,"memory_update":null}'
+                )
+            }
+
+    monkeypatch.setattr("noctem.agent.chat_orchestrator.requests.post", lambda *args, **kwargs: _FakeResponse())
+
+    from noctem.agent.chat_orchestrator import process_chat_message
+
+    result = process_chat_message(
+        "hello there",
+        source="web",
+        thread_id=f"progress-{uuid4().hex[:8]}",
+        progress_callback=events.append,
+    )
+    assert result["mode"] == "model"
+    stages = [event.get("stage") for event in events if isinstance(event, dict)]
+    assert "started" in stages
+    assert "completed" in stages
+
+
+
 def test_review_queue_endpoints_include_pending_interrupts():
     client = _client()
     submit = client.post("/api/agent/submit", json={"input": "!!!"})

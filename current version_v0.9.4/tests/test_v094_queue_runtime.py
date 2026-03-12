@@ -39,6 +39,41 @@ def test_process_chat_message_via_queue_returns_processed_result():
     assert queued_item["status"] in {"completed", "review_blocked", "queued"}
 
 
+def test_queue_runtime_persists_latest_model_progress(monkeypatch):
+    _clear_queue()
+
+    def _fake_process_chat_message(
+        message: str,
+        *,
+        source: str = "web",
+        thread_id: str | None = None,
+        progress_callback=None,
+    ):
+        if callable(progress_callback):
+            progress_callback({"stage": "started", "elapsed_seconds": 0.0})
+            progress_callback({"stage": "heartbeat", "elapsed_seconds": 1.2})
+            progress_callback({"stage": "completed", "elapsed_seconds": 2.4})
+        return {"response": "ok", "status": "completed", "mode": "model"}
+
+    monkeypatch.setattr(
+        "noctem.agent.execution_queue_runtime._process_chat_message_direct",
+        _fake_process_chat_message,
+    )
+
+    result = process_chat_message_via_queue(
+        "hello progress",
+        source="web",
+        thread_id=f"thread-{uuid4().hex[:8]}",
+    )
+    assert result.get("status") == "completed"
+    assert result.get("model_progress", {}).get("stage") == "completed"
+
+    items = list_queue_items(status="all", limit=30)
+    queued_item = next(item for item in items if item["id"] == result["queue_item_id"])
+    assert queued_item["status"] == "completed"
+    assert queued_item.get("result", {}).get("model_progress", {}).get("stage") == "completed"
+
+
 def test_state_first_resolution_maps_those_tasks_to_overdue_scope():
     _clear_queue()
     marker = f"overdue-state-{uuid4().hex[:8]}"
