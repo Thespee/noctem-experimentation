@@ -366,9 +366,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.set_result(True)
             return
 
-        from ..agent.chat_orchestrator import process_chat_message
+        from ..agent.execution_queue_runtime import process_chat_message_via_queue
 
-        chat_result = process_chat_message(text, source="telegram")
+        chat_result = process_chat_message_via_queue(text, source="telegram")
         await update.message.reply_text(chat_result.get("response", "✓ Done"))
         log.set_action("chat_orchestrator")
         log.set_result(True, {"workflow_id": chat_result.get("workflow_id"), "status": chat_result.get("status")})

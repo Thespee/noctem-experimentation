@@ -1,0 +1,352 @@
+"""Queue-first runtime for chat/task execution."""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from ..db import get_db
+from ..services.conversation_service import resolve_thread_id
+from ..services.conversation_grounding import (
+    get_conversation_state,
+    record_grounding_read,
+    update_conversation_state,
+)
+from ..services.execution_queue import (
+    QUEUE_ITEM_REVIEW_RESUME,
+    QUEUE_ITEM_SCHEDULED_JOB,
+    QUEUE_ITEM_USER_MESSAGE,
+    claim_next_item,
+    enqueue_user_message,
+    mark_item_completed,
+    mark_item_failed,
+    mark_item_review_blocked,
+    mark_item_retryable_failure,
+)
+from .chat_orchestrator import process_chat_message as _process_chat_message_direct
+from .review_queue import create_review_item
+from .workflow import resume_workflow
+
+logger = logging.getLogger(__name__)
+
+
+def _is_reference_heavy(text: str) -> bool:
+    lower = str(text or "").strip().lower()
+    if not lower:
+        return False
+    return any(
+        token in lower
+        for token in (
+            "those",
+            "them",
+            "that day",
+            "that wednesday",
+            "same tasks",
+            "same day",
+        )
+    )
+
+
+def _resolve_with_grounding(text: str, state: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    raw = str(text or "").strip()
+    if not raw:
+        return raw, {}
+    if raw.startswith(".") or raw.startswith("/"):
+        return raw, {}
+
+    lower = raw.lower()
+    scope_ref = str(state.get("last_scope_ref") or "").strip().lower()
+    resolved: dict[str, Any] = {}
+    rewritten = raw
+
+    if "those" in lower and "task" in lower and scope_ref:
+        if scope_ref == "overdue":
+            rewritten = "what are my overdue tasks?"
+            resolved["scope_ref"] = "overdue"
+        elif scope_ref == "today":
+            rewritten = "what are my tasks for today?"
+            resolved["scope_ref"] = "today"
+        elif scope_ref in {"inbox", "unassigned"}:
+            rewritten = "what are my inbox tasks?"
+            resolved["scope_ref"] = "inbox"
+
+    anchors = state.get("date_anchors") if isinstance(state.get("date_anchors"), dict) else {}
+    anchor_date = str(anchors.get("last_referenced_date") or "").strip()
+    if anchor_date and any(token in lower for token in ("that day", "that wednesday", "same day")):
+        rewritten = f"{raw} ({anchor_date})"
+        resolved["date_anchor"] = anchor_date
+
+    return rewritten, resolved
+
+
+def _derive_grounding_updates(raw_message: str, result: dict[str, Any], resolved: dict[str, Any]) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    lower = str(raw_message or "").strip().lower()
+
+    if resolved.get("scope_ref"):
+        updates["last_scope_ref"] = resolved.get("scope_ref")
+
+    if "today" in lower:
+        updates.setdefault("last_scope_ref", "today")
+    elif "overdue" in lower:
+        updates.setdefault("last_scope_ref", "overdue")
+    elif "inbox" in lower or "unassigned" in lower:
+        updates.setdefault("last_scope_ref", "inbox")
+
+    task_payload = result.get("task") if isinstance(result.get("task"), dict) else None
+    if task_payload and task_payload.get("id") is not None:
+        try:
+            updates["last_task_ids"] = [int(task_payload["id"])]
+        except Exception:
+            pass
+
+    if isinstance(result.get("updated_task_ids"), list) and result["updated_task_ids"]:
+        cleaned: list[int] = []
+        for item in result["updated_task_ids"]:
+            try:
+                cleaned.append(int(item))
+            except Exception:
+                continue
+        if cleaned:
+            updates["last_task_ids"] = cleaned
+
+    if isinstance(result.get("overdue_task_ids"), list) and result["overdue_task_ids"]:
+        cleaned: list[int] = []
+        for item in result["overdue_task_ids"]:
+            try:
+                cleaned.append(int(item))
+            except Exception:
+                continue
+        if cleaned:
+            updates["last_task_ids"] = cleaned
+            updates.setdefault("last_scope_ref", "overdue")
+
+    anchor_date = resolved.get("date_anchor")
+    if anchor_date:
+        anchors = {"last_referenced_date": anchor_date}
+        updates["date_anchors"] = anchors
+
+    intent = result.get("intent")
+    if isinstance(intent, str) and intent.strip():
+        updates["last_operation"] = intent.strip()
+    elif result.get("status") == "completed":
+        updates["last_operation"] = "completed"
+
+    return updates
+
+
+def _stale_context_requires_review(item: dict[str, Any], state: dict[str, Any], raw_message: str) -> bool:
+    stale_context = item.get("stale_context") if isinstance(item.get("stale_context"), dict) else {}
+    enqueued_updated_at = str(stale_context.get("grounding_updated_at") or "").strip()
+    current_updated_at = str(state.get("updated_at") or "").strip()
+    if not enqueued_updated_at or not current_updated_at:
+        return False
+    if enqueued_updated_at == current_updated_at:
+        return False
+    return _is_reference_heavy(raw_message)
+
+
+def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    raw_message = str(payload.get("content") or "").strip()
+    source = str(item.get("source") or payload.get("source") or "web").strip() or "web"
+    thread_id = str(item.get("thread_id") or payload.get("thread_id") or "").strip()
+    if not raw_message:
+        result = {
+            "response": "No message content provided.",
+            "status": "failed",
+            "error": "empty_content",
+            "queue_item_id": item["id"],
+        }
+        mark_item_failed(int(item["id"]), error="empty_content")
+        return result
+
+    state = get_conversation_state(thread_id)
+    resolved_message, resolved = _resolve_with_grounding(raw_message, state)
+    record_grounding_read(
+        thread_id=thread_id,
+        source=source,
+        message_text=raw_message,
+        resolved=resolved,
+    )
+
+    if _stale_context_requires_review(item, state, raw_message):
+        review = create_review_item(
+            reason_code="ambiguity",
+            payload={
+                "queue_item_id": item["id"],
+                "thread_id": thread_id,
+                "original_message": raw_message,
+                "resolved_message": resolved_message,
+                "reason": "stale_context_reference",
+            },
+        )
+        mark_item_review_blocked(
+            int(item["id"]),
+            reason="stale_context_reference",
+            extra_payload={"review_id": review.get("review_id")},
+        )
+        return {
+            "response": "This queued request needs review before execution due to stale conversational context.",
+            "status": "review_blocked",
+            "review": review,
+            "queue_item_id": item["id"],
+            "thread_id": thread_id,
+            "mode": "review_blocked",
+        }
+
+    try:
+        direct_result = _process_chat_message_direct(
+            resolved_message,
+            source=source,
+            thread_id=thread_id,
+        )
+        updates = _derive_grounding_updates(raw_message, direct_result, resolved)
+        if updates:
+            update_conversation_state(
+                thread_id=thread_id,
+                source=source,
+                updates=updates,
+                summary="Grounding updated from queued user message execution",
+                reason=f"queue_item:{item['id']}",
+            )
+        final_result = {**direct_result, "queue_item_id": item["id"]}
+        mark_item_completed(int(item["id"]), final_result)
+        return final_result
+    except Exception as exc:
+        logger.exception("Queue user message item failed (%s)", item["id"])
+        mark_item_retryable_failure(int(item["id"]), error=str(exc))
+        return {
+            "response": "Queued request failed; it will be retried.",
+            "status": "queued",
+            "error": str(exc),
+            "queue_item_id": item["id"],
+            "thread_id": thread_id,
+            "mode": "retry_queued",
+        }
+
+
+def _process_review_resume_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    workflow_id = payload.get("workflow_id")
+    resolution = str(payload.get("resolution") or "").strip()
+    if workflow_id is None or not resolution:
+        mark_item_failed(int(item["id"]), error="invalid_review_resume_payload")
+        return {
+            "status": "failed",
+            "error": "invalid_review_resume_payload",
+            "queue_item_id": item["id"],
+        }
+    try:
+        resumed = resume_workflow(int(workflow_id), resolution)
+    except Exception as exc:
+        mark_item_retryable_failure(int(item["id"]), error=str(exc))
+        return {
+            "status": "queued",
+            "error": str(exc),
+            "queue_item_id": item["id"],
+        }
+    result = {
+        **(resumed or {"status": "completed", "response": "Review resume processed."}),
+        "queue_item_id": item["id"],
+    }
+    mark_item_completed(int(item["id"]), result)
+    return result
+
+
+def _process_scheduled_job_item(item: dict[str, Any]) -> dict[str, Any]:
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    job_name = str(payload.get("job_name") or "").strip()
+    result = {
+        "status": "completed",
+        "response": f"Scheduled job queued: {job_name}",
+        "queue_item_id": item["id"],
+        "job_name": job_name,
+    }
+    mark_item_completed(int(item["id"]), result)
+    return result
+
+
+def process_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    item_type = str(item.get("item_type") or "").strip().lower()
+    if item_type == QUEUE_ITEM_USER_MESSAGE:
+        return _process_user_message_item(item)
+    if item_type == QUEUE_ITEM_REVIEW_RESUME:
+        return _process_review_resume_item(item)
+    if item_type == QUEUE_ITEM_SCHEDULED_JOB:
+        return _process_scheduled_job_item(item)
+    result = {
+        "status": "failed",
+        "error": f"unsupported_queue_item_type:{item_type}",
+        "queue_item_id": item.get("id"),
+    }
+    mark_item_failed(int(item["id"]), error=result["error"])
+    return result
+
+
+def process_execution_queue(
+    *,
+    worker_id: str = "queue-runtime",
+    max_items: int = 20,
+    stop_on_item_id: int | None = None,
+) -> list[dict[str, Any]]:
+    bounded_max = max(1, min(int(max_items or 20), 500))
+    results: list[dict[str, Any]] = []
+    for _ in range(bounded_max):
+        item = claim_next_item(worker_id)
+        if item is None:
+            break
+        result = process_queue_item(item)
+        results.append(result)
+        if stop_on_item_id is not None and int(item["id"]) == int(stop_on_item_id):
+            break
+    return results
+
+
+def process_chat_message_via_queue(
+    message: str,
+    *,
+    source: str = "web",
+    thread_id: str | None = None,
+    max_drain_items: int = 50,
+) -> dict[str, Any]:
+    raw = str(message or "").strip()
+    if not raw:
+        raise ValueError("Empty message")
+    resolved_thread = resolve_thread_id(source=source, thread_id=thread_id)
+    state = get_conversation_state(resolved_thread)
+    queued = enqueue_user_message(
+        source=source,
+        thread_id=resolved_thread,
+        content=raw,
+        metadata={"mode": "queued"},
+        idempotency_key=None,
+    )
+    # Preserve stale-context snapshot used for execution-time guards.
+    stale_context = queued.get("stale_context") if isinstance(queued.get("stale_context"), dict) else {}
+    stale_context["grounding_updated_at"] = state.get("updated_at")
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE execution_queue SET stale_context_json = ? WHERE id = ?",
+            (json.dumps(stale_context, ensure_ascii=False), int(queued["id"])),
+        )
+
+    results = process_execution_queue(
+        worker_id=f"{source}-inline",
+        max_items=max_drain_items,
+        stop_on_item_id=int(queued["id"]),
+    )
+    for result in reversed(results):
+        if int(result.get("queue_item_id") or -1) == int(queued["id"]):
+            return {
+                **result,
+                "thread_id": result.get("thread_id") or resolved_thread,
+                "mode": result.get("mode") or "queued_processed",
+            }
+    return {
+        "response": "Message queued for asynchronous processing.",
+        "status": "queued",
+        "queue_item_id": queued["id"],
+        "thread_id": resolved_thread,
+        "mode": "queued_pending",
+    }

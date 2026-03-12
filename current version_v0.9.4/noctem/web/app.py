@@ -369,7 +369,7 @@ def create_app() -> Flask:
         Accepts JSON: {"message": "buy groceries tomorrow"}
         Returns JSON: {"response": "✓ Created task...", "success": true}
         """
-        from ..agent.chat_orchestrator import process_chat_message
+        from ..agent.execution_queue_runtime import process_chat_message_via_queue
         
         data = request.get_json() or {}
         if not data or 'message' not in data:
@@ -385,7 +385,7 @@ def create_app() -> Flask:
             or (session.get("chat_thread_id") or "")
         ).strip() or None
         try:
-            result = process_chat_message(
+            result = process_chat_message_via_queue(
                 message,
                 source="web",
                 thread_id=requested_thread_id,
@@ -401,6 +401,7 @@ def create_app() -> Flask:
                 "memory_pack": result.get("memory_pack"),
                 "fallback_reason": result.get("fallback_reason"),
                 "workflow_id": result.get("workflow_id"),
+                "queue_item_id": result.get("queue_item_id"),
                 "status": result.get("status"),
                 "interrupt": result.get("interrupt"),
                 "review": result.get("review"),
