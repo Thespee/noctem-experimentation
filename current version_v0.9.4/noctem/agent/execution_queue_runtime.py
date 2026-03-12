@@ -6,6 +6,8 @@ import logging
 from typing import Any
 
 from ..db import get_db
+from ..services.ics_import import refresh_all_urls
+from ..services.object_context_docs import synthesize_stale_context_docs
 from ..services.conversation_service import resolve_thread_id
 from ..services.conversation_grounding import (
     get_conversation_state,
@@ -23,6 +25,7 @@ from ..services.execution_queue import (
     mark_item_review_blocked,
     mark_item_retryable_failure,
 )
+from ..voice.processing import process_pending_voice_journals
 from .chat_orchestrator import process_chat_message as _process_chat_message_direct
 from .review_queue import create_review_item
 from .workflow import resume_workflow
@@ -257,11 +260,63 @@ def _process_review_resume_item(item: dict[str, Any]) -> dict[str, Any]:
 def _process_scheduled_job_item(item: dict[str, Any]) -> dict[str, Any]:
     payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
     job_name = str(payload.get("job_name") or "").strip()
+    job_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    normalized_job = job_name.strip().lower()
+
+    summary: dict[str, Any] = {}
+    status = "completed"
+    error = None
+    try:
+        if normalized_job == "voice_transcription":
+            max_items = max(1, min(int(job_payload.get("max_items") or 2), 50))
+            processed = process_pending_voice_journals(max_items=max_items)
+            summary = {"processed_count": int(processed), "max_items": max_items}
+        elif normalized_job == "context_doc_refresh":
+            max_items = max(1, min(int(job_payload.get("max_items") or 6), 100))
+            summary = synthesize_stale_context_docs(max_items=max_items)
+            if not isinstance(summary, dict):
+                summary = {"result": summary, "max_items": max_items}
+        elif normalized_job == "ics_refresh":
+            refreshed = refresh_all_urls()
+            summary = refreshed if isinstance(refreshed, dict) else {"result": refreshed}
+        elif normalized_job == "queue_retry_scan":
+            max_items = max(1, min(int(job_payload.get("max_items") or 80), 500))
+            retried_results = process_execution_queue(
+                worker_id="queue-retry-scan",
+                max_items=max_items,
+            )
+            summary = {
+                "max_items": max_items,
+                "processed_count": len(retried_results),
+                "processed_status_counts": {
+                    "completed": len([r for r in retried_results if str(r.get("status")) == "completed"]),
+                    "queued": len([r for r in retried_results if str(r.get("status")) == "queued"]),
+                    "failed": len([r for r in retried_results if str(r.get("status")) == "failed"]),
+                    "review_blocked": len([r for r in retried_results if str(r.get("status")) == "review_blocked"]),
+                },
+            }
+        else:
+            summary = {"message": f"No handler for scheduled job '{job_name}'"}
+    except Exception as exc:
+        status = "queued"
+        error = str(exc)
+        logger.exception("Scheduled queue job failed (%s)", job_name)
+
+    if error is not None:
+        mark_item_retryable_failure(int(item["id"]), error=error)
+        return {
+            "status": status,
+            "error": error,
+            "queue_item_id": item["id"],
+            "job_name": job_name,
+            "summary": summary,
+        }
     result = {
-        "status": "completed",
-        "response": f"Scheduled job queued: {job_name}",
+        "status": status,
+        "response": f"Scheduled job executed: {job_name}",
         "queue_item_id": item["id"],
         "job_name": job_name,
+        "summary": summary,
     }
     mark_item_completed(int(item["id"]), result)
     return result

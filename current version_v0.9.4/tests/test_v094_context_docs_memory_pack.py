@@ -14,9 +14,11 @@ from noctem.services.conversation_service import record_message
 from noctem.services.object_context_docs import (
     get_object_context_doc,
     has_stale_context_docs,
+    list_stale_object_ids,
     synthesize_object_context_doc,
     synthesize_stale_context_docs,
 )
+from noctem.db import get_db
 
 
 def _create_task_via_mcp(name: str) -> int:
@@ -59,6 +61,35 @@ def test_stale_context_doc_batch_generation_reports_results():
     assert result["checked_count"] >= 1
     assert result["generated_count"] >= 1
     assert isinstance(result["generated_object_ids"], list)
+
+
+def test_stale_context_doc_detection_is_change_driven_not_age_driven():
+    marker = f"stale-age-check-{uuid4().hex[:8]}"
+    task_id = _create_task_via_mcp(marker)
+    object_id = f"task:{task_id}"
+    stored = synthesize_object_context_doc(object_id)
+    assert stored is not None
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE object_context_docs
+            SET generated_at = ?
+            WHERE object_id = ?
+            """,
+            ("2000-01-02T00:00:00Z", object_id),
+        )
+        conn.execute(
+            """
+            UPDATE objects
+            SET created_at = ?, updated_at = ?
+            WHERE object_id = ?
+            """,
+            ("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", object_id),
+        )
+
+    stale_ids = set(list_stale_object_ids(limit=200))
+    assert object_id not in stale_ids
 
 
 def test_memory_pack_uses_fixed_budget_buckets():

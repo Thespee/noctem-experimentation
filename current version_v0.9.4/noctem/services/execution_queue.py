@@ -82,6 +82,20 @@ def _queue_item_from_row(row, *, include_payload: bool = True) -> dict[str, Any]
     return item
 
 
+def has_retryable_queue_items() -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM execution_queue
+            WHERE status = 'queued'
+              AND COALESCE(last_error, '') != ''
+            LIMIT 1
+            """
+        ).fetchone()
+    return row is not None
+
+
 def enqueue_item(
     *,
     item_type: str,
@@ -436,6 +450,14 @@ def queue_metrics() -> dict[str, Any]:
             WHERE status = 'review_blocked'
             """
         ).fetchall()
+        retryable_rows = conn.execute(
+            """
+            SELECT id
+            FROM execution_queue
+            WHERE status = 'queued'
+              AND COALESCE(last_error, '') != ''
+            """
+        ).fetchall()
 
     now = datetime.utcnow()
     queued_ages_minutes: list[float] = []
@@ -489,5 +511,5 @@ def queue_metrics() -> dict[str, Any]:
         "scheduled_oldest_age_minutes": oldest_scheduled_age_minutes,
         "scheduled_queued_count": by_class.get(QUEUE_ITEM_SCHEDULED_JOB, 0),
         "review_blocked_avg_age_minutes": (sum(review_ages) / len(review_ages)) if review_ages else None,
-        "retryable_with_errors_count": len([1 for row in queued_rows if row["item_type"] == QUEUE_ITEM_SYSTEM_RETRY]),
+        "retryable_with_errors_count": len(retryable_rows),
     }

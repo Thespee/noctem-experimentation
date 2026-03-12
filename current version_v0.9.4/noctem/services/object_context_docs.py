@@ -274,10 +274,8 @@ def synthesize_object_context_doc(object_id: str) -> dict[str, Any] | None:
     return upsert_object_context_doc(doc)
 
 
-def list_stale_object_ids(*, limit: int = 25, stale_after_minutes: int = 30) -> list[str]:
+def list_stale_object_ids(*, limit: int = 25) -> list[str]:
     bounded_limit = max(1, min(int(limit or 25), 200))
-    minutes = max(1, int(stale_after_minutes or 30))
-    stale_clause = f"-{minutes} minutes"
     with get_db() as conn:
         rows = conn.execute(
             """
@@ -287,11 +285,10 @@ def list_stale_object_ids(*, limit: int = 25, stale_after_minutes: int = 30) -> 
             WHERE
                 d.object_id IS NULL
                 OR datetime(COALESCE(o.updated_at, o.created_at)) > datetime(d.generated_at)
-                OR datetime(d.generated_at) < datetime('now', ?)
             ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
             LIMIT ?
             """,
-            (stale_clause, bounded_limit),
+            (bounded_limit,),
         ).fetchall()
     return [str(row["object_id"]) for row in rows if row["object_id"]]
 
