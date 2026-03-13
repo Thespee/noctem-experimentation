@@ -158,6 +158,16 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Keep chat interaction modes unchanged for this version: web dashboard and Telegram UI.
 - External side effects remain approval-gated; never report mutation success before post-commit verification/readback.
 
+## Session Learnings (Mar 2026, Queue Runtime Diagnostics + Tools Peek)
+
+- Runtime execution is queue-first for inbound user messages, review resumes, and scheduled jobs, with scheduler jobs acting as queue producers.
+- Tools page (`/tools`) is the primary control surface for queue state, scheduler controls/history, and async delivery telemetry.
+- Model execution diagnostics are now exposed as queue progress events instead of enforcing a strict in-code network timeout:
+  - progress stages: `started`, `heartbeat`, `chunk_received`, `completed`, `failed`
+  - processing snapshots are persisted on queue items in `result.progress`
+  - final completed items retain latest model progress metadata in `result.model_progress`
+- Tools queue table includes a minimal “Peek” signal so operators can quickly see whether work is actively generating (receiving chunks) or has completed/failed.
+
 ## Testing
 
 - Not specified yet. Add when a standard test command is defined.
