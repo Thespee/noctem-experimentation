@@ -247,15 +247,16 @@ def list_queue_items(
             {where}
             ORDER BY
                 CASE
-                    WHEN status = 'queued' THEN 0
-                    WHEN status = 'processing' THEN 1
+                    WHEN status = 'processing' THEN 0
+                    WHEN status = 'queued' THEN 1
                     WHEN status = 'review_blocked' THEN 2
                     WHEN status = 'failed' THEN 3
-                    ELSE 4
+                    WHEN status = 'completed' THEN 4
+                    ELSE 5
                 END ASC,
                 priority_rank ASC,
-                datetime(COALESCE(review_created_at, created_at)) ASC,
-                id ASC
+                datetime(COALESCE(started_at, review_created_at, created_at)) DESC,
+                id DESC
             LIMIT ?
             """,
             [*params, bounded_limit],

@@ -155,8 +155,8 @@ def create_app() -> Flask:
 
     @app.route("/reviews")
     def reviews():
-        """Manual review queue page."""
-        return render_template("reviews.html")
+        """Legacy review route now merged into Tools."""
+        return redirect(url_for("tools"))
     @app.route("/tools")
     def tools():
         """Unified tools page for queue and scheduler controls."""
@@ -757,6 +757,7 @@ def create_app() -> Flask:
 
         limit = max(1, min(request.args.get("limit", 50, type=int), 500))
         status = (request.args.get("status") or "all").strip().lower()
+        review_status = (request.args.get("review_status") or "pending").strip().lower()
         diagnostics: list[str] = []
         queue_items = []
         queue_snapshot = {}
@@ -789,7 +790,10 @@ def create_app() -> Flask:
             diagnostics.append(f"delivery:summary_failed:{exc}")
         try:
             review_snapshot = {
-                "items": list_review_items(status="pending", limit=limit),
+                "items": list_review_items(
+                    status=review_status if review_status != "all" else None,
+                    limit=limit,
+                ),
                 "blocked_workflows": list_blocked_workflows(limit=min(limit, 200)),
             }
         except Exception as exc:

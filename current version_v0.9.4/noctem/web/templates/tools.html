@@ -203,7 +203,14 @@
             </thead>
             <tbody id="queueRows"></tbody>
         </table>
-        <div class="subsection-title">Pending Reviews</div>
+        <div class="subsection-title">Review Items</div>
+        <div class="tools-row">
+            <label for="reviewStatusFilter">Review status:</label>
+            <select id="reviewStatusFilter" onchange="refreshTools()">
+                <option value="pending" selected>Pending</option>
+                <option value="all">All</option>
+            </select>
+        </div>
         <table class="tools-table">
             <thead>
                 <tr>
@@ -265,7 +272,8 @@
 <script>
 async function refreshTools() {
     const status = document.getElementById('queueStatusFilter').value || 'all';
-    const resp = await fetch(`/api/tools?status=${encodeURIComponent(status)}&limit=80`);
+    const reviewStatus = document.getElementById('reviewStatusFilter').value || 'pending';
+    const resp = await fetch(`/api/tools?status=${encodeURIComponent(status)}&review_status=${encodeURIComponent(reviewStatus)}&limit=80`);
     const payload = await resp.json();
     if (!payload.success) {
         return;

@@ -60,6 +60,36 @@ def test_tools_page_and_combined_api_payload():
     assert "reviews" in payload
     assert isinstance(payload["reviews"]["items"], list)
     assert any(str(item.get("review_id")) == str(review["review_id"]) for item in payload["reviews"]["items"])
+def test_reviews_page_redirects_to_tools():
+    _reset_tools_state()
+    client = _client()
+    resp = client.get("/reviews")
+    assert resp.status_code in (301, 302, 303, 307, 308)
+    assert "/tools" in str(resp.headers.get("Location") or "")
+
+def test_tools_api_queue_items_are_recent_first_with_active_statuses_prioritized():
+    _reset_tools_state()
+    first = enqueue_user_message(
+        source="web",
+        thread_id=f"thread-{uuid4().hex[:8]}",
+        content="older queue item",
+    )
+    second = enqueue_user_message(
+        source="web",
+        thread_id=f"thread-{uuid4().hex[:8]}",
+        content="newer queue item",
+    )
+
+    client = _client()
+    resp = client.get("/api/tools?status=queued&limit=20")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["success"] is True
+    items = (payload.get("queue") or {}).get("items") or []
+    ids = [int(item["id"]) for item in items]
+    assert int(second["id"]) in ids
+    assert int(first["id"]) in ids
+    assert ids.index(int(second["id"])) < ids.index(int(first["id"]))
 
 
 def test_tools_queue_cancel_and_requeue_endpoints():
