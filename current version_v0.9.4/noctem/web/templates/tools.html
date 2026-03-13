@@ -133,6 +133,32 @@
         line-height: 1.25;
         max-width: 240px;
     }
+    .subsection-title {
+        margin: 0.85rem 0 0.45rem 0;
+        color: #d8dbe0;
+        font-size: 0.88rem;
+        font-weight: 600;
+    }
+    .blocked-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+    }
+    .blocked-item {
+        background: #262626;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+    }
+    .blocked-item .title {
+        color: #e8eaed;
+        font-size: 0.83rem;
+        margin-bottom: 0.25rem;
+    }
+    .blocked-item .meta {
+        color: #9aa0a6;
+        font-size: 0.76rem;
+    }
 </style>
 {% endblock %}
 
@@ -140,14 +166,14 @@
 <div class="tools-container">
     <div class="tools-header">
         <h1>🛠️ Tools</h1>
-        <p class="help-note">Unified control surface for execution queue and scheduler jobs.</p>
+            <p class="help-note">Unified control surface for task list, reviews, queue runtime, and scheduler jobs.</p>
         <p class="help-note" id="toolsDiagnostics"></p>
     </div>
 
     <div class="tools-grid" id="queueMetricCards"></div>
 
     <div class="tools-section">
-        <h2>Queue</h2>
+            <h2>Task List</h2>
         <div class="tools-row">
             <label for="queueStatusFilter">Status:</label>
             <select id="queueStatusFilter" onchange="refreshTools()">
@@ -177,6 +203,22 @@
             </thead>
             <tbody id="queueRows"></tbody>
         </table>
+        <div class="subsection-title">Pending Reviews</div>
+        <table class="tools-table">
+            <thead>
+                <tr>
+                    <th>Review</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Workflow</th>
+                    <th>Question</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="reviewRows"></tbody>
+        </table>
+        <div class="subsection-title">Blocked Workflows</div>
+        <div id="blockedWorkflowRows" class="blocked-list"></div>
     </div>
 
     <div class="tools-section">
@@ -231,6 +273,8 @@ async function refreshTools() {
     renderDiagnostics(payload.diagnostics || []);
     renderQueueMetrics((payload.queue || {}).metrics || {});
     renderQueueRows((payload.queue || {}).items || []);
+    renderReviewRows((payload.reviews || {}).items || []);
+    renderBlockedWorkflows((payload.reviews || {}).blocked_workflows || []);
     renderSchedulerJobs(payload.scheduler || {});
     renderSchedulerRuns((payload.scheduler || {}).recent_runs || []);
     renderDelivery(payload.delivery || {});
@@ -292,6 +336,82 @@ function renderQueueRows(items) {
             </tr>
         `;
     }).join('');
+}
+
+function renderReviewRows(items) {
+    const tbody = document.getElementById('reviewRows');
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6">No pending review items.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map(item => {
+        const payload = (item && typeof item.payload === 'object' && item.payload) ? item.payload : {};
+        const workflowId = payload.workflow_id || 'n/a';
+        const question = payload.question || payload.failure_message || payload.original_message || '(no question)';
+        return `
+            <tr>
+                <td>${escapeHtml(String(item.review_id || ''))}</td>
+                <td>${escapeHtml(String(item.reason_code || 'manual_review'))}</td>
+                <td>${escapeHtml(String(item.status || 'pending'))}</td>
+                <td>${escapeHtml(String(workflowId))}</td>
+                <td>${escapeHtml(String(question))}</td>
+                <td>
+                    <button class="mini-btn" onclick="reviewAction('${encodeURIComponent(String(item.review_id || ''))}', 'approve')">Approve</button>
+                    <button class="mini-btn warn" onclick="reviewAction('${encodeURIComponent(String(item.review_id || ''))}', 'reject')">Reject</button>
+                    <button class="mini-btn secondary" onclick="reviewAction('${encodeURIComponent(String(item.review_id || ''))}', 'resume')">Resume</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderBlockedWorkflows(blocked) {
+    const container = document.getElementById('blockedWorkflowRows');
+    if (!blocked || !blocked.length) {
+        container.innerHTML = '<div class="help-note">No blocked workflows.</div>';
+        return;
+    }
+    container.innerHTML = blocked.map(item => {
+        const interrupt = (item && typeof item.interrupt === 'object' && item.interrupt) ? item.interrupt : {};
+        return `
+            <div class="blocked-item">
+                <div class="title">Workflow #${escapeHtml(String(item.workflow_id || ''))} • ${escapeHtml(String(item.workflow_type || 'unknown'))}</div>
+                <div class="meta">Interrupt: ${escapeHtml(String(interrupt.type || 'n/a'))} • ${escapeHtml(String(interrupt.created_at || ''))}</div>
+                <div class="meta">${escapeHtml(String(interrupt.question || ''))}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function reviewAction(encodedReviewId, action) {
+    const reviewId = decodeURIComponent(encodedReviewId || '');
+    if (!reviewId) return;
+    let body = {};
+    if (action === 'resume') {
+        const response = window.prompt('Resume response:');
+        if (!response || !response.trim()) return;
+        body = { response: response.trim() };
+    } else if (action === 'approve') {
+        const response = window.prompt('Approval response (default: yes):', 'yes');
+        if (response === null) return;
+        body = { response: (response || 'yes').trim() || 'yes' };
+    } else if (action === 'reject') {
+        const response = window.prompt('Rejection response (default: no):', 'no');
+        if (response === null) return;
+        body = { response: (response || 'no').trim() || 'no' };
+    }
+
+    const resp = await fetch(`/api/agent/reviews/${reviewId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    if (!payload.success) {
+        window.alert(payload.error || 'Review action failed.');
+        return;
+    }
+    await refreshTools();
 }
 
 function queueProgressPeek(item) {

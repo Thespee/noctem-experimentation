@@ -2,13 +2,14 @@
 
 from datetime import date, timedelta
 from uuid import uuid4
+from noctem.config import Config
 
 from noctem.db import get_db
 from noctem.agent.execution_queue_runtime import (
     process_chat_message_via_queue,
     process_execution_queue,
 )
-from noctem.services.async_delivery import list_delivery_publications
+from noctem.services.async_delivery import list_delivery_publications, publish_queue_result
 from noctem.services import task_service
 from noctem.services.conversation_grounding import update_conversation_state
 from noctem.services.execution_queue import enqueue_scheduled_job, list_queue_items
@@ -113,7 +114,18 @@ def test_scheduled_job_queue_item_executes_via_runtime():
     assert matching[0].get("status") == "completed"
     assert matching[0].get("job_name") == "context_doc_refresh"
     assert isinstance(matching[0].get("deliveries"), list)
-    assert any(d.get("channel") == "web" for d in matching[0].get("deliveries") or [])
+    assert any(
+        d.get("channel") == "web"
+        and d.get("status") == "skipped"
+        and (d.get("payload") or {}).get("reason") == "scheduled_job_hidden_from_chat_channels"
+        for d in matching[0].get("deliveries") or []
+    )
+    assert any(
+        d.get("channel") == "telegram"
+        and d.get("status") == "skipped"
+        and (d.get("payload") or {}).get("reason") == "scheduled_job_hidden_from_chat_channels"
+        for d in matching[0].get("deliveries") or []
+    )
 
     items = list_queue_items(status="all", limit=20)
     stored = next(item for item in items if int(item["id"]) == int(queued["id"]))
@@ -121,4 +133,60 @@ def test_scheduled_job_queue_item_executes_via_runtime():
 
     delivery_rows = list_delivery_publications(queue_item_id=int(queued["id"]), limit=20)
     assert delivery_rows
-    assert any(row["channel"] == "web" for row in delivery_rows)
+    assert any(
+        row["channel"] == "web"
+        and row["status"] == "skipped"
+        and (row.get("payload") or {}).get("reason") == "scheduled_job_hidden_from_chat_channels"
+        for row in delivery_rows
+    )
+    assert any(
+        row["channel"] == "telegram"
+        and row["status"] == "skipped"
+        and (row.get("payload") or {}).get("reason") == "scheduled_job_hidden_from_chat_channels"
+        for row in delivery_rows
+    )
+
+
+def test_publish_queue_result_for_telegram_user_message_uses_async_send(monkeypatch):
+    _clear_queue()
+    prior_token = Config.get("telegram_bot_token", "")
+    prior_chat_id = Config.get("telegram_chat_id", "")
+    try:
+        Config.set("telegram_bot_token", "test-token")
+        Config.set("telegram_chat_id", "123456")
+        Config.clear_cache()
+
+        sent = {"count": 0}
+
+        class _FakeResponse:
+            ok = True
+            status_code = 200
+            text = "ok"
+
+            @staticmethod
+            def json():
+                return {"ok": True}
+
+        def _fake_post(url, json=None, timeout=None):
+            sent["count"] += 1
+            assert "sendMessage" in str(url)
+            assert str((json or {}).get("chat_id")) == "123456"
+            return _FakeResponse()
+
+        monkeypatch.setattr("noctem.services.async_delivery.requests.post", _fake_post)
+
+        deliveries = publish_queue_result(
+            {"id": 99991, "item_type": "user_message", "source": "telegram", "thread_id": "thread-telegram"},
+            {"status": "completed", "response": "done", "mode": "model"},
+        )
+
+        assert sent["count"] >= 1
+        assert any(
+            row.get("channel") == "telegram" and row.get("status") == "delivered"
+            for row in deliveries
+            if isinstance(row, dict)
+        )
+    finally:
+        Config.set("telegram_bot_token", prior_token)
+        Config.set("telegram_chat_id", prior_chat_id)
+        Config.clear_cache()

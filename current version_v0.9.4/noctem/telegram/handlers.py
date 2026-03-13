@@ -1,10 +1,12 @@
 """Telegram handlers for Noctem v0.9.4."""
 from __future__ import annotations
+import asyncio
 
 import logging
 import subprocess
 
 from telegram import Update
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes
 
 from ..config import Config
@@ -20,6 +22,8 @@ from ..services.message_logger import MessageLog
 from ..voice.journals import save_voice_journal
 
 logger = logging.getLogger(__name__)
+_TELEGRAM_REPLY_RETRIES = 3
+_TELEGRAM_REPLY_TIMEOUT_SECONDS = 10
 
 
 def _touch_activity(update: Update | None = None):
@@ -45,6 +49,46 @@ def _resolve_task_id(parsed) -> int | None:
         if selected and getattr(selected, "id", None):
             return int(selected.id)
     return None
+
+
+def _normalize_reply_text(text: str) -> str:
+    resolved = str(text or "").strip()
+    if resolved:
+        return resolved
+    return "Done."
+
+
+async def _safe_reply_text(update: Update, text: str, *, parse_mode: str | None = None) -> bool:
+    message = update.message if update else None
+    if message is None:
+        return False
+    payload = _normalize_reply_text(text)
+    last_error: Exception | None = None
+    for attempt in range(_TELEGRAM_REPLY_RETRIES):
+        try:
+            await message.reply_text(
+                payload,
+                parse_mode=parse_mode,
+                read_timeout=_TELEGRAM_REPLY_TIMEOUT_SECONDS,
+                write_timeout=_TELEGRAM_REPLY_TIMEOUT_SECONDS,
+                connect_timeout=8,
+                pool_timeout=8,
+            )
+            return True
+        except RetryAfter as exc:
+            last_error = exc
+            retry_after = float(getattr(exc, "retry_after", 1.0) or 1.0)
+            if attempt < (_TELEGRAM_REPLY_RETRIES - 1):
+                await asyncio.sleep(min(max(retry_after, 0.2), 3.0))
+        except (TimedOut, NetworkError) as exc:
+            last_error = exc
+            if attempt < (_TELEGRAM_REPLY_RETRIES - 1):
+                await asyncio.sleep(0.4 * (attempt + 1))
+        except Exception as exc:
+            last_error = exc
+            break
+    logger.debug("Telegram inline reply failed after retries: %s", last_error)
+    return False
 
 
 async def _fast_create_task(update: Update, text: str):
@@ -374,8 +418,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         from ..agent.execution_queue_runtime import process_chat_message_via_queue
+        try:
+            chat_result = process_chat_message_via_queue(text, source="telegram")
+        except Exception as exc:
+            logger.exception("Telegram queued chat processing failed")
+            await _safe_reply_text(update, "Sorry, I hit an error while processing that.")
+            log.set_action("chat_orchestrator")
+            log.set_result(False, {"error": str(exc)})
+            return
 
-        chat_result = process_chat_message_via_queue(text, source="telegram")
+        deliveries = chat_result.get("deliveries") if isinstance(chat_result.get("deliveries"), list) else []
+        telegram_delivered = any(
+            str(item.get("channel") or "").strip().lower() == "telegram"
+            and str(item.get("status") or "").strip().lower() == "delivered"
+            for item in deliveries
+            if isinstance(item, dict)
+        )
+        if not telegram_delivered:
+            await _safe_reply_text(update, chat_result.get("response", "Done."))
         await update.message.reply_text(chat_result.get("response", "✓ Done"))
         log.set_action("chat_orchestrator")
         log.set_result(True, {"workflow_id": chat_result.get("workflow_id"), "status": chat_result.get("status")})

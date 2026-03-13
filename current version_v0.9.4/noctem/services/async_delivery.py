@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -11,9 +12,12 @@ import requests
 from ..config import Config
 from ..db import get_db
 from .conversation_service import record_message
-from .execution_queue import QUEUE_ITEM_USER_MESSAGE
+from .execution_queue import QUEUE_ITEM_SCHEDULED_JOB, QUEUE_ITEM_USER_MESSAGE
 
 logger = logging.getLogger(__name__)
+_SCHEDULED_CHAT_SUPPRESSION_REASON = "scheduled_job_hidden_from_chat_channels"
+_TELEGRAM_SEND_ATTEMPTS = 3
+_TELEGRAM_SEND_TIMEOUT_SECONDS = 10
 
 
 def _now_iso() -> str:
@@ -31,6 +35,61 @@ def _json_loads(payload: str | None, fallback: Any) -> Any:
         return json.loads(payload)
     except Exception:
         return fallback
+
+
+def _should_suppress_chat_publication(item_type: str) -> bool:
+    return str(item_type or "").strip().lower() == QUEUE_ITEM_SCHEDULED_JOB
+
+
+def _send_telegram_message_with_retries(*, token: str, chat_id: str, text: str) -> tuple[str, str | None]:
+    last_error = "telegram_send_failed"
+    for attempt in range(_TELEGRAM_SEND_ATTEMPTS):
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=_TELEGRAM_SEND_TIMEOUT_SECONDS + attempt * 2,
+            )
+            if response.ok:
+                return "delivered", None
+
+            response_payload = {}
+            try:
+                loaded = response.json()
+                if isinstance(loaded, dict):
+                    response_payload = loaded
+            except Exception:
+                response_payload = {}
+
+            description = str(
+                response_payload.get("description")
+                or response.text
+                or "telegram_send_failed"
+            )
+            retry_after = (
+                (response_payload.get("parameters") or {}).get("retry_after")
+                if isinstance(response_payload.get("parameters"), dict)
+                else None
+            )
+            if retry_after:
+                description = f"{description} (retry_after={retry_after}s)"
+            last_error = description
+
+            status_code = int(response.status_code or 0)
+            retryable_status = {408, 409, 425, 429, 500, 502, 503, 504}
+            if status_code not in retryable_status:
+                break
+            if retry_after:
+                try:
+                    time.sleep(min(max(float(retry_after), 0.2), 3.0))
+                    continue
+                except Exception:
+                    pass
+        except Exception as exc:
+            last_error = str(exc)
+        if attempt < (_TELEGRAM_SEND_ATTEMPTS - 1):
+            time.sleep(0.4 * (attempt + 1))
+    return "failed", last_error
 
 
 def _record_delivery(
@@ -82,8 +141,8 @@ def _record_delivery(
 def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> list[dict[str, Any]]:
     queue_item_id = queue_item.get("id")
     item_type = str(queue_item.get("item_type") or "").strip().lower()
-    source = str(queue_item.get("source") or "").strip().lower()
     thread_id = str(result.get("thread_id") or queue_item.get("thread_id") or "").strip() or None
+    suppress_chat_channels = _should_suppress_chat_publication(item_type)
     response_text = str(result.get("response") or "").strip()
     if not response_text:
         response_text = str(result.get("error") or "").strip()
@@ -97,7 +156,17 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
         "mode": result.get("mode"),
     }
 
-    if item_type == QUEUE_ITEM_USER_MESSAGE:
+    if suppress_chat_channels:
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=queue_item_id,
+                thread_id=thread_id,
+                channel="web",
+                status="skipped",
+                payload={**payload, "reason": _SCHEDULED_CHAT_SUPPRESSION_REASON},
+            )
+        )
+    elif item_type == QUEUE_ITEM_USER_MESSAGE:
         deliveries.append(
             _record_delivery(
                 queue_item_id=queue_item_id,
@@ -143,6 +212,17 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
                 )
             )
 
+    if suppress_chat_channels:
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=queue_item_id,
+                thread_id=thread_id,
+                channel="telegram",
+                status="skipped",
+                payload={**payload, "reason": _SCHEDULED_CHAT_SUPPRESSION_REASON},
+            )
+        )
+        return deliveries
     token = Config.telegram_token()
     chat_id = Config.telegram_chat_id()
     if not token or not chat_id:
@@ -157,25 +237,14 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
         )
         return deliveries
 
-    if item_type == QUEUE_ITEM_USER_MESSAGE and source == "telegram":
-        deliveries.append(
-            _record_delivery(
-                queue_item_id=queue_item_id,
-                thread_id=thread_id,
-                channel="telegram",
-                status="skipped",
-                payload={**payload, "reason": "already_replied_inline"},
-            )
-        )
-        return deliveries
 
     try:
-        response = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": response_text},
-            timeout=10,
+        delivery_status, delivery_error = _send_telegram_message_with_retries(
+            token=token,
+            chat_id=chat_id,
+            text=response_text,
         )
-        if response.ok:
+        if delivery_status == "delivered":
             deliveries.append(
                 _record_delivery(
                     queue_item_id=queue_item_id,
@@ -186,7 +255,6 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
                 )
             )
         else:
-            error_message = str((response.json() or {}).get("description") or response.text or "telegram_send_failed")
             deliveries.append(
                 _record_delivery(
                     queue_item_id=queue_item_id,
@@ -194,7 +262,7 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
                     channel="telegram",
                     status="failed",
                     payload=payload,
-                    error=error_message,
+                    error=str(delivery_error or "telegram_send_failed"),
                 )
             )
     except Exception as exc:

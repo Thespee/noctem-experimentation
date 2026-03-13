@@ -174,6 +174,8 @@ def _latest_interrupted_workflow(thread_id: str) -> tuple[int, str] | None:
             if role == "user":
                 saw_latest_user = True
             continue
+        if role == "user":
+            break
         if role != "assistant":
             continue
         metadata_raw = row["metadata"]
@@ -191,7 +193,7 @@ def _latest_interrupted_workflow(thread_id: str) -> tuple[int, str] | None:
         interrupt_type = str(interrupt_payload.get("type") or "").strip().lower()
         if isinstance(workflow_id, int) and status == "interrupted":
             return workflow_id, interrupt_type
-        return None
+        continue
     return None
 
 

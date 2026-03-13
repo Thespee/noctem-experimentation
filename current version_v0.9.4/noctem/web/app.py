@@ -750,6 +750,7 @@ def create_app() -> Flask:
     @app.route("/api/tools")
     def api_tools():
         """Combined tools payload for queue and scheduler."""
+        from ..agent.review_queue import list_blocked_workflows, list_review_items
         from ..scheduler.jobs import get_scheduler_status
         from ..services.async_delivery import delivery_metrics, list_delivery_publications
         from ..services.execution_queue import list_queue_items, queue_metrics
@@ -761,6 +762,7 @@ def create_app() -> Flask:
         queue_snapshot = {}
         scheduler_status = {}
         delivery_snapshot = {"metrics": {}, "recent": []}
+        review_snapshot = {"items": [], "blocked_workflows": []}
         try:
             queue_items = list_queue_items(status=status, limit=limit)
         except Exception as exc:
@@ -785,6 +787,13 @@ def create_app() -> Flask:
             }
         except Exception as exc:
             diagnostics.append(f"delivery:summary_failed:{exc}")
+        try:
+            review_snapshot = {
+                "items": list_review_items(status="pending", limit=limit),
+                "blocked_workflows": list_blocked_workflows(limit=min(limit, 200)),
+            }
+        except Exception as exc:
+            diagnostics.append(f"reviews:summary_failed:{exc}")
         return jsonify({
             "success": True,
             "queue": {
@@ -793,6 +802,7 @@ def create_app() -> Flask:
             },
             "scheduler": scheduler_status,
             "delivery": delivery_snapshot,
+            "reviews": review_snapshot,
             "diagnostics": diagnostics,
         })
 

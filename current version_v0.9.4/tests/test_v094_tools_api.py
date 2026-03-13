@@ -34,11 +34,19 @@ def test_tools_page_and_combined_api_payload():
         thread_id=f"thread-{uuid4().hex[:8]}",
         content="tools api seed message",
     )
+    review = create_review_item(
+        reason_code="manual_review",
+        payload={
+            "question": "Approve queued execution?",
+            "queue_item_id": int(queued["id"]),
+        },
+    )
 
     client = _client()
     page = client.get("/tools")
     assert page.status_code == 200
-    assert "Unified control surface for execution queue and scheduler jobs." in page.data.decode("utf-8")
+    assert "Unified control surface for task list, reviews, queue runtime, and scheduler jobs." in page.data.decode("utf-8")
+    assert "Task List" in page.data.decode("utf-8")
 
     resp = client.get("/api/tools?status=all&limit=50")
     assert resp.status_code == 200
@@ -49,6 +57,9 @@ def test_tools_page_and_combined_api_payload():
     assert "job_config" in payload["scheduler"]
     assert "delivery" in payload
     assert "metrics" in payload["delivery"]
+    assert "reviews" in payload
+    assert isinstance(payload["reviews"]["items"], list)
+    assert any(str(item.get("review_id")) == str(review["review_id"]) for item in payload["reviews"]["items"])
 
 
 def test_tools_queue_cancel_and_requeue_endpoints():

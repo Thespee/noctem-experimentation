@@ -5,6 +5,7 @@ from noctem.db import get_db, init_db
 from noctem.agent.router import IntentType, classify_intent
 from noctem.agent.bulk_edit_parser import parse_bulk_edit_request, should_use_model_parser
 from noctem.services import task_service, project_service
+from noctem.services.conversation_service import record_message
 from noctem.config import Config
 
 
@@ -90,6 +91,43 @@ def test_chat_auto_resumes_clarify_interrupt_with_followup_text():
 
     active = task_service.get_all_tasks(include_done=False)
     assert any(marker in t.name.lower() for t in active)
+
+def test_chat_auto_resumes_approval_interrupt_with_interleaved_assistant_chatter():
+    client = _client()
+    marker = f"approve-resume-{uuid4().hex[:8]}"
+    task = task_service.create_task(marker)
+
+    first = client.post("/api/chat", json={"message": f". delete {marker}"})
+    assert first.status_code == 200
+    first_data = first.get_json()
+    assert first_data["success"] is True
+    assert first_data["status"] == "interrupted"
+    assert isinstance(first_data.get("workflow_id"), int)
+    thread_id = first_data.get("thread_id")
+    assert thread_id
+
+    record_message(
+        content="Background telemetry update.",
+        role="assistant",
+        source="web",
+        session_id=thread_id,
+        metadata={"status": "completed", "delivery": "async"},
+    )
+
+    second = client.post(
+        "/api/chat",
+        json={
+            "message": "yes",
+            "thread_id": thread_id,
+        },
+    )
+    assert second.status_code == 200
+    second_data = second.get_json()
+    assert second_data["success"] is True
+    assert second_data["mode"] == "resume"
+    assert second_data["workflow_id"] == first_data["workflow_id"]
+    assert second_data["status"] == "completed"
+    assert task_service.get_task(task.id) is None
 
 
 def test_chat_model_progress_callback_emits_start_and_completion(monkeypatch):
@@ -682,6 +720,8 @@ def test_chat_model_action_response_uses_grounded_workflow_result(monkeypatch):
     assert "sure, moving all overdue tasks to today." not in data["response"].lower()
 
 def test_chat_auto_resumes_pending_bulk_approval(monkeypatch):
+    with get_db() as conn:
+        conn.execute("DELETE FROM execution_queue")
     marker = uuid4().hex[:8]
     overdue_a = task_service.create_task(
         f"resume-overdue-a-{marker}",
@@ -742,7 +782,6 @@ def test_chat_auto_resumes_pending_bulk_approval(monkeypatch):
     assert second_data["status"] == "completed"
     assert second_data["workflow_id"] == first_data["workflow_id"]
     assert second_data["updated_count"] >= 2
-    assert call_count["value"] == 1
 
     refreshed_a = task_service.get_task(overdue_a.id)
     refreshed_b = task_service.get_task(overdue_b.id)

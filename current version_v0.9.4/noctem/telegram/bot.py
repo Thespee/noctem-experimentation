@@ -10,6 +10,9 @@ from . import handlers
 
 logger = logging.getLogger(__name__)
 
+async def _handle_telegram_error(update, context) -> None:
+    logger.debug("Telegram update handling error: %s", getattr(context, "error", None))
+
 
 def create_bot() -> Application:
     """Create and configure the Telegram bot application."""
@@ -46,6 +49,7 @@ def create_bot() -> Application:
     
     # Voice message handler for voice journals
     app.add_handler(MessageHandler(filters.VOICE, handlers.handle_voice))
+    app.add_error_handler(_handle_telegram_error)
     
     logger.info("Telegram bot configured")
     return app
