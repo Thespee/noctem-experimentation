@@ -22,11 +22,18 @@ from ..voice.journals import save_voice_journal
 logger = logging.getLogger(__name__)
 
 
-def _touch_activity():
+def _touch_activity(update: Update | None = None):
     try:
         record_user_activity(source="telegram")
     except Exception as exc:
         logger.debug("Failed to record scheduler activity heartbeat: %s", exc)
+    try:
+        if update and update.effective_chat and update.effective_chat.id is not None:
+            resolved_chat_id = str(update.effective_chat.id).strip()
+            if resolved_chat_id and Config.telegram_chat_id() != resolved_chat_id:
+                Config.set("telegram_chat_id", resolved_chat_id)
+    except Exception as exc:
+        logger.debug("Failed to update telegram_chat_id from inbound update: %s", exc)
 
 
 def _resolve_task_id(parsed) -> int | None:
@@ -112,7 +119,7 @@ async def _fast_delete(update: Update, parsed):
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     chat_id = update.effective_chat.id
     if not Config.telegram_chat_id():
         Config.set("telegram_chat_id", str(chat_id))
@@ -122,7 +129,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     await update.message.reply_text(
         "Commands:\n"
         "• /projects, /project <name>\n"
@@ -136,7 +143,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     projects = project_service.get_active_projects()
     if not projects:
         await update.message.reply_text("No active projects.")
@@ -148,7 +155,7 @@ async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     if not context.args:
         await update.message.reply_text("Usage: /project <name>")
         return
@@ -158,7 +165,7 @@ async def cmd_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     goals = goal_service.get_all_goals()
     if not goals:
         await update.message.reply_text("No goals yet.")
@@ -170,7 +177,7 @@ async def cmd_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     cfg = Config.get_all()
     await update.message.reply_text(
         f"⚙️ Settings\n\n• Timezone: {cfg.get('timezone')}\n• Calendar import: ICS feeds (manual refresh)"
@@ -178,14 +185,14 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_web(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     host = Config.web_host() or "localhost"
     port = int(Config.web_port() or 5000)
     await update.message.reply_text(f"🌐 Web dashboard: http://{host}:{port}")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     await update.message.reply_text(
         "🤖 Noctem v0.9.4 Status\n\n"
         f"• Due today: {len(task_service.get_tasks_due_today())}\n"
@@ -195,7 +202,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def cmd_t(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     if not context.args:
         await update.message.reply_text("Usage: /t <task text>")
         return
@@ -204,7 +211,7 @@ async def cmd_t(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     raw = " ".join(context.args).strip()
     if not raw:
         await update.message.reply_text("Usage: /done <task_id_or_name>")
@@ -214,7 +221,7 @@ async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     raw = " ".join(context.args).strip()
     if not raw:
         await update.message.reply_text("Usage: /skip <task_id_or_name>")
@@ -224,7 +231,7 @@ async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     raw = " ".join(context.args).strip()
     if not raw:
         await update.message.reply_text("Usage: /delete <task_id_or_name>")
@@ -234,17 +241,17 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_suggest(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     await update.message.reply_text("⚠️ `suggest` is removed in v0.9.4.")
 
 
 async def cmd_seed(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     await update.message.reply_text("Send natural seed text in the next message and I will import it.")
 
 
 async def cmd_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     try:
         result = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5, check=False)
         tailscale_ip = (result.stdout or "").strip()
@@ -266,7 +273,7 @@ async def handle_seed_text(update: Update, text: str):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     text = (update.message.text or "").strip()
     with MessageLog(text, source="telegram") as log:
         parsed = parse_command(text)
@@ -375,7 +382,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _touch_activity()
+    _touch_activity(update)
     voice = update.message.voice
     if voice is None:
         await update.message.reply_text("❌ No voice payload.")

@@ -141,6 +141,7 @@
     <div class="tools-header">
         <h1>🛠️ Tools</h1>
         <p class="help-note">Unified control surface for execution queue and scheduler jobs.</p>
+        <p class="help-note" id="toolsDiagnostics"></p>
     </div>
 
     <div class="tools-grid" id="queueMetricCards"></div>
@@ -227,22 +228,33 @@ async function refreshTools() {
     if (!payload.success) {
         return;
     }
-    renderQueueMetrics(payload.queue?.metrics || {});
-    renderQueueRows(payload.queue?.items || []);
+    renderDiagnostics(payload.diagnostics || []);
+    renderQueueMetrics((payload.queue || {}).metrics || {});
+    renderQueueRows((payload.queue || {}).items || []);
     renderSchedulerJobs(payload.scheduler || {});
-    renderSchedulerRuns(payload.scheduler?.recent_runs || []);
+    renderSchedulerRuns((payload.scheduler || {}).recent_runs || []);
     renderDelivery(payload.delivery || {});
+}
+
+function renderDiagnostics(diagnostics) {
+    const el = document.getElementById('toolsDiagnostics');
+    if (!el) return;
+    if (!diagnostics || !diagnostics.length) {
+        el.textContent = '';
+        return;
+    }
+    el.textContent = `Diagnostics: ${diagnostics.join(' | ')}`;
 }
 
 function renderQueueMetrics(metrics) {
     const cards = document.getElementById('queueMetricCards');
     const values = [
-        { label: 'Queued', value: metrics.queued_count ?? 0 },
-        { label: 'Processing', value: metrics.processing_count ?? 0 },
-        { label: 'Review blocked', value: metrics.review_blocked_count ?? 0 },
+        { label: 'Queued', value: orDefault(metrics.queued_count, 0) },
+        { label: 'Processing', value: orDefault(metrics.processing_count, 0) },
+        { label: 'Review blocked', value: orDefault(metrics.review_blocked_count, 0) },
         { label: 'Oldest queued (min)', value: formatMaybeNumber(metrics.queued_oldest_age_minutes) },
         { label: 'Median queued age (min)', value: formatMaybeNumber(metrics.queued_median_age_minutes) },
-        { label: 'Retryable queued', value: metrics.retryable_with_errors_count ?? 0 },
+        { label: 'Retryable queued', value: orDefault(metrics.retryable_with_errors_count, 0) },
     ];
     cards.innerHTML = values.map(item => `
         <div class="metric-card">
@@ -268,7 +280,7 @@ function renderQueueRows(items) {
                 <td>${escapeHtml(String(item.item_type || ''))}</td>
                 <td><span class="status-pill ${escapeHtml(status)}">${escapeHtml(status)}</span></td>
                 <td>${escapeHtml(String(item.source || ''))}</td>
-                <td>${escapeHtml(String(item.attempt_count ?? 0))}</td>
+                <td>${escapeHtml(String(orDefault(item.attempt_count, 0)))}</td>
                 <td>${escapeHtml(String(item.created_at || ''))}</td>
                 <td><span class="peek-note">${escapeHtml(progressPeek)}</span></td>
                 <td>${escapeHtml(String(item.last_error || ''))}</td>
@@ -283,7 +295,7 @@ function renderQueueRows(items) {
 }
 
 function queueProgressPeek(item) {
-    const status = String(item?.status || '');
+    const status = String((item && item.status) || '');
     const result = (item && typeof item.result === 'object' && item.result) ? item.result : {};
     const progress = (result && typeof result.progress === 'object' && result.progress)
         || (result && typeof result.model_progress === 'object' && result.model_progress)
@@ -363,19 +375,23 @@ function renderSchedulerJobs(scheduler) {
                 <div class="tools-row job-controls">
                     <label><input type="checkbox" id="job-enabled-${name}" ${enabled ? 'checked' : ''}> enabled</label>
                     <label>Interval (min)
-                        <input type="number" min="1" max="10080" id="job-interval-${name}" value="${escapeHtml(String(jobCfg.interval_minutes ?? 1))}">
+                        <input type="number" min="1" max="10080" id="job-interval-${name}" value="${escapeHtml(String(orDefault(jobCfg.interval_minutes, 1)))}">
                     </label>
                     <button class="mini-btn" onclick="saveSchedulerJob('${name}')">Save</button>
                     <button class="mini-btn secondary" onclick="runSchedulerJob('${name}')">Run now</button>
                 </div>
                 <div class="help-note">
-                    runs: ${escapeHtml(String(jobStats.runs ?? 0))},
-                    failures: ${escapeHtml(String(jobStats.failures ?? 0))},
+                    runs: ${escapeHtml(String(orDefault(jobStats.runs, 0)))},
+                    failures: ${escapeHtml(String(orDefault(jobStats.failures, 0)))},
                     last run: ${escapeHtml(String(jobStats.last_run_at || 'never'))}
                 </div>
             </div>
         `;
     }).join('');
+}
+
+function orDefault(value, fallbackValue) {
+    return (value === undefined || value === null) ? fallbackValue : value;
 }
 
 function renderSchedulerRuns(runs) {

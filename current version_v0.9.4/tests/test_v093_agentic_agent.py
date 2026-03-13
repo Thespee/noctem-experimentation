@@ -305,6 +305,34 @@ def test_chat_model_payload_can_execute_action(monkeypatch):
     active = task_service.get_all_tasks(include_done=False)
     assert any(marker in t.name.lower() for t in active)
 
+
+def test_chat_streamed_model_payload_does_not_fallback_to_consumed_response(monkeypatch):
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, decode_unicode=True):
+            yield (
+                '{"response":"{\\"reply\\":\\"streamed ok\\",\\"requires_action\\":false,'
+                '\\"fast_path_input\\":null,\\"clarification_question\\":null,\\"memory_update\\":null}",'
+                '"done":true}'
+            )
+
+        def json(self):
+            raise RuntimeError("The content for this response was already consumed")
+
+    monkeypatch.setattr("noctem.agent.chat_orchestrator.requests.post", lambda *args, **kwargs: _FakeResponse())
+
+    client = _client()
+    resp = client.post("/api/chat", json={"message": "hello streamed model"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["mode"] == "model"
+    assert data.get("fallback_reason") is None
+    assert "streamed ok" in str(data.get("response") or "").lower()
+
+
 def test_chat_forces_grounded_query_execution_when_model_skips_action(monkeypatch):
     class _FakeResponse:
         def raise_for_status(self):
@@ -419,6 +447,34 @@ def test_settings_post_persists_chat_fields():
     assert Config.get("chat_model_first_enabled") is True
     assert Config.get("chat_unified_continuity") is True
     assert Config.get("chat_brief_mode") is True
+
+
+def test_settings_post_blank_telegram_fields_do_not_clear_existing_values():
+    client = _client()
+    Config.set("telegram_bot_token", "token-keep-me")
+    Config.set("telegram_chat_id", "123456")
+    Config.clear_cache()
+
+    payload = {
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "timezone": "UTC",
+        "web_host": "0.0.0.0",
+        "web_port": "5000",
+        "chat_assistant_name": "Alfred",
+        "chat_default_thread_id": "alfred-main",
+        "chat_ollama_model": "qwen2.5:7b-instruct-q4_K_M",
+        "chat_ollama_base_url": "http://localhost:11434",
+        "chat_model_first_enabled": "on",
+        "chat_unified_continuity": "on",
+        "chat_brief_mode": "on",
+    }
+    resp = client.post("/settings", data=payload)
+    assert resp.status_code in (301, 302, 303, 307, 308)
+
+    Config.clear_cache()
+    assert Config.get("telegram_bot_token") == "token-keep-me"
+    assert Config.get("telegram_chat_id") == "123456"
 
 
 def test_calendar_action_can_redirect_to_settings_anchor():

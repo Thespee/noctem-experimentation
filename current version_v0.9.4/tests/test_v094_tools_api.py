@@ -144,3 +144,21 @@ def test_settings_calendar_controls_are_moved_to_tools():
     assert "Execution controls (refresh/run cadence/queue visibility) now live in the Tools tab." in html
     assert "Refresh All" not in html
     assert "Clear All Imported Events" not in html
+
+
+def test_tools_api_returns_partial_payload_with_diagnostics_on_scheduler_failure(monkeypatch):
+    _reset_tools_state()
+    client = _client()
+
+    def _explode_scheduler_status():
+        raise RuntimeError("simulated scheduler status failure")
+
+    monkeypatch.setattr("noctem.scheduler.jobs.get_scheduler_status", _explode_scheduler_status)
+
+    resp = client.get("/api/tools?status=all&limit=30")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["success"] is True
+    assert isinstance(payload.get("diagnostics"), list)
+    assert any("scheduler:status_failed" in str(item) for item in payload["diagnostics"])
+    assert isinstance((payload.get("scheduler") or {}).get("job_config"), dict)

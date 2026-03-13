@@ -273,6 +273,7 @@ def create_app() -> Flask:
     def settings():
         """Settings page for configuring Noctem."""
         if request.method == "POST":
+            existing_config = Config.get_all()
             text_fields = [
                 'telegram_bot_token',
                 'telegram_chat_id',
@@ -283,12 +284,15 @@ def create_app() -> Flask:
                 'chat_ollama_model',
                 'chat_ollama_base_url',
             ]
-            allow_empty_text = {'telegram_bot_token', 'telegram_chat_id', 'chat_default_thread_id'}
+            allow_empty_text = {'chat_default_thread_id'}
+            preserve_if_blank = {'telegram_bot_token', 'telegram_chat_id'}
 
             for field in text_fields:
                 value = request.form.get(field, '').strip()
                 if value or field in allow_empty_text:
                     Config.set(field, value)
+                elif field in preserve_if_blank:
+                    Config.set(field, str(existing_config.get(field, '') or '').strip())
 
             web_port_raw = request.form.get('web_port', '').strip()
             try:
@@ -752,19 +756,44 @@ def create_app() -> Flask:
 
         limit = max(1, min(request.args.get("limit", 50, type=int), 500))
         status = (request.args.get("status") or "all").strip().lower()
-        queue_items = list_queue_items(status=status, limit=limit)
-        scheduler_status = get_scheduler_status()
+        diagnostics: list[str] = []
+        queue_items = []
+        queue_snapshot = {}
+        scheduler_status = {}
+        delivery_snapshot = {"metrics": {}, "recent": []}
+        try:
+            queue_items = list_queue_items(status=status, limit=limit)
+        except Exception as exc:
+            diagnostics.append(f"queue:list_failed:{exc}")
+        try:
+            queue_snapshot = queue_metrics()
+        except Exception as exc:
+            diagnostics.append(f"queue:metrics_failed:{exc}")
+        try:
+            scheduler_status = get_scheduler_status()
+        except Exception as exc:
+            diagnostics.append(f"scheduler:status_failed:{exc}")
+            scheduler_status = {
+                "job_config": Config.get("scheduler_job_config", {}) or {},
+                "job_stats": {},
+                "recent_runs": [],
+            }
+        try:
+            delivery_snapshot = {
+                "metrics": delivery_metrics(),
+                "recent": list_delivery_publications(limit=60),
+            }
+        except Exception as exc:
+            diagnostics.append(f"delivery:summary_failed:{exc}")
         return jsonify({
             "success": True,
             "queue": {
                 "items": queue_items,
-                "metrics": queue_metrics(),
+                "metrics": queue_snapshot,
             },
             "scheduler": scheduler_status,
-            "delivery": {
-                "metrics": delivery_metrics(),
-                "recent": list_delivery_publications(limit=60),
-            },
+            "delivery": delivery_snapshot,
+            "diagnostics": diagnostics,
         })
 
     @app.route("/api/tools/queue")

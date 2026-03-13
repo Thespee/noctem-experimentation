@@ -370,7 +370,8 @@ def _call_ollama_model(
         response.raise_for_status()
         parsed: dict[str, Any] | None = None
         iter_lines = getattr(response, "iter_lines", None)
-        if callable(iter_lines):
+        used_streaming = callable(iter_lines)
+        if used_streaming:
             stream_parts: list[str] = []
             for raw_line in response.iter_lines(decode_unicode=True):
                 if raw_line is None:
@@ -405,7 +406,7 @@ def _call_ollama_model(
                     break
             if stream_parts:
                 parsed = _parse_model_payload("".join(stream_parts))
-        if parsed is None:
+        if parsed is None and not used_streaming:
             data = response.json()
             parsed = _parse_model_payload(data.get("response"))
         if parsed:
