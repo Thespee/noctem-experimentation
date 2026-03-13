@@ -126,6 +126,13 @@
         font-size: 0.8rem;
         margin-top: 0.4rem;
     }
+    .peek-note {
+        display: inline-block;
+        color: #9aa0a6;
+        font-size: 0.74rem;
+        line-height: 1.25;
+        max-width: 240px;
+    }
 </style>
 {% endblock %}
 
@@ -162,6 +169,7 @@
                     <th>Source</th>
                     <th>Attempts</th>
                     <th>Created</th>
+                    <th>Peek</th>
                     <th>Error</th>
                     <th>Actions</th>
                 </tr>
@@ -247,12 +255,13 @@ function renderQueueMetrics(metrics) {
 function renderQueueRows(items) {
     const tbody = document.getElementById('queueRows');
     if (!items.length) {
-        tbody.innerHTML = '<tr><td colspan="8">No queue items.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9">No queue items.</td></tr>';
         return;
     }
     tbody.innerHTML = items.map(item => {
         const status = String(item.status || '');
         const canAct = ['queued', 'failed', 'review_blocked', 'cancelled', 'completed'].includes(status);
+        const progressPeek = queueProgressPeek(item);
         return `
             <tr>
                 <td>#${item.id}</td>
@@ -261,6 +270,7 @@ function renderQueueRows(items) {
                 <td>${escapeHtml(String(item.source || ''))}</td>
                 <td>${escapeHtml(String(item.attempt_count ?? 0))}</td>
                 <td>${escapeHtml(String(item.created_at || ''))}</td>
+                <td><span class="peek-note">${escapeHtml(progressPeek)}</span></td>
                 <td>${escapeHtml(String(item.last_error || ''))}</td>
                 <td>
                     ${canAct ? `<button class="mini-btn secondary" onclick="requeueItem(${item.id}, false)">Requeue</button>` : ''}
@@ -270,6 +280,40 @@ function renderQueueRows(items) {
             </tr>
         `;
     }).join('');
+}
+
+function queueProgressPeek(item) {
+    const status = String(item?.status || '');
+    const result = (item && typeof item.result === 'object' && item.result) ? item.result : {};
+    const progress = (result && typeof result.progress === 'object' && result.progress)
+        || (result && typeof result.model_progress === 'object' && result.model_progress)
+        || null;
+
+    if (!progress) {
+        if (status === 'processing') return 'started';
+        if (status === 'completed') return 'completed';
+        if (status === 'failed') return 'failed';
+        return '—';
+    }
+
+    const stageRaw = String(progress.stage || '').trim();
+    const stage = stageRaw === 'chunk_received'
+        ? 'receiving chunks'
+        : (stageRaw || (status || 'started'));
+    const parts = [stage];
+
+    const elapsed = Number(progress.elapsed_seconds);
+    if (!Number.isNaN(elapsed)) {
+        parts.push(`${elapsed.toFixed(1)}s`);
+    }
+    const chunks = Number(progress.chunk_count);
+    if (!Number.isNaN(chunks) && chunks > 0) {
+        parts.push(`${chunks} chunks`);
+    }
+    if (stageRaw === 'failed' && progress.error) {
+        parts.push(String(progress.error));
+    }
+    return parts.join(' • ');
 }
 
 function renderDelivery(delivery) {
