@@ -280,6 +280,117 @@ def publish_queue_result(queue_item: dict[str, Any], result: dict[str, Any]) -> 
     return deliveries
 
 
+def publish_review_notification(review_item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Publish a review notification to web (conversation record) + Telegram."""
+    if not review_item:
+        return []
+
+    review_id = review_item.get("review_id") or "unknown"
+    reason_code = review_item.get("reason_code") or "manual_review"
+    category = review_item.get("category") or reason_code
+    payload_data = review_item.get("payload") if isinstance(review_item.get("payload"), dict) else {}
+    question = (
+        str(payload_data.get("question") or payload_data.get("failure_message") or "").strip()
+        or f"Review required ({reason_code})"
+    )
+    workflow_id = payload_data.get("workflow_id")
+
+    notification_text = (
+        f"\u26a0\ufe0f Review needed [{category}]: {question}\n"
+        f"Review ID: {review_id}"
+        + (f" | Workflow: #{workflow_id}" if workflow_id is not None else "")
+        + "\nResolve via /control"
+    )
+
+    deliveries: list[dict[str, Any]] = []
+    delivery_payload = {
+        "review_id": review_id,
+        "reason_code": reason_code,
+        "category": category,
+        "notification_type": "review_notification",
+    }
+
+    # web channel — record as assistant message
+    try:
+        record_message(
+            content=notification_text,
+            role="assistant",
+            source="web",
+            session_id="alfred-main",
+            metadata={
+                "delivery": "review_notification",
+                "review_id": review_id,
+                "channel": "web",
+            },
+        )
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=None,
+                thread_id=None,
+                channel="web",
+                status="delivered",
+                payload=delivery_payload,
+            )
+        )
+    except Exception as exc:
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=None,
+                thread_id=None,
+                channel="web",
+                status="failed",
+                payload=delivery_payload,
+                error=str(exc),
+            )
+        )
+
+    # telegram channel
+    token = Config.telegram_token()
+    chat_id = Config.telegram_chat_id()
+    if not token or not chat_id:
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=None,
+                thread_id=None,
+                channel="telegram",
+                status="skipped",
+                payload={**delivery_payload, "reason": "telegram_not_configured"},
+            )
+        )
+        return deliveries
+
+    try:
+        delivery_status, delivery_error = _send_telegram_message_with_retries(
+            token=token,
+            chat_id=chat_id,
+            text=notification_text,
+        )
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=None,
+                thread_id=None,
+                channel="telegram",
+                status=delivery_status,
+                payload=delivery_payload,
+                error=delivery_error,
+            )
+        )
+    except Exception as exc:
+        logger.debug("Telegram review notification failed: %s", exc)
+        deliveries.append(
+            _record_delivery(
+                queue_item_id=None,
+                thread_id=None,
+                channel="telegram",
+                status="failed",
+                payload=delivery_payload,
+                error=str(exc),
+            )
+        )
+
+    return deliveries
+
+
 def list_delivery_publications(
     *,
     queue_item_id: int | None = None,

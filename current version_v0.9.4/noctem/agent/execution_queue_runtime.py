@@ -178,7 +178,7 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
 
     if _stale_context_requires_review(item, state, raw_message):
         review = create_review_item(
-            reason_code="ambiguity",
+            reason_code="clarification",
             payload={
                 "queue_item_id": queue_item_id,
                 "thread_id": thread_id,
@@ -187,6 +187,11 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
                 "reason": "stale_context_reference",
             },
         )
+        try:
+            from ..services.async_delivery import publish_review_notification
+            publish_review_notification(review)
+        except Exception as exc:
+            logger.warning("Unable to publish review notification for stale context: %s", exc)
         mark_item_review_blocked(
             queue_item_id,
             reason="stale_context_reference",

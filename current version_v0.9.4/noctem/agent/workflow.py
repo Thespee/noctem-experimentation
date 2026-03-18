@@ -228,6 +228,15 @@ def _interrupt(
     except Exception as exc:
         logger.warning("Unable to persist review item for interrupt %s: %s", interrupt_id, exc)
 
+    # Publish dual-channel notification for the new review item.
+    notification_deliveries = []
+    if review_item:
+        try:
+            from ..services.async_delivery import publish_review_notification
+            notification_deliveries = publish_review_notification(review_item)
+        except Exception as exc:
+            logger.warning("Unable to publish review notification for interrupt %s: %s", interrupt_id, exc)
+
     _update_workflow(workflow_id, status="interrupted", current_node="pending_review")
     log_agent_action(
         workflow_id,
@@ -237,6 +246,7 @@ def _interrupt(
             "interrupt_id": interrupt_id,
             "question": question,
             "review_id": review_item.get("review_id") if review_item else None,
+            "notification_count": len(notification_deliveries),
         },
         decision_reasoning=reasoning or "Missing/ambiguous fields require user clarification",
     )
