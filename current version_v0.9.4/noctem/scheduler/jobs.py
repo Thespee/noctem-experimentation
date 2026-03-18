@@ -25,7 +25,7 @@ from ..voice.journals import get_pending_journals
 
 logger = logging.getLogger(__name__)
 
-IDLE_TRIGGER = timedelta(minutes=15)
+COOLDOWN_SECONDS = 120
 DEFAULT_SAFETY_MARGIN = timedelta(minutes=5)
 DISPATCH_INTERVAL_SECONDS = 60
 MAX_RUNTIME_SAMPLES = 30
@@ -177,8 +177,8 @@ class PassiveJob:
 
 
 class IdleCoordinator:
-    def __init__(self, *, idle_trigger: timedelta = IDLE_TRIGGER, safety_margin: timedelta = DEFAULT_SAFETY_MARGIN):
-        self._idle_trigger = idle_trigger
+    def __init__(self, *, cooldown_seconds: float = COOLDOWN_SECONDS, safety_margin: timedelta = DEFAULT_SAFETY_MARGIN):
+        self._cooldown_seconds = float(cooldown_seconds)
         self._safety_margin = safety_margin
         self._last_user_activity_at = datetime.utcnow()
         self._idle_mode_entered = False
@@ -239,17 +239,36 @@ class IdleCoordinator:
         if source:
             logger.debug("Scheduler activity heartbeat from %s", source)
 
-    def status(self) -> dict[str, Any]:
+    def _gate_check(self) -> tuple[bool, dict[str, Any]]:
+        """3-condition gate: no queued, no processing, user idle ≥ cooldown."""
+        metrics = queue_metrics()
+        queued_count = int(metrics.get("queued_count") or 0)
+        processing_count = int(metrics.get("processing_count") or 0)
         with self._lock:
-            now = datetime.utcnow()
-            idle_for_seconds = max(0.0, (now - self._last_user_activity_at).total_seconds())
+            idle_for = max(0.0, (datetime.utcnow() - self._last_user_activity_at).total_seconds())
+        user_idle = idle_for >= self._cooldown_seconds
+        gate_open = queued_count == 0 and processing_count == 0 and user_idle
+        details = {
+            "queued_count": queued_count,
+            "processing_count": processing_count,
+            "idle_for_seconds": round(idle_for, 1),
+            "cooldown_seconds": self._cooldown_seconds,
+            "user_idle": user_idle,
+            "gate_open": gate_open,
+        }
+        return gate_open, details
+
+    def status(self) -> dict[str, Any]:
+        gate_open, gate_details = self._gate_check()
+        with self._lock:
             config_snapshot = {name: dict(value) for name, value in self._job_config.items()}
             stats_snapshot = dict(self._stats)
         return {
-            "idle_for_seconds": idle_for_seconds,
+            "idle_for_seconds": gate_details["idle_for_seconds"],
             "idle_mode_entered": self._idle_mode_entered,
-            "idle_trigger_seconds": self._idle_trigger.total_seconds(),
+            "cooldown_seconds": self._cooldown_seconds,
             "safety_margin_seconds": self._safety_margin.total_seconds(),
+            "gate": gate_details,
             "job_config": config_snapshot,
             "job_stats": {
                 name: {
@@ -278,17 +297,18 @@ class IdleCoordinator:
             return created
 
     def _current_budget_seconds(self) -> float:
-        with self._lock:
-            now = datetime.utcnow()
-            idle_for = now - self._last_user_activity_at
-            if idle_for < self._idle_trigger:
+        gate_open, gate_details = self._gate_check()
+        if not gate_open:
+            with self._lock:
                 self._idle_mode_entered = False
-                return 0.0
+            return 0.0
+        idle_for_seconds = gate_details["idle_for_seconds"]
+        with self._lock:
             if not self._idle_mode_entered:
                 self._idle_mode_entered = True
-                return max(0.0, idle_for.total_seconds())
-            budget = idle_for - self._safety_margin
-            return max(0.0, budget.total_seconds())
+                return max(0.0, idle_for_seconds)
+            budget = idle_for_seconds - self._safety_margin.total_seconds()
+            return max(0.0, budget)
 
     def _eligible_jobs(self, budget_seconds: float) -> list[tuple[float, float, PassiveJob]]:
         now = datetime.utcnow()
@@ -549,8 +569,8 @@ def create_scheduler() -> AsyncIOScheduler:
         misfire_grace_time=30,
     )
     logger.info(
-        "Passive scheduler configured (idle trigger=%sm, safety margin=%sm, poll=%ss)",
-        int(IDLE_TRIGGER.total_seconds() / 60),
+        "Passive scheduler configured (cooldown=%ss, safety margin=%sm, poll=%ss)",
+        COOLDOWN_SECONDS,
         int(DEFAULT_SAFETY_MARGIN.total_seconds() / 60),
         DISPATCH_INTERVAL_SECONDS,
     )
