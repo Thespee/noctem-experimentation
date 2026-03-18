@@ -26,6 +26,7 @@ personal-data/
 **/.pytest_cache/
 **/.coverage
 **/htmlcov/
+**/.tmp_mcp_smoke/
 
 # OS
 .DS_Store

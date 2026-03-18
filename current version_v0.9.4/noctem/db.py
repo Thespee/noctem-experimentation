@@ -502,6 +502,11 @@ def _migrate_db():
         for table_name in ("action_log", "message_log", "thoughts"):
             conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
 
+        # v0.9.4.1: Migrate old reason codes in review_queue.
+        if _table_exists("review_queue"):
+            conn.execute("UPDATE review_queue SET reason_code = 'approval' WHERE reason_code = 'policy_gate'")
+            conn.execute("UPDATE review_queue SET reason_code = 'clarification' WHERE reason_code = 'ambiguity'")
+
 
 def _drop_legacy_runtime_tables():
     """
