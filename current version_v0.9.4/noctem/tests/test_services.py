@@ -3,22 +3,6 @@ Tests for service layer.
 """
 import pytest
 from datetime import date, timedelta
-import tempfile
-import os
-
-# Override DB path before importing
-from .. import db
-_original_db_path = db.DB_PATH
-
-
-@pytest.fixture(autouse=True)
-def setup_test_db():
-    """Use a temporary database for each test."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db.DB_PATH = db.Path(tmpdir) / "test.db"
-        db.init_db()
-        yield
-        db.DB_PATH = _original_db_path
 
 
 class TestTaskService:
@@ -74,43 +58,6 @@ class TestTaskService:
         assert priority_tasks[0].importance == 1.0
 
 
-class TestHabitService:
-    def test_create_habit(self):
-        from ..services import habit_service
-        
-        habit = habit_service.create_habit("Exercise")
-        assert habit.id is not None
-        assert habit.name == "Exercise"
-        assert habit.frequency == "daily"
-    
-    def test_log_habit(self):
-        from ..services import habit_service
-        
-        habit = habit_service.create_habit("Meditate")
-        log = habit_service.log_habit(habit.id)
-        assert log.habit_id == habit.id
-    
-    def test_is_habit_done_today(self):
-        from ..services import habit_service
-        
-        habit = habit_service.create_habit("Read")
-        assert not habit_service.is_habit_done_today(habit.id)
-        
-        habit_service.log_habit(habit.id)
-        assert habit_service.is_habit_done_today(habit.id)
-    
-    def test_habit_stats(self):
-        from ..services import habit_service
-        
-        habit = habit_service.create_habit("Journal")
-        habit_service.log_habit(habit.id)
-        
-        stats = habit_service.get_habit_stats(habit.id)
-        assert stats["name"] == "Journal"
-        assert stats["done_today"] == True
-        assert stats["completions_this_week"] >= 1
-
-
 class TestProjectService:
     def test_create_project(self):
         from ..services import project_service
@@ -152,13 +99,3 @@ class TestGoalService:
         assert all(g.id != goal.id for g in goals)
 
 
-class TestBriefing:
-    def test_generate_briefing(self):
-        from ..services import task_service
-        from ..services.briefing import generate_morning_briefing
-        
-        task_service.create_task("Important task", due_date=date.today(), importance=1.0)
-        
-        briefing = generate_morning_briefing()
-        assert "Good morning" in briefing
-        assert "Important task" in briefing

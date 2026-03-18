@@ -166,9 +166,10 @@ class TestFullTaskParsing:
 
 
 class TestCommandParsing:
-    def test_slash_command(self):
-        cmd = parse_command("/today")
-        assert cmd.type == CommandType.TODAY
+    def test_slash_done(self):
+        cmd = parse_command("/done 1")
+        assert cmd.type == CommandType.DONE
+        assert cmd.target_id == 1
     
     def test_done_by_number(self):
         cmd = parse_command("done 1")
@@ -184,11 +185,6 @@ class TestCommandParsing:
         cmd = parse_command("skip 2")
         assert cmd.type == CommandType.SKIP
         assert cmd.target_id == 2
-    
-    def test_habit_done(self):
-        cmd = parse_command("habit done exercise")
-        assert cmd.type == CommandType.HABIT_DONE
-        assert cmd.target_name == "exercise"
     
     def test_new_task(self):
         cmd = parse_command("buy groceries tomorrow")

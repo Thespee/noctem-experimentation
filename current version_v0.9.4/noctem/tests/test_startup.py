@@ -84,20 +84,11 @@ class TestNoctemImports:
     
     def test_services_modules(self):
         from noctem.services import (
-            task_service, project_service, goal_service, 
-            habit_service, briefing
+            task_service, project_service, goal_service,
         )
     
     def test_web_module(self):
         from noctem.web.app import create_app
-    
-    def test_slow_mode_modules(self):
-        from noctem.slow.loop import SlowModeLoop, get_slow_mode_status
-        from noctem.slow.ollama import OllamaClient, GracefulDegradation
-        from noctem.slow.queue import SlowWorkQueue, WorkType
-    
-    def test_butler_modules(self):
-        from noctem.butler import protocol, clarifications, updates
     
     def test_voice_module(self):
         from noctem.voice import journals
@@ -115,22 +106,11 @@ class TestNoctemImports:
 class TestDatabaseInitialization:
     """Test database initialization and basic operations."""
     
-    @pytest.fixture(autouse=True)
-    def setup_test_db(self):
-        """Use a temporary database for each test."""
-        from noctem import db
-        original_path = db.DB_PATH
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db.DB_PATH = Path(tmpdir) / "test.db"
-            yield
-            db.DB_PATH = original_path
-    
     def test_init_db(self):
         from noctem.db import init_db, get_db
         init_db()
         
-        # Verify tables exist
+        # Verify core tables exist
         with get_db() as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -138,9 +118,10 @@ class TestDatabaseInitialization:
             table_names = [t[0] for t in tables]
             
             required_tables = [
-                'goals', 'projects', 'tasks', 'habits', 'habit_logs',
-                'time_blocks', 'config', 'action_log', 'message_log',
-                'butler_contacts', 'slow_work_queue', 'voice_journals'
+                'goals', 'projects', 'tasks',
+                'time_blocks', 'config', 'voice_journals',
+                'review_queue', 'execution_queue', 'plan_steps',
+                'conversation_compactions',
             ]
             for table in required_tables:
                 assert table in table_names, f"Missing table: {table}"
@@ -156,7 +137,6 @@ class TestDatabaseInitialization:
         all_config = Config.get_all()
         assert 'web_port' in all_config
         assert 'timezone' in all_config
-        assert 'slow_mode_enabled' in all_config
     
     def test_config_get_set(self):
         from noctem.db import init_db
@@ -176,18 +156,6 @@ class TestDatabaseInitialization:
 
 class TestFlaskApp:
     """Test Flask application creation and basic routes."""
-    
-    @pytest.fixture(autouse=True)
-    def setup_test_db(self):
-        """Use a temporary database for each test."""
-        from noctem import db
-        original_path = db.DB_PATH
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db.DB_PATH = Path(tmpdir) / "test.db"
-            db.init_db()
-            yield
-            db.DB_PATH = original_path
     
     def test_create_app(self):
         from noctem.web.app import create_app
@@ -214,86 +182,8 @@ class TestFlaskApp:
             assert response.status_code == 200
 
 
-class TestSlowModeComponents:
-    """Test slow mode components can be instantiated."""
-    
-    def test_ollama_client_init(self):
-        from noctem.slow.ollama import OllamaClient
-        client = OllamaClient()
-        assert client.host is not None
-        assert client.model is not None
-    
-    def test_graceful_degradation(self):
-        from noctem.slow.ollama import GracefulDegradation
-        
-        # Should not raise even if Ollama unavailable
-        status = GracefulDegradation.get_system_status()
-        assert status in ['full', 'degraded', 'offline']
-    
-    def test_slow_mode_loop_init(self):
-        from noctem.slow.loop import SlowModeLoop
-        loop = SlowModeLoop(check_interval=60)
-        assert loop.check_interval == 60
-        assert loop._running == False
-
-
-class TestWhisperAvailability:
-    """Test Whisper transcription service availability."""
-    
-    def test_whisper_import(self):
-        """Verify faster-whisper can be imported."""
-        try:
-            from faster_whisper import WhisperModel
-            whisper_available = True
-        except ImportError:
-            whisper_available = False
-        
-        # This is informational - whisper is optional
-        assert True, f"Whisper available: {whisper_available}"
-    
-    def test_whisper_service_module(self):
-        """Verify our whisper service module can be imported."""
-        from noctem.slow import whisper
-        assert hasattr(whisper, 'get_whisper_service')
-
-
-class TestExternalServiceConnectivity:
-    """Test connectivity to external services (non-blocking)."""
-    
-    def test_ollama_health_check_does_not_crash(self):
-        """Ollama health check should not raise, even if Ollama is down."""
-        from noctem.slow.ollama import OllamaClient
-        
-        client = OllamaClient()
-        # Should return a tuple, not raise
-        healthy, message = client.health_check()
-        assert isinstance(healthy, bool)
-        assert isinstance(message, str)
-    
-    def test_slow_mode_status_does_not_crash(self):
-        """Getting slow mode status should not crash."""
-        from noctem.slow.loop import get_slow_mode_status
-        
-        status = get_slow_mode_status()
-        assert isinstance(status, dict)
-        assert 'enabled' in status
-        assert 'can_run' in status
-
-
 class TestStartupHealthCheck:
     """Test the startup health check function."""
-    
-    @pytest.fixture(autouse=True)
-    def setup_test_db(self):
-        """Use a temporary database for each test."""
-        from noctem import db
-        original_path = db.DB_PATH
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db.DB_PATH = Path(tmpdir) / "test.db"
-            db.init_db()
-            yield
-            db.DB_PATH = original_path
     
     def test_startup_health_check_runs(self):
         """Health check should run without crashing."""
@@ -311,9 +201,9 @@ class TestParserComponents:
         from noctem.parser.command import CommandType
         
         # Verify key command types exist
-        assert hasattr(CommandType, 'TODAY')
         assert hasattr(CommandType, 'DONE')
         assert hasattr(CommandType, 'NEW_TASK')
+        assert hasattr(CommandType, 'HELP')
     
     def test_basic_date_parsing(self):
         from noctem.parser.natural_date import parse_date
@@ -325,8 +215,8 @@ class TestParserComponents:
     def test_basic_command_parsing(self):
         from noctem.parser.command import parse_command, CommandType
         
-        cmd = parse_command("/today")
-        assert cmd.type == CommandType.TODAY
+        cmd = parse_command("/done 1")
+        assert cmd.type == CommandType.DONE
 
 
 class TestNetworkUtilities:
