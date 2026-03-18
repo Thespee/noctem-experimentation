@@ -80,22 +80,17 @@ def _recent_commit_section(budget_tokens: int = RECENT_COMMITS_BUDGET) -> tuple[
     return "\n".join(selected), used
 
 
-def _context_docs_section(budget_tokens: int = CONTEXT_DOCS_BUDGET) -> tuple[str, int]:
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT object_id, summary, markdown, generated_at
-            FROM object_context_docs
-            ORDER BY datetime(generated_at) DESC
-            LIMIT 30
-            """
-        ).fetchall()
+def _context_docs_section(budget_tokens: int = CONTEXT_DOCS_BUDGET, query: str = "") -> tuple[str, int]:
+    """Build context-docs section using retrieval scoring instead of raw SQL."""
+    from ..wiki.retrieval import search_context_docs
+
+    results = search_context_docs(query=query or "", n_results=30)
 
     chunks: list[str] = []
     used = 0
-    for row in rows:
-        header = f"[{row['object_id']}] {row['summary'] or ''}".strip()
-        markdown = str(row["markdown"] or "").strip()
+    for doc in results:
+        header = f"[{doc.object_id}] {doc.summary or ''}".strip()
+        markdown = str(doc.markdown or "").strip()
         snippet = markdown[:900].strip() if markdown else ""
         block = header if not snippet else f"{header}\n{snippet}"
         block_tokens = _estimate_tokens(block)
@@ -144,7 +139,7 @@ def _wiki_section(query_text: str, budget_tokens: int = WIKI_CONTEXT_BUDGET) -> 
 def assemble_memory_pack(query_text: str, thread_id: str) -> dict[str, Any]:
     chats_text, chats_tokens = _recent_chat_section(thread_id, RECENT_CHATS_BUDGET)
     commits_text, commits_tokens = _recent_commit_section(RECENT_COMMITS_BUDGET)
-    docs_text, docs_tokens = _context_docs_section(CONTEXT_DOCS_BUDGET)
+    docs_text, docs_tokens = _context_docs_section(CONTEXT_DOCS_BUDGET, query=query_text)
     wiki_text, wiki_tokens, wiki_refs = _wiki_section(query_text, WIKI_CONTEXT_BUDGET)
 
     token_usage = {

@@ -139,7 +139,12 @@ def search_context_docs(
     n_results: int = 5,
     object_type: Optional[str] = None,
 ) -> List[ContextDocResult]:
-    """Search object_context_docs with lightweight lexical scoring."""
+    """Search object_context_docs with lexical scoring.
+
+    TODO(v0.9.5): Add optional embedding-based similarity via the same
+    ChromaDB pipeline used by wiki search.  For v0.9.4.1 lexical + recency
+    is sufficient since context docs are already curated summaries.
+    """
 
     tokens = _tokenize_query(query)
     clauses: list[str] = []
