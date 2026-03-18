@@ -334,6 +334,15 @@ CREATE TABLE IF NOT EXISTS object_context_docs (
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- v0.9.4.1: Conversation compaction records
+CREATE TABLE IF NOT EXISTS conversation_compactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,
+    dropped_line_count INTEGER NOT NULL DEFAULT 0,
+    facts_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -364,6 +373,7 @@ CREATE INDEX IF NOT EXISTS idx_execution_queue_idempotency ON execution_queue(id
 CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job ON scheduler_runs(job_name, started_at);
 CREATE INDEX IF NOT EXISTS idx_delivery_publications_queue_channel ON delivery_publications(queue_item_id, channel, created_at);
 CREATE INDEX IF NOT EXISTS idx_object_context_docs_generated ON object_context_docs(object_type, generated_at);
+CREATE INDEX IF NOT EXISTS idx_conversation_compactions_thread ON conversation_compactions(thread_id, created_at);
 """
 LEGACY_RUNTIME_TABLES = (
     "butler_contacts",

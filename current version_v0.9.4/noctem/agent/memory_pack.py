@@ -48,6 +48,34 @@ def _recent_chat_section(thread_id: str, budget_tokens: int = RECENT_CHATS_BUDGE
     selected, used = _tail_lines_to_budget(lines, budget_tokens)
     if not selected:
         return "(no recent thread messages)", 0
+
+    # When truncation occurs, extract facts from dropped lines and prepend summary.
+    dropped = lines[: len(lines) - len(selected)]
+    if dropped:
+        try:
+            from .compaction import (
+                extract_facts,
+                format_compaction_header,
+                get_recent_compactions,
+                merge_compaction_facts,
+                store_compaction,
+            )
+
+            facts = extract_facts(dropped)
+            if facts:
+                store_compaction(thread_id, dropped, facts)
+
+            # Merge with any prior compactions for a richer header.
+            prior = get_recent_compactions(thread_id, limit=3)
+            merged = merge_compaction_facts([{"facts": facts}] + prior)
+            header = format_compaction_header(merged)
+            header_tokens = _estimate_tokens(header)
+            if header_tokens + used <= budget_tokens:
+                selected = [header, ""] + selected
+                used += header_tokens
+        except Exception:
+            pass  # compaction is best-effort
+
     return "\n".join(selected), used
 
 
