@@ -153,14 +153,20 @@ def create_app() -> Flask:
             next_week=two_week_data['next_week'],
         )
 
+    @app.route("/control")
+    def control():
+        """Unified control surface: Reviews, Tasks, Background."""
+        return render_template("control.html")
+
     @app.route("/reviews")
     def reviews():
-        """Legacy review route now merged into Tools."""
-        return redirect(url_for("tools"))
+        """Legacy review route redirects to Control."""
+        return redirect(url_for("control"))
+
     @app.route("/tools")
     def tools():
-        """Unified tools page for queue and scheduler controls."""
-        return render_template("tools.html")
+        """Legacy tools route redirects to Control."""
+        return redirect(url_for("control"))
 
     @app.route("/graph")
     def graph_view():
@@ -597,27 +603,54 @@ def create_app() -> Flask:
                 continue
         return None
 
-    @app.route("/api/agent/reviews/<review_id>/approve", methods=["POST"])
-    def api_agent_review_approve(review_id: str):
-        """Approve a review item and queue linked resume/requeue work."""
+    @app.route("/api/reviews/<review_id>/resolve", methods=["POST"])
+    def api_review_resolve(review_id: str):
+        """Unified resolve endpoint — replaces separate approve/reject/resume.
+
+        JSON body:
+            action: "approve" | "reject" | "resume"  (required)
+            response: str  (required for resume, optional for approve/reject)
+            notes: str     (optional)
+        """
         from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..services.execution_queue import enqueue_review_resume, requeue_item
+        from ..services.execution_queue import (
+            cancel_item, enqueue_review_resume, requeue_item,
+        )
 
         review = get_review_item(review_id)
         if not review:
             return jsonify({"success": False, "error": "Review item not found"}), 404
 
         data = request.get_json() or {}
+        action = (data.get("action") or "").strip().lower()
+        if action not in ("approve", "reject", "resume"):
+            return jsonify({"success": False, "error": "action must be approve, reject, or resume"}), 400
+
         notes = (data.get("notes") or "").strip() or None
-        resolution = (data.get("response") or "yes").strip()
         payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
         workflow_id = payload.get("workflow_id")
         queue_item_id = payload.get("queue_item_id")
+
+        # --- action-specific defaults ---
+        if action == "approve":
+            resolution = (data.get("response") or "yes").strip()
+            resolve_status = "approved"
+        elif action == "reject":
+            resolution = (data.get("response") or "no").strip()
+            resolve_status = "rejected"
+        else:  # resume
+            resolution = (data.get("response") or data.get("input") or "").strip()
+            if not resolution:
+                return jsonify({"success": False, "error": "No response provided for resume"}), 400
+            resolve_status = "resolved"
 
         queue_resume_item = None
         resume_result = None
         requeued_item = None
-        if workflow_id is not None:
+        cancelled_item = None
+
+        # enqueue resume work for approve / resume
+        if action in ("approve", "resume") and workflow_id is not None:
             queue_resume_item = enqueue_review_resume(
                 workflow_id=int(workflow_id),
                 review_id=review_id,
@@ -627,124 +660,65 @@ def create_app() -> Flask:
             )
             resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
 
-        if queue_item_id is not None:
+        # requeue linked item for approve / resume
+        if action in ("approve", "resume") and queue_item_id is not None:
             requeued_item = requeue_item(
                 int(queue_item_id),
                 front=True,
-                reason="review_approved",
+                reason=f"review_{action}d" if action == "approve" else f"review_resumed:{resolution}",
             )
             _drain_queue_to_item(int(queue_item_id))
 
-        updated_review = resolve_review_item(
-            review_id,
-            status="approved",
-            resolution_notes=notes or f"Approved via API: {resolution}",
-        ) or get_review_item(review_id) or review
-        return jsonify({
-            "success": True,
-            "review": updated_review,
-            "resume_result": resume_result,
-            "queue_resume_item": queue_resume_item,
-            "requeued_item": requeued_item,
-        })
-
-    @app.route("/api/agent/reviews/<review_id>/reject", methods=["POST"])
-    def api_agent_review_reject(review_id: str):
-        """Reject a review item and queue linked rejection handling."""
-        from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..services.execution_queue import cancel_item, enqueue_review_resume
-
-        review = get_review_item(review_id)
-        if not review:
-            return jsonify({"success": False, "error": "Review item not found"}), 404
-
-        data = request.get_json() or {}
-        notes = (data.get("notes") or "").strip() or None
-        resolution = (data.get("response") or "no").strip()
-        payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
-        workflow_id = payload.get("workflow_id")
-        queue_item_id = payload.get("queue_item_id")
-
-        queue_resume_item = None
-        resume_result = None
-        cancelled_item = None
-        if workflow_id is not None:
-            queue_resume_item = enqueue_review_resume(
-                workflow_id=int(workflow_id),
-                review_id=review_id,
-                resolution=resolution,
-                thread_id=str(payload.get("thread_id") or "").strip() or None,
-                review_created_at=review.get("created_at"),
-            )
-            resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
-
-        if queue_item_id is not None:
+        # cancel linked item for reject
+        if action == "reject" and queue_item_id is not None:
             cancelled_item = cancel_item(int(queue_item_id), reason="review_rejected")
 
         updated_review = resolve_review_item(
             review_id,
-            status="rejected",
-            resolution_notes=notes or f"Rejected via API: {resolution}",
+            status=resolve_status,
+            resolution_notes=notes or f"{action.title()}d via Control: {resolution}",
         ) or get_review_item(review_id) or review
-        return jsonify({
-            "success": True,
-            "review": updated_review,
-            "resume_result": resume_result,
-            "queue_resume_item": queue_resume_item,
-            "cancelled_item": cancelled_item,
-        })
 
-    @app.route("/api/agent/reviews/<review_id>/resume", methods=["POST"])
-    def api_agent_review_resume(review_id: str):
-        """Resume a blocked workflow/review through queue-first execution."""
-        from ..agent.review_queue import get_review_item, resolve_review_item
-        from ..services.execution_queue import enqueue_review_resume, requeue_item
-
-        review = get_review_item(review_id)
-        if not review:
-            return jsonify({"success": False, "error": "Review item not found"}), 404
-
-        data = request.get_json() or {}
-        resolution = (data.get("response") or data.get("input") or "").strip()
-        if not resolution:
-            return jsonify({"success": False, "error": "No response provided"}), 400
-
-        payload = review.get("payload") if isinstance(review.get("payload"), dict) else {}
-        workflow_id = payload.get("workflow_id")
-        queue_item_id = payload.get("queue_item_id")
-
-        queue_resume_item = None
-        resume_result = None
-        requeued_item = None
-        if workflow_id is not None:
-            queue_resume_item = enqueue_review_resume(
-                workflow_id=int(workflow_id),
-                review_id=review_id,
-                resolution=resolution,
-                thread_id=str(payload.get("thread_id") or "").strip() or None,
-                review_created_at=review.get("created_at"),
-            )
-            resume_result = _drain_queue_to_item(queue_resume_item.get("id")) or queue_resume_item
-
-        if queue_item_id is not None:
-            requeued_item = requeue_item(
-                int(queue_item_id),
-                front=True,
-                reason=f"review_resumed:{resolution}",
-            )
-            _drain_queue_to_item(int(queue_item_id))
-
-        updated_review = resolve_review_item(
-            review_id,
-            status="resolved",
-            resolution_notes=f"Resumed via API: {resolution}",
-        ) or get_review_item(review_id) or review
         return jsonify({
             "success": True,
             "review": updated_review,
             "resume_result": resume_result,
             "queue_resume_item": queue_resume_item,
             "requeued_item": requeued_item,
+            "cancelled_item": cancelled_item,
+        })
+
+    @app.route("/api/reviews")
+    def api_reviews_grouped():
+        """Reviews grouped by category for the Control tab."""
+        from ..agent.review_queue import list_review_items
+
+        status = (request.args.get("status") or "pending").strip().lower()
+        limit = max(1, min(request.args.get("limit", 100, type=int), 500))
+        items = list_review_items(
+            status=status if status != "all" else None,
+            limit=limit,
+        )
+        grouped: dict[str, list] = {}
+        for item in items:
+            cat = item.get("category", "manual_review")
+            grouped.setdefault(cat, []).append(item)
+        return jsonify({"success": True, "grouped": grouped, "total": len(items)})
+
+    @app.route("/api/tasks/active")
+    def api_tasks_active():
+        """Active execution-queue items for the Control tab Tasks section."""
+        from ..services.execution_queue import list_queue_items, queue_metrics
+
+        limit = max(1, min(request.args.get("limit", 50, type=int), 500))
+        active_statuses = ["queued", "processing", "review_blocked"]
+        items: list[dict] = []
+        for st in active_statuses:
+            items.extend(list_queue_items(status=st, limit=limit))
+        return jsonify({
+            "success": True,
+            "items": items,
+            "metrics": queue_metrics(),
         })
 
     @app.route("/api/tools")

@@ -13,6 +13,20 @@ _REASON_CODES = {
     "verification_failure",
     "merge_conflict",
     "manual_review",
+    "approval",
+    "clarification",
+    "plan_review",
+}
+
+_REASON_CODE_CATEGORY = {
+    "approval": "approval",
+    "policy_gate": "approval",
+    "clarification": "clarification",
+    "ambiguity": "clarification",
+    "plan_review": "plan_review",
+    "verification_failure": "verification",
+    "merge_conflict": "verification",
+    "manual_review": "manual_review",
 }
 _STATUSES = {"pending", "approved", "rejected", "resolved"}
 
@@ -50,11 +64,13 @@ def _review_from_row(row) -> dict[str, Any]:
     payload = _json_loads(row["payload_json"])
     if not isinstance(payload, dict):
         payload = {}
+    reason_code = row["reason_code"]
     return {
         "review_id": row["review_id"],
         "object_id": row["object_id"],
         "event_id": row["event_id"],
-        "reason_code": row["reason_code"],
+        "reason_code": reason_code,
+        "category": _REASON_CODE_CATEGORY.get(reason_code, "manual_review"),
         "status": row["status"],
         "payload": payload,
         "created_at": row["created_at"],

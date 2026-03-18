@@ -9,7 +9,6 @@ from typing import Any, Callable
 import requests
 
 from ..config import Config
-from ..db import get_db
 from ..parser.command import CommandType, parse_command
 from ..services.conversation_service import (
     get_thread_context,
@@ -18,7 +17,7 @@ from ..services.conversation_service import (
 )
 from .memory_pack import assemble_memory_pack
 from .router import IntentType, classify_intent
-from .workflow import submit_input, resume_workflow
+from .workflow import submit_input
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +31,6 @@ _TASK_QUERY_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 _DEFAULT_FALLBACK_REPLY = "✓ Done."
-_APPROVAL_REPLY_RE = re.compile(
-    r"^(?:y|yes|yep|yeah|ok|okay|confirm|confirmed|proceed|sure|n|no|nope|cancel|stop|abort)\b",
-    re.IGNORECASE,
-)
 _MODEL_PROGRESS_HEARTBEAT_SECONDS = 5.0
 
 
@@ -148,68 +143,6 @@ def _is_grounded_task_query(text: str) -> bool:
     if not cleaned:
         return False
     return bool(_TASK_QUERY_HINT_RE.search(cleaned))
-
-
-def _looks_like_approval_reply(text: str) -> bool:
-    return bool(_APPROVAL_REPLY_RE.match((text or "").strip()))
-
-
-def _latest_interrupted_workflow(thread_id: str) -> tuple[int, str] | None:
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, role, metadata
-            FROM conversations
-            WHERE session_id = ? AND role != 'system'
-            ORDER BY id DESC
-            LIMIT 80
-            """,
-            (thread_id,),
-        ).fetchall()
-
-    saw_latest_user = False
-    for row in rows:
-        role = str(row["role"] or "").strip().lower()
-        if not saw_latest_user:
-            if role == "user":
-                saw_latest_user = True
-            continue
-        if role == "user":
-            break
-        if role != "assistant":
-            continue
-        metadata_raw = row["metadata"]
-        metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
-        if not metadata and isinstance(metadata_raw, str):
-            try:
-                loaded = json.loads(metadata_raw)
-                if isinstance(loaded, dict):
-                    metadata = loaded
-            except Exception:
-                metadata = {}
-        workflow_id = metadata.get("workflow_id")
-        status = str(metadata.get("status") or "").strip().lower()
-        interrupt_payload = metadata.get("interrupt") if isinstance(metadata.get("interrupt"), dict) else {}
-        interrupt_type = str(interrupt_payload.get("type") or "").strip().lower()
-        if isinstance(workflow_id, int) and status == "interrupted":
-            return workflow_id, interrupt_type
-        continue
-    return None
-
-
-def _maybe_resume_interrupted_workflow(thread_id: str, resolution_text: str) -> dict | None:
-    pending = _latest_interrupted_workflow(thread_id)
-    if not pending:
-        return None
-
-    workflow_id, interrupt_type = pending
-    if interrupt_type == "approve" and not _looks_like_approval_reply(resolution_text):
-        return None
-
-    try:
-        return resume_workflow(workflow_id, resolution_text)
-    except ValueError:
-        return None
 
 
 def _context_block(thread_id: str, limit: int = 20) -> str:
@@ -519,32 +452,6 @@ def process_chat_message(
     )
 
     if mode == "model":
-        resumed_result = _maybe_resume_interrupted_workflow(resolved_thread_id, effective_text)
-        if resumed_result is not None:
-            response_text = _enforce_brief_reply(
-                resumed_result.get("response", _DEFAULT_FALLBACK_REPLY),
-                allow_long=allow_long,
-            )
-            metadata = {
-                "mode": "resume",
-                "thread_id": resolved_thread_id,
-                "requires_action": True,
-                **_public_workflow_fields(resumed_result),
-            }
-            _record_assistant_reply(
-                source=source,
-                thread_id=resolved_thread_id,
-                response_text=response_text,
-                metadata=metadata,
-            )
-            return {
-                "response": response_text,
-                "thread_id": resolved_thread_id,
-                "mode": "resume",
-                "requires_action": True,
-                **_public_workflow_fields(resumed_result),
-            }
-
         if _is_fast_path_command(effective_text):
             workflow_result = submit_input(effective_text, source=source)
             response_text = _enforce_brief_reply(

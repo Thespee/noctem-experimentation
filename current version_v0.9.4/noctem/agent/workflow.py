@@ -63,10 +63,10 @@ def _merge_resume_text(original_text: str | None, response_text: str) -> str:
 
 def _review_reason_code(interrupt_type: str, context: dict | None) -> str:
     if interrupt_type == "approve":
-        return "policy_gate"
+        return "approval"
     stage = str((context or {}).get("stage") or "").strip().lower()
     if stage.startswith("clarify") or "ambigu" in stage:
-        return "ambiguity"
+        return "clarification"
     return "manual_review"
 
 
