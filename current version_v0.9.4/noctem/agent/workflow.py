@@ -1150,6 +1150,13 @@ def submit_input(text: str, source: str = "web") -> dict:
     if not cleaned:
         raise ValueError("Input text is required")
 
+    # Detect #plan tag (model path only — fast path `.` prefix never reaches here).
+    force_plan = False
+    if "#plan" in cleaned.lower():
+        import re
+        cleaned = re.sub(r"#plan\b", "", cleaned, flags=re.IGNORECASE).strip()
+        force_plan = True
+
     route = classify_intent(cleaned)
     logger.debug(
         "INTENT_ROUTE: intent=%s confidence=%.2f classifier=%s text=%s",
@@ -1197,6 +1204,8 @@ def submit_input(text: str, source: str = "web") -> dict:
     result.setdefault("intent", route.intent.value)
     result.setdefault("intent_classifier", route.classifier)
     result.setdefault("intent_confidence", route.confidence)
+    if force_plan:
+        result["force_plan"] = True
     return result
 
 

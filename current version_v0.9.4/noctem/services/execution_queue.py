@@ -20,6 +20,7 @@ QUEUE_ITEM_USER_MESSAGE = "user_message"
 QUEUE_ITEM_SCHEDULED_JOB = "scheduled_job"
 QUEUE_ITEM_REVIEW_RESUME = "review_resume"
 QUEUE_ITEM_SYSTEM_RETRY = "system_retry"
+QUEUE_ITEM_PLAN_STEP = "plan_step_execution"
 
 
 def _now_iso() -> str:
@@ -200,6 +201,30 @@ def enqueue_scheduled_job(
         },
         idempotency_key=idempotency_key,
         priority_rank=200,
+    )
+
+
+def enqueue_plan_step(
+    *,
+    plan_id: str,
+    step_id: int,
+    workflow_id: int,
+    description: str,
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Enqueue a single plan step for execution."""
+    return enqueue_item(
+        item_type=QUEUE_ITEM_PLAN_STEP,
+        source="plan_tracker",
+        thread_id=thread_id,
+        payload={
+            "plan_id": str(plan_id),
+            "step_id": int(step_id),
+            "workflow_id": int(workflow_id),
+            "description": str(description or "").strip(),
+        },
+        idempotency_key=f"plan-step-{plan_id}-{step_id}",
+        priority_rank=50,
     )
 
 

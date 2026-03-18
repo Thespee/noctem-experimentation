@@ -16,6 +16,7 @@ from ..services.conversation_grounding import (
     update_conversation_state,
 )
 from ..services.execution_queue import (
+    QUEUE_ITEM_PLAN_STEP,
     QUEUE_ITEM_REVIEW_RESUME,
     QUEUE_ITEM_SCHEDULED_JOB,
     QUEUE_ITEM_USER_MESSAGE,
@@ -361,6 +362,39 @@ def _process_scheduled_job_item(item: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _process_plan_step_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Execute a single plan step via the workflow system."""
+    from .plan_tracker import approve_plan_step, complete_plan_step, fail_plan_step
+    from .workflow import submit_input
+
+    queue_item_id = int(item["id"])
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    step_id = payload.get("step_id")
+    description = str(payload.get("description") or "").strip()
+
+    if not step_id or not description:
+        mark_item_failed(queue_item_id, error="invalid_plan_step_payload")
+        return {"status": "failed", "error": "invalid_plan_step_payload", "queue_item_id": queue_item_id}
+
+    approve_plan_step(int(step_id))
+    try:
+        result = submit_input(description, source="plan_step")
+        status = str(result.get("status") or "completed")
+        if status in ("completed", "interrupted"):
+            complete_plan_step(int(step_id), result=result)
+            mark_item_completed(queue_item_id, result)
+            result["deliveries"] = publish_queue_result(item, result)
+            return {**result, "queue_item_id": queue_item_id}
+        else:
+            fail_plan_step(int(step_id), error=result.get("error") or "step_execution_failed")
+            mark_item_failed(queue_item_id, error=result.get("error") or "step_execution_failed")
+            return {**result, "queue_item_id": queue_item_id}
+    except Exception as exc:
+        fail_plan_step(int(step_id), error=str(exc))
+        mark_item_retryable_failure(queue_item_id, error=str(exc))
+        return {"status": "queued", "error": str(exc), "queue_item_id": queue_item_id}
+
+
 def process_queue_item(item: dict[str, Any]) -> dict[str, Any]:
     item_type = str(item.get("item_type") or "").strip().lower()
     if item_type == QUEUE_ITEM_USER_MESSAGE:
@@ -369,6 +403,8 @@ def process_queue_item(item: dict[str, Any]) -> dict[str, Any]:
         return _process_review_resume_item(item)
     if item_type == QUEUE_ITEM_SCHEDULED_JOB:
         return _process_scheduled_job_item(item)
+    if item_type == QUEUE_ITEM_PLAN_STEP:
+        return _process_plan_step_item(item)
     result = {
         "status": "failed",
         "error": f"unsupported_queue_item_type:{item_type}",

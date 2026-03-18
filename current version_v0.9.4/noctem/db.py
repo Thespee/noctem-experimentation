@@ -334,6 +334,20 @@ CREATE TABLE IF NOT EXISTS object_context_docs (
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- v0.9.4.1: Plan steps for multi-step plan objects
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT NOT NULL,
+    workflow_id INTEGER REFERENCES agent_workflows(id),
+    step_index INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL,
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'approved', 'executing', 'completed', 'failed', 'skipped')),
+    result_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- v0.9.4.1: Conversation compaction records
 CREATE TABLE IF NOT EXISTS conversation_compactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -374,6 +388,8 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job ON scheduler_runs(job_name, st
 CREATE INDEX IF NOT EXISTS idx_delivery_publications_queue_channel ON delivery_publications(queue_item_id, channel, created_at);
 CREATE INDEX IF NOT EXISTS idx_object_context_docs_generated ON object_context_docs(object_type, generated_at);
 CREATE INDEX IF NOT EXISTS idx_conversation_compactions_thread ON conversation_compactions(thread_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_plan_steps_plan ON plan_steps(plan_id, step_index);
+CREATE INDEX IF NOT EXISTS idx_plan_steps_workflow ON plan_steps(workflow_id, status);
 """
 LEGACY_RUNTIME_TABLES = (
     "butler_contacts",
