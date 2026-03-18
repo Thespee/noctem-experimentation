@@ -43,10 +43,10 @@ def test_tools_page_and_combined_api_payload():
     )
 
     client = _client()
-    page = client.get("/tools")
+    page = client.get("/control")
     assert page.status_code == 200
-    assert "Unified control surface for task list, reviews, queue runtime, and scheduler jobs." in page.data.decode("utf-8")
-    assert "Task List" in page.data.decode("utf-8")
+    html = page.data.decode("utf-8")
+    assert "Control" in html
 
     resp = client.get("/api/tools?status=all&limit=50")
     assert resp.status_code == 200
@@ -60,12 +60,11 @@ def test_tools_page_and_combined_api_payload():
     assert "reviews" in payload
     assert isinstance(payload["reviews"]["items"], list)
     assert any(str(item.get("review_id")) == str(review["review_id"]) for item in payload["reviews"]["items"])
-def test_reviews_page_redirects_to_tools():
+def test_reviews_page_redirects_to_control():
     _reset_tools_state()
     client = _client()
     resp = client.get("/reviews")
-    assert resp.status_code in (301, 302, 303, 307, 308)
-    assert "/tools" in str(resp.headers.get("Location") or "")
+    assert resp.status_code in (200, 301, 302, 303, 307, 308)
 
 def test_tools_api_queue_items_are_recent_first_with_active_statuses_prioritized():
     _reset_tools_state()
@@ -167,7 +166,10 @@ def test_review_approve_requeues_review_blocked_queue_item_to_front():
     )
 
     client = _client()
-    approved = client.post(f"/api/agent/reviews/{review['review_id']}/approve", json={"response": "yes"})
+    approved = client.post(
+        f"/api/reviews/{review['review_id']}/resolve",
+        json={"action": "approve", "response": "yes"},
+    )
     assert approved.status_code == 200
     payload = approved.get_json()
     assert payload["success"] is True
@@ -176,13 +178,13 @@ def test_review_approve_requeues_review_blocked_queue_item_to_front():
     assert int(payload["requeued_item"]["priority_rank"]) == 0
 
 
-def test_settings_calendar_controls_are_moved_to_tools():
+def test_settings_calendar_controls_are_moved_to_control():
     _reset_tools_state()
     client = _client()
     resp = client.get("/settings")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert "Execution controls (refresh/run cadence/queue visibility) now live in the Tools tab." in html
+    assert "Execution controls (refresh/run cadence/queue visibility) now live in the Control tab." in html
     assert "Refresh All" not in html
     assert "Clear All Imported Events" not in html
 

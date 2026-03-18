@@ -155,6 +155,7 @@ def run_web_server():
         port=Config.web_port(),
         debug=False,
         use_reloader=False,
+        threaded=True,
     )
 
 

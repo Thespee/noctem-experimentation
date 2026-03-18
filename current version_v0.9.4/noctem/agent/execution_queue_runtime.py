@@ -239,6 +239,17 @@ def _process_user_message_item(item: dict[str, Any]) -> dict[str, Any]:
                 **direct_result,
                 "model_progress": dict(latest_progress),
             }
+        # When the workflow was interrupted and a review item was created,
+        # suppress the approval prompt in chat — approvals happen in Control.
+        if (
+            str(direct_result.get("status") or "").strip() == "interrupted"
+            and isinstance(direct_result.get("review"), dict)
+        ):
+            review_id = direct_result["review"].get("review_id") or "pending"
+            direct_result = {
+                **direct_result,
+                "response": f"\u2709\ufe0f Sent to review queue (ID: {review_id}). Approve or reject via the Control tab.",
+            }
         updates = _derive_grounding_updates(raw_message, direct_result, resolved)
         if updates:
             update_conversation_state(

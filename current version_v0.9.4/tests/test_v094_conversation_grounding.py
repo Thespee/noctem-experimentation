@@ -17,6 +17,9 @@ def _clear_grounding_tables():
             "DELETE FROM object_refs WHERE object_id LIKE 'conversation_state:%'"
         )
         conn.execute(
+            "DELETE FROM object_context_docs WHERE object_id LIKE 'conversation_state:%'"
+        )
+        conn.execute(
             "DELETE FROM objects WHERE object_type = 'conversation_state'"
         )
         conn.execute(

@@ -63,9 +63,9 @@ def test_agent_interrupt_and_resume_flow():
     assert resumed["status"] == "completed"
     assert resumed.get("task")
 
-def test_chat_auto_resumes_clarify_interrupt_with_followup_text():
+def test_chat_interrupt_redirects_to_control_tab():
+    """v0.9.4.1: interrupted workflows redirect to Control tab instead of auto-resuming in chat."""
     client = _client()
-    marker = f"clarify-resume-{uuid4().hex[:8]}"
 
     first = client.post("/api/chat", json={"message": ". !!!"})
     assert first.status_code == 200
@@ -74,6 +74,19 @@ def test_chat_auto_resumes_clarify_interrupt_with_followup_text():
     assert first_data["status"] == "interrupted"
     assert isinstance(first_data.get("workflow_id"), int)
     assert first_data.get("thread_id")
+    # Chat response should redirect to Control tab, not show the interrupt question
+    assert "control" in first_data["response"].lower() or "review" in first_data["response"].lower()
+
+
+def test_chat_followup_after_interrupt_creates_new_workflow():
+    """v0.9.4.1: a follow-up chat message after an interrupt creates a new workflow, not a resume."""
+    client = _client()
+    marker = f"followup-{uuid4().hex[:8]}"
+
+    first = client.post("/api/chat", json={"message": ". !!!"})
+    assert first.status_code == 200
+    first_data = first.get_json()
+    assert first_data["status"] == "interrupted"
 
     second = client.post(
         "/api/chat",
@@ -85,16 +98,16 @@ def test_chat_auto_resumes_clarify_interrupt_with_followup_text():
     assert second.status_code == 200
     second_data = second.get_json()
     assert second_data["success"] is True
-    assert second_data["mode"] == "resume"
-    assert second_data["workflow_id"] == first_data["workflow_id"]
-    assert second_data["status"] == "completed"
-
+    # Should NOT resume the old workflow — it's a new task creation
+    assert second_data["mode"] != "resume"
     active = task_service.get_all_tasks(include_done=False)
     assert any(marker in t.name.lower() for t in active)
 
-def test_chat_auto_resumes_approval_interrupt_with_interleaved_assistant_chatter():
+
+def test_approval_interrupt_resolved_via_control_tab():
+    """v0.9.4.1: approval interrupts are resolved through the Control tab resolve endpoint."""
     client = _client()
-    marker = f"approve-resume-{uuid4().hex[:8]}"
+    marker = f"ctrl-approve-{uuid4().hex[:8]}"
     task = task_service.create_task(marker)
 
     first = client.post("/api/chat", json={"message": f". delete {marker}"})
@@ -103,30 +116,20 @@ def test_chat_auto_resumes_approval_interrupt_with_interleaved_assistant_chatter
     assert first_data["success"] is True
     assert first_data["status"] == "interrupted"
     assert isinstance(first_data.get("workflow_id"), int)
-    thread_id = first_data.get("thread_id")
-    assert thread_id
+    # Chat response should redirect to Control tab
+    assert "control" in first_data["response"].lower() or "review" in first_data["response"].lower()
 
-    record_message(
-        content="Background telemetry update.",
-        role="assistant",
-        source="web",
-        session_id=thread_id,
-        metadata={"status": "completed", "delivery": "async"},
-    )
+    review_id = (first_data.get("review") or {}).get("review_id") or (first_data.get("interrupt") or {}).get("review_id")
+    assert review_id
 
-    second = client.post(
-        "/api/chat",
-        json={
-            "message": "yes",
-            "thread_id": thread_id,
-        },
+    # Resolve via Control tab API
+    resolve = client.post(
+        f"/api/reviews/{review_id}/resolve",
+        json={"action": "approve", "response": "yes"},
     )
-    assert second.status_code == 200
-    second_data = second.get_json()
-    assert second_data["success"] is True
-    assert second_data["mode"] == "resume"
-    assert second_data["workflow_id"] == first_data["workflow_id"]
-    assert second_data["status"] == "completed"
+    assert resolve.status_code == 200
+    resolve_data = resolve.get_json()
+    assert resolve_data["success"] is True
     assert task_service.get_task(task.id) is None
 
 
@@ -200,8 +203,8 @@ def test_review_approve_endpoint_resumes_delete_workflow():
     assert review_id
 
     approve = client.post(
-        f"/api/agent/reviews/{review_id}/approve",
-        json={"response": "yes"},
+        f"/api/reviews/{review_id}/resolve",
+        json={"action": "approve", "response": "yes"},
     )
     assert approve.status_code == 200
     approve_payload = approve.get_json()
@@ -226,8 +229,8 @@ def test_review_resume_endpoint_completes_clarification_workflow():
     assert review_id
 
     resume = client.post(
-        f"/api/agent/reviews/{review_id}/resume",
-        json={"response": f"buy {marker} tomorrow"},
+        f"/api/reviews/{review_id}/resolve",
+        json={"action": "resume", "response": f"buy {marker} tomorrow"},
     )
     assert resume.status_code == 200
     payload = resume.get_json()
@@ -716,10 +719,12 @@ def test_chat_model_action_response_uses_grounded_workflow_result(monkeypatch):
     assert data["success"] is True
     assert data["status"] == "interrupted"
     assert data["interrupt"]["type"] == "approve"
-    assert "approve this update" in data["response"].lower()
+    # v0.9.4.1: chat response redirects to Control tab instead of showing approval prompt
+    assert "review" in data["response"].lower() or "control" in data["response"].lower()
     assert "sure, moving all overdue tasks to today." not in data["response"].lower()
 
-def test_chat_auto_resumes_pending_bulk_approval(monkeypatch):
+def test_bulk_approval_resolved_via_control_tab(monkeypatch):
+    """v0.9.4.1: bulk edit approval is resolved through the Control tab, not chat auto-resume."""
     with get_db() as conn:
         conn.execute("DELETE FROM execution_queue")
     marker = uuid4().hex[:8]
@@ -748,10 +753,6 @@ def test_chat_auto_resumes_pending_bulk_approval(monkeypatch):
             "\"fast_path_input\":\"move all overdue task to today\","
             "\"clarification_question\":null,\"memory_update\":null}"
         ),
-        (
-            "{\"reply\":\"yes\",\"requires_action\":false,"
-            "\"fast_path_input\":null,\"clarification_question\":null,\"memory_update\":null}"
-        ),
     ]
     call_count = {"value": 0}
 
@@ -771,17 +772,19 @@ def test_chat_auto_resumes_pending_bulk_approval(monkeypatch):
     assert first_data["interrupt"]["type"] == "approve"
     assert isinstance(first_data.get("workflow_id"), int)
 
-    second = client.post(
-        "/api/chat",
-        json={"message": "yes", "thread_id": first_data.get("thread_id")},
+    # Resolve via Control tab
+    review_id = (first_data.get("review") or {}).get("review_id") or (first_data.get("interrupt") or {}).get("review_id")
+    assert review_id
+    approve = client.post(
+        f"/api/reviews/{review_id}/resolve",
+        json={"action": "approve", "response": "yes"},
     )
-    assert second.status_code == 200
-    second_data = second.get_json()
-    assert second_data["success"] is True
-    assert second_data["mode"] == "resume"
-    assert second_data["status"] == "completed"
-    assert second_data["workflow_id"] == first_data["workflow_id"]
-    assert second_data["updated_count"] >= 2
+    assert approve.status_code == 200
+    approve_data = approve.get_json()
+    assert approve_data["success"] is True
+    assert approve_data["resume_result"] is not None
+    assert approve_data["resume_result"]["status"] == "completed"
+    assert approve_data["resume_result"]["updated_count"] >= 2
 
     refreshed_a = task_service.get_task(overdue_a.id)
     refreshed_b = task_service.get_task(overdue_b.id)

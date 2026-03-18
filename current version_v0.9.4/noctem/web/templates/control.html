@@ -272,7 +272,6 @@
 {% endblock %}
 
 {% block extra_script %}
-<script>
 /* ── main refresh ── */
 async function refreshControl() {
     await Promise.all([refreshReviews(), refreshTasks(), refreshBackground()]);
@@ -639,6 +638,8 @@ async function runSchedulerJob(name) {
     await refreshControl();
 }
 
-document.addEventListener('DOMContentLoaded', refreshControl);
-</script>
+document.addEventListener('DOMContentLoaded', () => {
+    refreshControl();
+    setInterval(refreshControl, 5000);
+});
 {% endblock %}

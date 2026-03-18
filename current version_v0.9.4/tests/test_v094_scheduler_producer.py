@@ -83,14 +83,31 @@ def test_run_job_now_persists_run_and_enqueues_retry_scan():
     assert history[0]["ok"] is True
 
 
-def test_idle_tick_enqueues_queue_retry_when_idle_and_work_exists():
+def test_idle_tick_fires_when_gate_conditions_met():
+    """v0.9.4.1: 3-condition gate requires no queued/processing items + user idle."""
     _reset_scheduler_state()
     Config.set("scheduler_job_config", SCHEDULER_JOB_DEFAULTS)
     Config.clear_cache()
 
-    for job_name in ("voice_transcription", "context_doc_refresh", "ics_refresh"):
+    for job_name in ("voice_transcription", "context_doc_refresh", "ics_refresh", "queue_retry_scan"):
         update_job_config(job_name, enabled=False)
-    update_job_config("queue_retry_scan", interval_minutes=1, enabled=True)
+
+    coordinator = IdleCoordinator(cooldown_seconds=1, safety_margin=timedelta(seconds=0))
+    coordinator._last_user_activity_at = datetime.utcnow() - timedelta(minutes=20)
+
+    # Gate should open: no queued items, no processing, user idle
+    gate_open, gate_details = coordinator._gate_check()
+    assert gate_open is True, f"Gate should be open when queue is empty and user idle: {gate_details}"
+    assert gate_details["queued_count"] == 0
+    assert gate_details["processing_count"] == 0
+    assert gate_details["user_idle"] is True
+
+
+def test_idle_tick_blocked_when_queue_has_items():
+    """v0.9.4.1: gate blocks when there are queued items (even retryable ones)."""
+    _reset_scheduler_state()
+    Config.set("scheduler_job_config", SCHEDULER_JOB_DEFAULTS)
+    Config.clear_cache()
 
     queued = enqueue_user_message(
         source="test",
@@ -100,10 +117,9 @@ def test_idle_tick_enqueues_queue_retry_when_idle_and_work_exists():
     )
     mark_item_retryable_failure(int(queued["id"]), error="temporary_outage")
 
-    coordinator = IdleCoordinator(idle_trigger=timedelta(seconds=1), safety_margin=timedelta(seconds=0))
+    coordinator = IdleCoordinator(cooldown_seconds=1, safety_margin=timedelta(seconds=0))
     coordinator._last_user_activity_at = datetime.utcnow() - timedelta(minutes=20)
-    tick_result = asyncio.run(coordinator.tick())
 
-    assert tick_result["idle_active"] is True
-    assert tick_result["ran_any"] is True
-    assert any(job["job_name"] == "queue_retry_scan" for job in tick_result["ran_jobs"])
+    gate_open, gate_details = coordinator._gate_check()
+    assert gate_open is False, f"Gate should be closed when queued items exist: {gate_details}"
+    assert gate_details["queued_count"] > 0
