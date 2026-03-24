@@ -1,0 +1,629 @@
+{
+  "_noctem_seed_version": "1.0",
+  "_exported_at": "2026-03-04T05:27:26.491239",
+  "goals": [
+    {
+      "name": "Feel Anger",
+      "type": "bigger_goal",
+      "description": null
+    },
+    {
+      "name": "Feel Passion",
+      "type": "bigger_goal",
+      "description": null
+    },
+    {
+      "name": "Financial Acumen",
+      "type": "bigger_goal",
+      "description": null
+    },
+    {
+      "name": "Learn / Practice Skills",
+      "type": "bigger_goal",
+      "description": null
+    },
+    {
+      "name": "Physical Wealth",
+      "type": "bigger_goal",
+      "description": null
+    }
+  ],
+  "projects": [
+    {
+      "name": "be social",
+      "status": "in_progress"
+    },
+    {
+      "name": "Housing",
+      "status": "in_progress",
+      "goal": "Feel Anger"
+    },
+    {
+      "name": "Summer music festivals",
+      "status": "in_progress",
+      "goal": "Feel Passion"
+    },
+    {
+      "name": "Cor Unum",
+      "status": "in_progress",
+      "goal": "Feel Passion"
+    },
+    {
+      "name": "Life admin / unimportant tasks",
+      "status": "in_progress",
+      "goal": "Financial Acumen"
+    },
+    {
+      "name": "Employed work",
+      "status": "in_progress",
+      "goal": "Financial Acumen"
+    },
+    {
+      "name": "finish school",
+      "status": "in_progress",
+      "goal": "Learn / Practice Skills"
+    },
+    {
+      "name": "Lights with Jacob",
+      "status": "in_progress",
+      "goal": "Learn / Practice Skills"
+    },
+    {
+      "name": "Noctem",
+      "status": "in_progress",
+      "goal": "Learn / Practice Skills"
+    },
+    {
+      "name": "Calisthenics",
+      "status": "in_progress",
+      "goal": "Physical Wealth"
+    }
+  ],
+  "tasks": [
+    {
+      "name": "Lab 1",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-01-20",
+      "project": "finish school"
+    },
+    {
+      "name": "Assignment 1",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-01-23",
+      "project": "finish school"
+    },
+    {
+      "name": "Lab 2 & 3",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-01-28",
+      "project": "finish school"
+    },
+    {
+      "name": "Lab 4",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-04",
+      "project": "finish school"
+    },
+    {
+      "name": "Lab 5",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-11",
+      "project": "finish school"
+    },
+    {
+      "name": "Project Proposal",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-11",
+      "project": "finish school"
+    },
+    {
+      "name": "Obsidian Notes",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-16",
+      "project": "finish school"
+    },
+    {
+      "name": "Graduation Request Email",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-02-16",
+      "project": "finish school"
+    },
+    {
+      "name": "Review all messages",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-17"
+    },
+    {
+      "name": "0.6 due",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-17",
+      "tags": [
+        "Noctem"
+      ]
+    },
+    {
+      "name": "Fix directory asap",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-18",
+      "tags": [
+        "noctem"
+      ]
+    },
+    {
+      "name": "Lunch with Alastair",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-19"
+    },
+    {
+      "name": "Laundry wash tmrw",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-21"
+    },
+    {
+      "name": "Buy groceries",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-24"
+    },
+    {
+      "name": "Cook dinners",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-24"
+    },
+    {
+      "name": "Call damir",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-24"
+    },
+    {
+      "name": "Call kyler",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-24"
+    },
+    {
+      "name": "Lab 6",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-25",
+      "project": "finish school"
+    },
+    {
+      "name": "Find time for Damir",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-02-25",
+      "project": "be social"
+    },
+    {
+      "name": "Arrange lighting meeting with Jacob & Damir unum",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-02-25",
+      "project": "Cor Unum"
+    },
+    {
+      "name": "Take out pork chops",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-25"
+    },
+    {
+      "name": "Josh Downs and Alastair",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-26"
+    },
+    {
+      "name": "Rufus show figure out",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-02-27",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Https:/.instagram.com/?igsh=MWlqbjZ0OWF4djZ2bw==",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-02-27"
+    },
+    {
+      "name": "Bus pass",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-02-28",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Use the system for a week",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-01",
+      "tags": [
+        "noctem"
+      ]
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-01",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "Create plan for insiders party corunum",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-03-01",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Water plant unimportant",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-03-03",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Pilot video",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-03-03",
+      "project": "Cor Unum"
+    },
+    {
+      "name": "Shambahala",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-03-03",
+      "project": "Summer music festivals"
+    },
+    {
+      "name": "Pay final part of rent",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-03-03",
+      "project": "Housing"
+    },
+    {
+      "name": "Lab 7",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-04",
+      "project": "finish school"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-08",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "Lab 8",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-11",
+      "project": "finish school"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-15",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "Lab 9",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-19",
+      "project": "finish school"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-22",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "Lab 10",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-25",
+      "project": "finish school"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-03-29",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "Lab 11",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-01",
+      "project": "finish school"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-05",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-05",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-05",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-12",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done",
+      "due_date": "2026-04-12",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-04-12",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-04-19",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "not_started",
+      "due_date": "2026-04-19",
+      "recurrence": "FREQ=WEEKLY",
+      "recurrence_rule": "FREQ=WEEKLY"
+    },
+    {
+      "name": "pay bills",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Housing"
+    },
+    {
+      "name": "find line up of local BC festivals to work at",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Summer music festivals"
+    },
+    {
+      "name": "prep for march relaunch",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Cor Unum"
+    },
+    {
+      "name": "Taxes 2025/26",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Personal finance tracking",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Dental plan registration",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Canadian passport registration",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "BC drivers licence registration",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "get new plant",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "create collage",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "sewing pants and jacket",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "google photo backups",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "find second job",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Employed work"
+    },
+    {
+      "name": "Build processing script for projection mapping setup for praxislive",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Lights with Jacob"
+    },
+    {
+      "name": "Create the white paper for project",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Noctem"
+    },
+    {
+      "name": "continue maxing phase 1",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Calisthenics"
+    },
+    {
+      "name": ". access",
+      "importance": 0.5,
+      "status": "done"
+    },
+    {
+      "name": ".access",
+      "importance": 0.5,
+      "status": "done"
+    },
+    {
+      "name": "Complete all labs today",
+      "importance": 0.5,
+      "status": "done",
+      "project": "finish school"
+    },
+    {
+      "name": "Project Progress tomorrow",
+      "importance": 0.5,
+      "status": "done",
+      "project": "finish school"
+    },
+    {
+      "name": "Practice midterms tomorrow",
+      "importance": 0.5,
+      "status": "done",
+      "project": "finish school"
+    },
+    {
+      "name": "Arrange quarterly with Angela",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "be social"
+    },
+    {
+      "name": "Summer Classes",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "finish school"
+    },
+    {
+      "name": "Research Projection Mapping on Linux",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Lights with Jacob"
+    },
+    {
+      "name": "Take trash out",
+      "importance": 0.5,
+      "status": "done",
+      "recurrence": "FREQ=WEEKLY;BYDAY=MO",
+      "recurrence_rule": "FREQ=WEEKLY;BYDAY=MO"
+    },
+    {
+      "name": "Take trash out",
+      "importance": 0.5,
+      "status": "done",
+      "recurrence": "FREQ=WEEKLY;BYDAY=SU",
+      "recurrence_rule": "FREQ=WEEKLY;BYDAY=SU"
+    },
+    {
+      "name": "Don't I've got to move my not-to-development meetings and sit-downs from just whenever I have feedback to a set day . So I'm gonna pick . Generally, just as my little review day, slide it into there. And this is when I'll be doing all of my feedback sessions and development sessions with the project.",
+      "importance": 0.5,
+      "status": "done"
+    },
+    {
+      "name": "Travel plans",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Life admin / unimportant tasks"
+    },
+    {
+      "name": "Show data base",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Cor Unum"
+    },
+    {
+      "name": "Main St Brewing idea & contract",
+      "importance": 0.5,
+      "status": "not_started",
+      "project": "Employed work"
+    }
+  ],
+  "calendar_urls": [
+    {
+      "url": "https://calendar.google.com/calendar/ical/grinius.alex%40gmail.com/private-b64555d23f95c2cac4d6b505721b026b/basic.ics",
+      "name": "gcal"
+    },
+    {
+      "url": "https://api-elb.pushoperations.com/calendars/8807d731-7fed-46ff-8ee2-e0900eddcdf4.ics",
+      "name": "work"
+    },
+    {
+      "url": "https://calendar.google.com/calendar/ical/en.canadian%23holiday%40group.v.calendar.google.com/public/basic.ics",
+      "name": "holidays"
+    }
+  ]
+}

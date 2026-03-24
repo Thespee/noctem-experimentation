@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Noctem Dashboard{% endblock %}
+
+{% block extra_style %}
+.dash-layout { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
+.main-column { padding: 1rem 1.5rem; overflow-y: auto; }
+.main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.main-header h1 { margin: 0; font-size: 1.3rem; color: #e8eaed; }
+.main-header .date { color: #9aa0a6; font-size: 0.85rem; }
+.status-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; flex-wrap: wrap; }
+.dash-layout .status-item { background: #2d2d2d; padding: 0.35rem 0.7rem; border-radius: 6px; color: #9aa0a6; }
+.week-label { font-size: 0.8rem; color: #9aa0a6; margin-bottom: 0.5rem; font-weight: 600; }
+.week-table { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; margin-bottom: 1.5rem; }
+.week-day { background: #2d2d2d; border-radius: 6px; min-height: 180px; border: 1px solid #3c3c3c; overflow: hidden; }
+.week-day.today { border-color: #8ab4f8; background: #2d3748; }
+.week-day.weekend { background: #262626; }
+.day-density { height: 4px; }
+.day-density.density-free { background: #81c995; }
+.day-density.density-light { background: #a8dab5; }
+.day-density.density-moderate { background: #fdd663; }
+.day-density.density-busy { background: #fcad70; }
+.day-density.density-packed { background: #f28b82; }
+.week-day-content { padding: 0.75rem; }
+.week-day-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid #3c3c3c; }
+.week-day-header .day-name { font-weight: bold; color: #e8eaed; font-size: 0.85rem; }
+.week-day-header .day-date { font-size: 1.1rem; color: #9aa0a6; }
+.week-day-brief { font-size: 0.7rem; color: #9aa0a6; margin-bottom: 0.5rem; }
+.week-day-events, .week-day-tasks { font-size: 0.8rem; }
+.week-day-events li, .week-day-tasks li { margin-bottom: 0.25rem; list-style: none; }
+.week-day-events { color: #8ab4f8; margin-bottom: 0.5rem; }
+.event-time { color: #5f6368; font-size: 0.7rem; }
+.task-item { display: flex; align-items: flex-start; gap: 0.25rem; }
+.task-item.high-priority::before { content: "!"; color: #f28b82; font-weight: bold; }
+.chat-widget { position: fixed; bottom: 1rem; right: 1rem; width: 320px; background: #2d2d2d; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; border: 1px solid #3c3c3c; }
+.chat-header { padding: 0.75rem; background: #3c4043; border-radius: 8px 8px 0 0; cursor: pointer; display: flex; justify-content: space-between; color: #e8eaed; }
+.chat-body { display: flex; flex-direction: column; height: 300px; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; }
+.chat-message { margin-bottom: 0.5rem; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+.chat-message.user { background: #3c4043; margin-left: 2rem; color: #e8eaed; }
+.chat-message.bot { background: #292929; margin-right: 2rem; color: #e8eaed; }
+.chat-input { display: flex; padding: 0.5rem; border-top: 1px solid #3c3c3c; }
+.chat-input input { flex: 1; background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.5rem; border-radius: 4px 0 0 4px; }
+.chat-input button { background: #8ab4f8; color: #1f1f1f; border: none; padding: 0.5rem 1rem; border-radius: 0 4px 4px 0; cursor: pointer; font-weight: 500; }
+.kbd { display: inline-block; background: #3c4043; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; font-family: monospace; margin-left: 0.25rem; color: #9aa0a6; }
+@media (max-width: 1024px) { .dash-layout { grid-template-columns: 1fr; } .chat-widget { right: 1rem; width: calc(100% - 2rem); max-width: 400px; } }
+{% endblock %}
+
+{% block content %}
+<div class="dash-layout">
+    <div class="main-column">
+        <div class="main-header"><h1>🌙 Noctem</h1><span class="date">{{ today.strftime('%A, %B %d, %Y') }}</span></div>
+        <div class="status-bar">
+            <span class="status-item">📌 Active tasks: {{ active_task_count }}</span>
+            <span class="status-item">📅 Events this week: {{ week_event_count }}</span>
+            <span class="status-item">🎤 Voice transcription: {% if system_status.voice_enabled %}Enabled{% else %}Disabled{% endif %}</span>
+        </div>
+        <div class="week-label">This Week</div>
+        <div class="week-table">
+            {% for day in current_week %}
+            <div class="week-day {% if day.is_today %}today{% endif %} {% if day.is_weekend %}weekend{% endif %}">
+                <div class="day-density density-{{ day.density_label }}"></div>
+                <div class="week-day-content">
+                    <div class="week-day-header"><span class="day-name">{{ day.day_name }}</span><span class="day-date">{{ day.date_display }}</span></div>
+                    <div class="week-day-brief">{{ day.brief }}</div>
+                    {% if day.events %}<ul class="week-day-events">{% for e in day.events[:3] %}<li>{% if e.start_time %}<span class="event-time">{{ e.start_time }}</span>{% endif %} {{ e.title[:18] }}{% if e.title|length > 18 %}...{% endif %}</li>{% endfor %}{% if day.events|length > 3 %}<li style="color:#5f6368">+{{ day.events|length - 3 }} more</li>{% endif %}</ul>{% endif %}
+                    {% if day.tasks %}<ul class="week-day-tasks">{% for t in day.tasks[:4] %}<li class="task-item {% if t.importance >= 0.8 %}high-priority{% endif %}">{{ t.name[:20] }}{% if t.name|length > 20 %}...{% endif %}</li>{% endfor %}{% if day.tasks|length > 4 %}<li style="color:#5f6368">+{{ day.tasks|length - 4 }} more</li>{% endif %}</ul>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="week-label">Next Week</div>
+        <div class="week-table">
+            {% for day in next_week %}
+            <div class="week-day {% if day.is_today %}today{% endif %} {% if day.is_weekend %}weekend{% endif %}">
+                <div class="day-density density-{{ day.density_label }}"></div>
+                <div class="week-day-content">
+                    <div class="week-day-header"><span class="day-name">{{ day.day_name }}</span><span class="day-date">{{ day.date_display }}</span></div>
+                    <div class="week-day-brief">{{ day.brief }}</div>
+                    {% if day.events %}<ul class="week-day-events">{% for e in day.events[:3] %}<li>{% if e.start_time %}<span class="event-time">{{ e.start_time }}</span>{% endif %} {{ e.title[:18] }}{% if e.title|length > 18 %}...{% endif %}</li>{% endfor %}</ul>{% endif %}
+                    {% if day.tasks %}<ul class="week-day-tasks">{% for t in day.tasks[:4] %}<li class="task-item {% if t.importance >= 0.8 %}high-priority{% endif %}">{{ t.name[:20] }}{% if t.name|length > 20 %}...{% endif %}</li>{% endfor %}</ul>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+<div id="chat-widget" class="chat-widget">
+    <div class="chat-header" onclick="toggleChat()"><span>💬 Chat <span class="kbd">n</span></span><span id="chat-toggle">▼</span></div>
+    <div class="chat-body" id="chat-body">
+        <div class="chat-messages" id="chat-messages"><div class="chat-message bot"><span class="msg">🌙 Alfred here. Chat naturally, or use <span class="kbd">.</span> for fast mode.</span></div></div>
+        <form class="chat-input" onsubmit="sendMessage(event)"><input type="text" id="chat-input" placeholder="buy groceries tomorrow..." autocomplete="off"><button type="submit">Send</button></form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let chatOpen = true;
+let chatThreadId = null;
+function toggleChat() { chatOpen = !chatOpen; document.getElementById('chat-body').style.display = chatOpen ? 'flex' : 'none'; document.getElementById('chat-toggle').textContent = chatOpen ? '▼' : '▲'; }
+function addMessage(t, isUser) { const d = document.createElement('div'); d.className = 'chat-message ' + (isUser ? 'user' : 'bot'); d.innerHTML = '<span class="msg">' + escapeHtml(t) + '</span>'; const c = document.getElementById('chat-messages'); c.appendChild(d); c.scrollTop = c.scrollHeight; }
+async function loadChatHistory() { try { const q = chatThreadId ? `?limit=80&thread_id=${encodeURIComponent(chatThreadId)}` : '?limit=80'; const r = await fetch('/api/chat/history' + q); const d = await r.json(); const c = document.getElementById('chat-messages'); if (d.thread_id) chatThreadId = d.thread_id; c.innerHTML = ''; const msgs = Array.isArray(d.messages) ? d.messages : []; if (!msgs.length) { addMessage('🌙 Alfred here. Chat naturally, or use . for fast mode.', false); return; } msgs.forEach(m => addMessage(m.content || '', (m.role || '').toLowerCase() === 'user')); } catch(e) { const c = document.getElementById('chat-messages'); c.innerHTML = ''; addMessage('❌ Could not load chat history', false); } }
+async function sendMessage(e) { e.preventDefault(); const inp = document.getElementById('chat-input'); const m = inp.value.trim(); if(!m) return; addMessage(m, true); inp.value=''; inp.disabled=true; try { const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m, thread_id:chatThreadId})}); const d = await r.json(); if (d.thread_id) chatThreadId = d.thread_id; addMessage(d.success ? d.response : '❌ '+(d.error||'Error'), false); } catch(err) { addMessage('❌ Connection error', false); } finally { inp.disabled=false; inp.focus(); } }
+document.addEventListener('keydown', e => { if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return; switch(e.key.toLowerCase()) { case 'n': document.getElementById('chat-input').focus(); if(!chatOpen) toggleChat(); e.preventDefault(); break; case 'd': location.reload(); break; case '?': addMessage('Shortcuts: n=chat, d=refresh, ?=help', false); break; } });
+document.addEventListener('DOMContentLoaded', () => { loadChatHistory(); });
+{% endblock %}

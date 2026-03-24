@@ -1,0 +1,645 @@
+{% extends "base.html" %}
+{% block title %}Control - Noctem{% endblock %}
+
+{% block extra_style %}
+<style>
+    .control-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 1.5rem;
+    }
+    .control-header {
+        margin-bottom: 1rem;
+    }
+    .section {
+        background: #2a2a2a;
+        border: 1px solid #3c3c3c;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .section h2 {
+        margin: 0 0 0.8rem 0;
+        color: #e8eaed;
+        font-size: 1.05rem;
+    }
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    .metric-card {
+        background: #2a2a2a;
+        border: 1px solid #3c3c3c;
+        border-radius: 10px;
+        padding: 0.8rem;
+    }
+    .metric-label {
+        font-size: 0.8rem;
+        color: #9aa0a6;
+    }
+    .metric-value {
+        font-size: 1.2rem;
+        color: #e8eaed;
+        margin-top: 0.2rem;
+    }
+    .tools-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 0.6rem;
+    }
+    .mini-btn {
+        background: #3a6ea5;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 0.35rem 0.65rem;
+        cursor: pointer;
+        font-size: 0.8rem;
+    }
+    .mini-btn.secondary { background: #4a4a4a; }
+    .mini-btn.warn { background: #9b5d00; }
+    .mini-btn.danger { background: #9e2a2a; }
+    .tbl {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+    }
+    .tbl th, .tbl td {
+        border-bottom: 1px solid #3a3a3a;
+        padding: 0.45rem 0.4rem;
+        text-align: left;
+        color: #d8dbe0;
+        vertical-align: top;
+    }
+    .tbl th {
+        color: #9aa0a6;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 0.1rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        background: #3d3d3d;
+        color: #e8eaed;
+    }
+    .status-pill.queued { background: #2f5c8a; }
+    .status-pill.processing { background: #6c5d1d; }
+    .status-pill.completed { background: #2f6a3a; }
+    .status-pill.review_blocked { background: #7a4c1f; }
+    .status-pill.failed { background: #8a2f2f; }
+    .status-pill.cancelled { background: #555; }
+    .help-note {
+        color: #9aa0a6;
+        font-size: 0.8rem;
+        margin-top: 0.4rem;
+    }
+    .peek-note {
+        display: inline-block;
+        color: #9aa0a6;
+        font-size: 0.74rem;
+        line-height: 1.25;
+        max-width: 240px;
+    }
+    .subsection-title {
+        margin: 0.85rem 0 0.45rem 0;
+        color: #d8dbe0;
+        font-size: 0.88rem;
+        font-weight: 600;
+    }
+    .category-group {
+        margin-bottom: 0.75rem;
+    }
+    .category-label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9aa0a6;
+        margin-bottom: 0.3rem;
+        font-weight: 600;
+    }
+    .review-card {
+        background: #262626;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        margin-bottom: 0.45rem;
+    }
+    .review-card .title {
+        color: #e8eaed;
+        font-size: 0.83rem;
+        margin-bottom: 0.25rem;
+    }
+    .review-card .meta {
+        color: #9aa0a6;
+        font-size: 0.76rem;
+    }
+    .review-card .actions {
+        margin-top: 0.35rem;
+    }
+    .job-card {
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 0.7rem;
+        margin-bottom: 0.55rem;
+    }
+    .job-title {
+        color: #e8eaed;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+    }
+    .job-controls input[type="number"] {
+        width: 95px;
+        background: #1f1f1f;
+        border: 1px solid #444;
+        color: #e8eaed;
+        border-radius: 6px;
+        padding: 0.3rem;
+    }
+    .blocked-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+    }
+    .blocked-item {
+        background: #262626;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+    }
+    .blocked-item .title {
+        color: #e8eaed;
+        font-size: 0.83rem;
+        margin-bottom: 0.25rem;
+    }
+    .blocked-item .meta {
+        color: #9aa0a6;
+        font-size: 0.76rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="control-container">
+    <div class="control-header">
+        <h1>⚙️ Control</h1>
+        <p class="help-note">Unified control surface for reviews, active tasks, and background systems.</p>
+        <p class="help-note" id="controlDiagnostics"></p>
+    </div>
+
+    <!-- ── Section 1: Reviews ── -->
+    <div class="section">
+        <h2>Reviews</h2>
+        <div class="tools-row">
+            <label for="reviewStatusFilter">Status:</label>
+            <select id="reviewStatusFilter" onchange="refreshControl()">
+                <option value="pending" selected>Pending</option>
+                <option value="all">All</option>
+            </select>
+            <button class="mini-btn secondary" onclick="refreshControl()">Refresh</button>
+        </div>
+        <div id="reviewGroups"></div>
+        <div class="subsection-title">Blocked Workflows</div>
+        <div id="blockedWorkflowRows" class="blocked-list"></div>
+    </div>
+
+    <!-- ── Section 2: Tasks ── -->
+    <div class="section">
+        <h2>Active Tasks</h2>
+        <div class="metric-grid" id="taskMetricCards"></div>
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Attempts</th>
+                    <th>Created</th>
+                    <th>Peek</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="taskRows"></tbody>
+        </table>
+    </div>
+
+    <!-- ── Section 3: Background ── -->
+    <div class="section">
+        <h2>Scheduler Jobs</h2>
+        <div id="schedulerJobs"></div>
+    </div>
+
+    <div class="section">
+        <h2>Recent Scheduler Runs</h2>
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Job</th>
+                    <th>OK</th>
+                    <th>Duration (s)</th>
+                    <th>Summary</th>
+                </tr>
+            </thead>
+            <tbody id="schedulerRunRows"></tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Async Delivery</h2>
+        <div class="help-note" id="deliverySummary"></div>
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Queue Item</th>
+                    <th>Channel</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody id="deliveryRows"></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+/* ── main refresh ── */
+async function refreshControl() {
+    await Promise.all([refreshReviews(), refreshTasks(), refreshBackground()]);
+}
+
+/* ── Reviews section (uses /api/reviews) ── */
+async function refreshReviews() {
+    const status = document.getElementById('reviewStatusFilter').value || 'pending';
+    try {
+        const [reviewResp, blockedResp] = await Promise.all([
+            fetch(`/api/reviews?status=${encodeURIComponent(status)}&limit=100`),
+            fetch(`/api/agent/reviews/blocked?limit=200`),
+        ]);
+        const reviewData = await reviewResp.json();
+        const blockedData = await blockedResp.json();
+        if (reviewData.success) renderReviewGroups(reviewData.grouped || {});
+        if (blockedData.success) renderBlockedWorkflows(blockedData.blocked_workflows || []);
+    } catch (e) {
+        appendDiagnostic(`reviews:${e}`);
+    }
+}
+
+function renderReviewGroups(grouped) {
+    const container = document.getElementById('reviewGroups');
+    const categoryOrder = ['approval', 'clarification', 'plan_review', 'verification', 'manual_review'];
+    const categoryLabels = {
+        approval: '🔑 Approval',
+        clarification: '❓ Clarification',
+        plan_review: '📋 Plan Review',
+        verification: '🔍 Verification',
+        manual_review: '📝 Manual Review',
+    };
+
+    const sections = [];
+    for (const cat of categoryOrder) {
+        const items = grouped[cat];
+        if (!items || !items.length) continue;
+        sections.push(renderCategoryGroup(cat, categoryLabels[cat] || cat, items));
+    }
+    // catch any unexpected categories
+    for (const cat of Object.keys(grouped)) {
+        if (!categoryOrder.includes(cat)) {
+            sections.push(renderCategoryGroup(cat, cat, grouped[cat]));
+        }
+    }
+    container.innerHTML = sections.length
+        ? sections.join('')
+        : '<div class="help-note">No pending review items.</div>';
+}
+
+function renderCategoryGroup(cat, label, items) {
+    const cards = items.map(item => {
+        const payload = (item && typeof item.payload === 'object' && item.payload) ? item.payload : {};
+        const question = payload.question || payload.failure_message || payload.original_message || '(no detail)';
+        const workflowId = payload.workflow_id || 'n/a';
+        const encodedId = encodeURIComponent(String(item.review_id || ''));
+        return `
+            <div class="review-card">
+                <div class="title">${escapeHtml(String(item.reason_code || ''))} — Workflow #${escapeHtml(String(workflowId))}</div>
+                <div class="meta">${escapeHtml(String(question))}</div>
+                <div class="meta">Created: ${escapeHtml(String(item.created_at || ''))}</div>
+                <div class="actions">
+                    <button class="mini-btn" onclick="resolveReview('${encodedId}', 'approve')">Approve</button>
+                    <button class="mini-btn warn" onclick="resolveReview('${encodedId}', 'reject')">Reject</button>
+                    <button class="mini-btn secondary" onclick="resolveReview('${encodedId}', 'resume')">Resume</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+    return `<div class="category-group"><div class="category-label">${escapeHtml(label)}</div>${cards}</div>`;
+}
+
+function renderBlockedWorkflows(blocked) {
+    const container = document.getElementById('blockedWorkflowRows');
+    if (!blocked || !blocked.length) {
+        container.innerHTML = '<div class="help-note">No blocked workflows.</div>';
+        return;
+    }
+    container.innerHTML = blocked.map(item => {
+        const interrupt = (item && typeof item.interrupt === 'object' && item.interrupt) ? item.interrupt : {};
+        return `
+            <div class="blocked-item">
+                <div class="title">Workflow #${escapeHtml(String(item.workflow_id || ''))} • ${escapeHtml(String(item.workflow_type || 'unknown'))}</div>
+                <div class="meta">Interrupt: ${escapeHtml(String(interrupt.type || 'n/a'))} • ${escapeHtml(String(interrupt.created_at || ''))}</div>
+                <div class="meta">${escapeHtml(String(interrupt.question || ''))}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function resolveReview(encodedReviewId, action) {
+    const reviewId = decodeURIComponent(encodedReviewId || '');
+    if (!reviewId) return;
+    let body = { action };
+
+    if (action === 'resume') {
+        const response = window.prompt('Resume response:');
+        if (!response || !response.trim()) return;
+        body.response = response.trim();
+    } else if (action === 'approve') {
+        const response = window.prompt('Approval response (default: yes):', 'yes');
+        if (response === null) return;
+        body.response = (response || 'yes').trim() || 'yes';
+    } else if (action === 'reject') {
+        const response = window.prompt('Rejection response (default: no):', 'no');
+        if (response === null) return;
+        body.response = (response || 'no').trim() || 'no';
+    }
+
+    const resp = await fetch(`/api/reviews/${reviewId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    if (!payload.success) {
+        window.alert(payload.error || 'Resolve action failed.');
+        return;
+    }
+    await refreshControl();
+}
+
+/* ── Tasks section (uses /api/tasks/active) ── */
+async function refreshTasks() {
+    try {
+        const resp = await fetch('/api/tasks/active?limit=80');
+        const data = await resp.json();
+        if (!data.success) return;
+        renderTaskMetrics(data.metrics || {});
+        renderTaskRows(data.items || []);
+    } catch (e) {
+        appendDiagnostic(`tasks:${e}`);
+    }
+}
+
+function renderTaskMetrics(metrics) {
+    const cards = document.getElementById('taskMetricCards');
+    const values = [
+        { label: 'Queued', value: orDefault(metrics.queued_count, 0) },
+        { label: 'Processing', value: orDefault(metrics.processing_count, 0) },
+        { label: 'Review Blocked', value: orDefault(metrics.review_blocked_count, 0) },
+    ];
+    cards.innerHTML = values.map(item => `
+        <div class="metric-card">
+            <div class="metric-label">${escapeHtml(item.label)}</div>
+            <div class="metric-value">${escapeHtml(String(item.value))}</div>
+        </div>
+    `).join('');
+}
+
+function renderTaskRows(items) {
+    const tbody = document.getElementById('taskRows');
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="8">No active tasks.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map(item => {
+        const status = String(item.status || '');
+        const canAct = ['queued', 'failed', 'review_blocked', 'cancelled', 'completed'].includes(status);
+        const progressPeek = queueProgressPeek(item);
+        return `
+            <tr>
+                <td>#${item.id}</td>
+                <td>${escapeHtml(String(item.item_type || ''))}</td>
+                <td><span class="status-pill ${escapeHtml(status)}">${escapeHtml(status)}</span></td>
+                <td>${escapeHtml(String(item.source || ''))}</td>
+                <td>${escapeHtml(String(orDefault(item.attempt_count, 0)))}</td>
+                <td>${escapeHtml(String(item.created_at || ''))}</td>
+                <td><span class="peek-note">${escapeHtml(progressPeek)}</span></td>
+                <td>
+                    ${canAct ? `<button class="mini-btn secondary" onclick="requeueItem(${item.id}, false)">Requeue</button>` : ''}
+                    ${canAct ? `<button class="mini-btn warn" onclick="requeueItem(${item.id}, true)">Front</button>` : ''}
+                    ${status !== 'cancelled' ? `<button class="mini-btn danger" onclick="cancelItem(${item.id})">Cancel</button>` : ''}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+/* ── Background section (uses /api/tools) ── */
+async function refreshBackground() {
+    try {
+        const resp = await fetch('/api/tools?status=all&review_status=all&limit=80');
+        const payload = await resp.json();
+        if (!payload.success) return;
+        renderDiagnostics(payload.diagnostics || []);
+        renderSchedulerJobs(payload.scheduler || {});
+        renderSchedulerRuns((payload.scheduler || {}).recent_runs || []);
+        renderDelivery(payload.delivery || {});
+    } catch (e) {
+        appendDiagnostic(`background:${e}`);
+    }
+}
+
+/* ── shared renderers ── */
+function renderDiagnostics(diagnostics) {
+    const el = document.getElementById('controlDiagnostics');
+    if (!el) return;
+    if (!diagnostics || !diagnostics.length) { el.textContent = ''; return; }
+    el.textContent = `Diagnostics: ${diagnostics.join(' | ')}`;
+}
+
+function appendDiagnostic(msg) {
+    const el = document.getElementById('controlDiagnostics');
+    if (!el) return;
+    el.textContent = (el.textContent ? el.textContent + ' | ' : 'Diagnostics: ') + msg;
+}
+
+function renderSchedulerJobs(scheduler) {
+    const container = document.getElementById('schedulerJobs');
+    const config = scheduler.job_config || {};
+    const stats = scheduler.job_stats || {};
+    const names = Object.keys(config);
+    if (!names.length) {
+        container.innerHTML = '<p class="help-note">No scheduler jobs configured.</p>';
+        return;
+    }
+    container.innerHTML = names.map(name => {
+        const jobCfg = config[name] || {};
+        const jobStats = stats[name] || {};
+        const enabled = !!jobCfg.enabled;
+        return `
+            <div class="job-card">
+                <div class="job-title">${escapeHtml(name)}</div>
+                <div class="tools-row job-controls">
+                    <label><input type="checkbox" id="job-enabled-${name}" ${enabled ? 'checked' : ''}> enabled</label>
+                    <label>Interval (min)
+                        <input type="number" min="1" max="10080" id="job-interval-${name}" value="${escapeHtml(String(orDefault(jobCfg.interval_minutes, 1)))}">
+                    </label>
+                    <button class="mini-btn" onclick="saveSchedulerJob('${name}')">Save</button>
+                    <button class="mini-btn secondary" onclick="runSchedulerJob('${name}')">Run now</button>
+                </div>
+                <div class="help-note">
+                    runs: ${escapeHtml(String(orDefault(jobStats.runs, 0)))},
+                    failures: ${escapeHtml(String(orDefault(jobStats.failures, 0)))},
+                    last run: ${escapeHtml(String(jobStats.last_run_at || 'never'))}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderSchedulerRuns(runs) {
+    const tbody = document.getElementById('schedulerRunRows');
+    if (!runs.length) {
+        tbody.innerHTML = '<tr><td colspan="5">No scheduler runs yet.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = runs.map(run => `
+        <tr>
+            <td>${escapeHtml(String(run.started_at || ''))}</td>
+            <td>${escapeHtml(String(run.job_name || ''))}</td>
+            <td>${run.ok ? '✅' : '❌'}</td>
+            <td>${escapeHtml(formatMaybeNumber(run.duration_seconds))}</td>
+            <td>${escapeHtml(JSON.stringify(run.summary || {}))}</td>
+        </tr>
+    `).join('');
+}
+
+function renderDelivery(delivery) {
+    const summaryEl = document.getElementById('deliverySummary');
+    const rowsEl = document.getElementById('deliveryRows');
+    const metrics = delivery.metrics || {};
+    const byChannel = metrics.by_channel || {};
+    const summaryParts = Object.keys(byChannel).map(channel => {
+        const statuses = byChannel[channel] || {};
+        const detail = Object.keys(statuses).map(k => `${k}:${statuses[k]}`).join(', ');
+        return `${channel} [${detail}]`;
+    });
+    summaryEl.textContent = summaryParts.length ? summaryParts.join(' • ') : 'No async delivery records yet.';
+
+    const items = delivery.recent || [];
+    if (!items.length) {
+        rowsEl.innerHTML = '<tr><td colspan="5">No recent deliveries.</td></tr>';
+        return;
+    }
+    rowsEl.innerHTML = items.map(item => `
+        <tr>
+            <td>${escapeHtml(String(item.created_at || ''))}</td>
+            <td>${escapeHtml(String(item.queue_item_id || ''))}</td>
+            <td>${escapeHtml(String(item.channel || ''))}</td>
+            <td>${escapeHtml(String(item.status || ''))}</td>
+            <td>${escapeHtml(String(item.error || ''))}</td>
+        </tr>
+    `).join('');
+}
+
+function queueProgressPeek(item) {
+    const status = String((item && item.status) || '');
+    const result = (item && typeof item.result === 'object' && item.result) ? item.result : {};
+    const progress = (result && typeof result.progress === 'object' && result.progress)
+        || (result && typeof result.model_progress === 'object' && result.model_progress)
+        || null;
+
+    if (!progress) {
+        if (status === 'processing') return 'started';
+        if (status === 'completed') return 'completed';
+        if (status === 'failed') return 'failed';
+        return '—';
+    }
+
+    const stageRaw = String(progress.stage || '').trim();
+    const stage = stageRaw === 'chunk_received'
+        ? 'receiving chunks'
+        : (stageRaw || (status || 'started'));
+    const parts = [stage];
+
+    const elapsed = Number(progress.elapsed_seconds);
+    if (!Number.isNaN(elapsed)) parts.push(`${elapsed.toFixed(1)}s`);
+    const chunks = Number(progress.chunk_count);
+    if (!Number.isNaN(chunks) && chunks > 0) parts.push(`${chunks} chunks`);
+    if (stageRaw === 'failed' && progress.error) parts.push(String(progress.error));
+    return parts.join(' • ');
+}
+
+/* ── utility ── */
+function orDefault(value, fallbackValue) {
+    return (value === undefined || value === null) ? fallbackValue : value;
+}
+
+function formatMaybeNumber(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    const n = Number(value);
+    if (Number.isNaN(n)) return String(value);
+    return n.toFixed(1);
+}
+
+/* ── queue actions (shared with tasks section) ── */
+async function requeueItem(itemId, front) {
+    await fetch(`/api/tools/queue/${itemId}/requeue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ front: !!front }),
+    });
+    await refreshControl();
+}
+
+async function cancelItem(itemId) {
+    await fetch(`/api/tools/queue/${itemId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'manual_cancel_from_control' }),
+    });
+    await refreshControl();
+}
+
+async function saveSchedulerJob(name) {
+    const enabled = !!document.getElementById(`job-enabled-${name}`).checked;
+    const interval = Number(document.getElementById(`job-interval-${name}`).value || 1);
+    await fetch(`/api/tools/scheduler/jobs/${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: enabled, interval_minutes: interval }),
+    });
+    await refreshControl();
+}
+
+async function runSchedulerJob(name) {
+    await fetch(`/api/tools/scheduler/jobs/${encodeURIComponent(name)}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    });
+    await refreshControl();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    refreshControl();
+    setInterval(refreshControl, 5000);
+});
+{% endblock %}

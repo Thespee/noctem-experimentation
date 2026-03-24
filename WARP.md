@@ -19,13 +19,16 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 5. **Respect attention** — batch questions, avoid spam.
 6. **Grounded knowledge** — answers cite sources and prefer trusted local data.
 
-## Architecture Direction (v0.9.4)
+## Architecture Direction (v0.9.4.1)
 
 - **Intake layer**: command parsing (dot/slash prefix commands) + voice transcription. The `fast/` rule-based capture pipeline is removed.
-- **Router/Planner**: classifies intent and creates queued work items.
-- **Workflow/Agent runtime**: executes plans, pauses for approvals, resumes later.
+- **Router/Planner**: classifies intent and creates queued work items. `#plan` tag in model output triggers plan-object creation.
+- **Workflow/Agent runtime**: executes plans, pauses for approvals, resumes later. Plan steps are individually trackable.
 - **Tool/Integration layer**: single Noctem MCP server is the required internal task tool surface; n8n is optional for external app workflows only.
-- **Knowledge system**: RAG-based wiki with trust levels and citations.
+- **Knowledge system**: RAG-based wiki with trust levels and citations. Context docs surfaced via retrieval scoring.
+- **Review system**: unified Control tab with reason-code categories, dual-channel notifications (web + Telegram).
+- **Background scheduler**: 3-condition idle gate (no queued, no processing, user idle ≥ cooldown) replaces simple idle trigger.
+- **Context compaction**: deterministic regex-based fact extraction from dropped conversation lines, stored per-thread.
 - **Interfaces**: Telegram, web dashboard, CLI.
 
 ## Task Mutation Reliability Rules (Persistent)
@@ -57,7 +60,8 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 
 ## Documentation Precedence
 
-- `docs/Plan 0.9.4.md` is the source of truth. If documentation conflicts, follow the plan.
+- `docs/Plan 0.9.4.1.md` is the latest planning document. `docs/Plan 0.9.4.md` is the parent plan.
+- If documentation conflicts, follow the most recent plan.
 
 ## Development Workflow
 
@@ -128,6 +132,20 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Future multi-device outline: per-device append-only event logs, periodic event exchange, conflict detection with manual review, and merge commits as new heads.
 - CRDTs are a **future optional** merge strategy for text-heavy objects (notes/docs) if true concurrent offline edits are required.
 
+## Session Learnings (Mar 2026, v0.9.4 Execution Results)
+
+- Implemented Noctem-native graph/versioning surfaces:
+  - UI route: `/graph`
+  - APIs: `/api/graph`, `/api/graph/object/<object_id>`, `/api/graph/versions`, `/api/graph/export/markdown`
+  - Graph markdown snapshots are exported from internal object/commit state only.
+- Added one-time migration utility: `current version_v0.9.4/noctem/migration/v093_to_v094.py`
+  - Creates target DB backup before changes.
+  - Exports migration artifacts (`seed_snapshot.json`, row dumps, `migration_report.json`).
+  - Copies typed entities and populates internal object/versions/events/refs genesis state.
+  - Copies wiki filesystem artifacts (`sources/`, `chroma/`) when present.
+  - Runs integrity checks (count parity + object-ref/version-head integrity).
+- Full active v0.9.4 suite gate currently green: `265 passed` (legacy tests tied to removed runtime surfaces are excluded from default collection in `tests/conftest.py`).
+
 ## Codebase Grounding for v0.9.4 Execution (Mar 2026)
 
 - Core schema and migrations live in `current version_v0.9.3/noctem/db.py`; additive migrations are required for object/commit history rollout.
@@ -144,9 +162,44 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - Keep chat interaction modes unchanged for this version: web dashboard and Telegram UI.
 - External side effects remain approval-gated; never report mutation success before post-commit verification/readback.
 
+## Session Learnings (Mar 2026, Queue Runtime Diagnostics + Tools Peek)
+
+- Runtime execution is queue-first for inbound user messages, review resumes, and scheduled jobs, with scheduler jobs acting as queue producers.
+- The **Control tab** (`/control`) is the primary unified surface for review queue, active tasks, and background tool settings — replacing the old separate `/tools` and `/reviews` routes (both now redirect to `/control`).
+- Model execution diagnostics are now exposed as queue progress events instead of enforcing a strict in-code network timeout:
+  - progress stages: `started`, `heartbeat`, `chunk_received`, `completed`, `failed`
+  - processing snapshots are persisted on queue items in `result.progress`
+  - final completed items retain latest model progress metadata in `result.model_progress`
+- Tools queue table includes a minimal "Peek" signal so operators can quickly see whether work is actively generating (receiving chunks) or has completed/failed.
+
+## Session Learnings (Mar 2026, v0.9.4.1 Gap-Closing)
+
+- **Unified Control Tab** (`/control`): combines reviews (grouped by category), active execution-queue tasks, and background scheduler settings into a single surface. Old `/tools` and `/reviews` routes redirect here.
+- **Reason codes** on review items: `ambiguity`, `policy_gate`, `verification_failure`, `merge_conflict`, `manual_review`, `approval`, `clarification`, `plan_review`. Each maps to a UI category.
+- **Unified resolve API** (`POST /api/reviews/<id>/resolve`): single endpoint replaces separate approve/reject/resume routes. Accepts `action: approve|reject|resume`.
+- **Dual-channel review notifications**: `publish_review_notification()` records to web conversation log + sends Telegram alert. Called on workflow interrupts and stale context doc detection.
+- **Background task gating**: `IdleCoordinator._gate_check()` uses 3-condition gate (no queued items, no processing items, user idle ≥ `COOLDOWN_SECONDS=120`). Replaces the old `IDLE_TRIGGER` approach.
+- **Plan object type**: `plan_steps` DB table + `agent/plan_tracker.py`. Plans are created from `#plan` tag in model output. Steps are individually approved/completed/failed. Failure on any step auto-skips remaining steps.
+- **Deterministic context compaction**: `agent/compaction.py` extracts facts (task mentions, decisions, due dates, project refs, status changes) from dropped conversation lines via regex. Stored in `conversation_compactions` table, merged into memory pack header when truncation occurs.
+- **Context docs retrieval integration**: `memory_pack._context_docs_section()` now uses `retrieval.search_context_docs()` for lexical+recency scoring instead of raw SQL.
+- **Chat resume logic removed**: `chat_orchestrator.py` no longer attempts auto-resume of interrupted workflows in the chat path. Resume is handled exclusively through the review/Control surface.
+- **Legacy cleanup**: `tools.html` template deleted, old reason code migration added to `db.init_db()`, habit/briefing/slow-mode/butler/whisper test classes removed.
+
+## Session Learnings (Mar 2026, v0.9.4.1 Runtime Fixes)
+
+- **Nested `<script>` tags are fatal in Jinja templates.** `base.html` already wraps `{% block extra_script %}` inside a `<script>` tag (line 267). Child templates must NOT add their own `<script>`/`</script>` inside that block — doing so creates nested script elements that cause a JS parse error, silently killing ALL JavaScript on the page. This was the root cause of the Control tab rendering as a blank page with no interactivity.
+- **SQLite WAL mode is required for threaded Flask.** Running `app.run(threaded=True)` without `PRAGMA journal_mode = WAL` causes database-locked errors under concurrent reads/writes. WAL is now set in `db.get_connection()`.
+- **Monitoring surfaces need auto-polling.** The Control tab's `refreshControl()` now runs on a 5-second `setInterval` instead of requiring manual clicks, since review items and queue state change asynchronously.
+- **Chat must not show approval prompts for interrupted workflows.** When a workflow is interrupted and a review item exists, the chat response is replaced with a brief redirect message pointing to the Control tab. The old "Approve? Reply yes or no" inline prompt is removed from the chat path entirely.
+- **Route/tab renames require a full grep across templates AND tests.** The `/tools` → `/control` rename left stale references in `settings.html` ("Tools tab" text), test assertions (checking `/tools` routes, old `/api/agent/reviews/{id}/approve` endpoint), and test function names. Always search all `.html` and `test_*.py` files when renaming a route.
+- **PowerShell 5.1 mangles escaped quotes inside inline `python -c` strings.** For any non-trivial DB script, write to a temp `.py` file and execute it instead of trying to pass complex SQL through PowerShell string interpolation.
+
 ## Testing
 
-- Not specified yet. Add when a standard test command is defined.
+- Run all tests: `python -m pytest tests -v` from `current version_v0.9.4/`.
+- Shared `conftest.py` provides an autouse temp-DB fixture for all test files.
+- 311 tests passing as of v0.9.4.1 runtime fixes.
+- Test files cover: services, startup/imports, parser, review queue, compaction, plan tracker, scheduler gating, control tab API routes, review notifications, memory pack, conversation grounding, agentic agent flows.
 
 ## Build & Deployment
 

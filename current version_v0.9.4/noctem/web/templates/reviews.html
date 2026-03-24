@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Noctem Review Queue{% endblock %}
+
+{% block extra_style %}
+.review-page { padding: 1rem 1.25rem; max-width: 1100px; }
+.review-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+.review-header h1 { margin: 0; font-size: 1.2rem; color: #e8eaed; }
+.review-controls { display: flex; align-items: center; gap: 0.5rem; }
+.review-controls select, .review-controls button { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 6px; padding: 0.35rem 0.6rem; }
+.review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0.75rem; }
+.review-card { background: #262626; border: 1px solid #3c3c3c; border-radius: 8px; padding: 0.75rem; }
+.review-card .meta { font-size: 0.78rem; color: #9aa0a6; margin-bottom: 0.4rem; display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.review-card .question { color: #e8eaed; font-size: 0.88rem; margin-bottom: 0.5rem; white-space: pre-wrap; }
+.review-card .payload { font-size: 0.76rem; color: #9aa0a6; background: #1f1f1f; border: 1px solid #333; border-radius: 6px; padding: 0.5rem; max-height: 180px; overflow: auto; margin-bottom: 0.5rem; }
+.review-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.review-actions button { border: 0; border-radius: 6px; padding: 0.32rem 0.55rem; cursor: pointer; font-size: 0.78rem; }
+.btn-approve { background: #81c995; color: #102414; }
+.btn-reject { background: #f28b82; color: #2a0a07; }
+.btn-resume { background: #8ab4f8; color: #0f1e3a; }
+.section-title { margin: 1rem 0 0.5rem; font-size: 0.95rem; color: #e8eaed; }
+.empty-state { background: #262626; border: 1px dashed #3c3c3c; border-radius: 8px; padding: 0.85rem; color: #9aa0a6; font-size: 0.86rem; }
+.blocked-list { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+.blocked-item { background: #262626; border: 1px solid #3c3c3c; border-radius: 8px; padding: 0.7rem; }
+.blocked-item .title { color: #e8eaed; font-size: 0.86rem; margin-bottom: 0.3rem; }
+.blocked-item .meta { color: #9aa0a6; font-size: 0.76rem; }
+{% endblock %}
+
+{% block content %}
+<div class="review-page">
+    <div class="review-header">
+        <h1>🧾 Review Queue</h1>
+        <div class="review-controls">
+            <label for="review-status">Status</label>
+            <select id="review-status" onchange="loadReviewData()">
+                <option value="pending" selected>Pending</option>
+                <option value="all">All</option>
+            </select>
+            <button type="button" onclick="loadReviewData()">Refresh</button>
+        </div>
+    </div>
+
+    <div class="section-title">Blocked Workflows</div>
+    <div id="blocked-workflows" class="blocked-list"></div>
+
+    <div class="section-title">Queue Items</div>
+    <div id="review-items" class="review-grid"></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+async function fetchJson(url, options = null) {
+    const response = await fetch(url, options || undefined);
+    return response.json();
+}
+
+function formatPayload(payload) {
+    try {
+        return JSON.stringify(payload || {}, null, 2);
+    } catch (e) {
+        return '{}';
+    }
+}
+
+function renderBlocked(blocked) {
+    const container = document.getElementById('blocked-workflows');
+    if (!Array.isArray(blocked) || blocked.length === 0) {
+        container.innerHTML = '<div class="empty-state">No blocked workflows.</div>';
+        return;
+    }
+    container.innerHTML = blocked.map(item => {
+        const workflowId = item.workflow_id;
+        const interrupt = item.interrupt || {};
+        return `
+            <div class="blocked-item">
+                <div class="title">Workflow #${workflowId} • ${escapeHtml(item.workflow_type || 'unknown')}</div>
+                <div class="meta">Interrupt: ${escapeHtml(interrupt.type || 'n/a')} • ${escapeHtml(interrupt.created_at || '')}</div>
+                <div class="meta">${escapeHtml(interrupt.question || '')}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderReviews(reviews) {
+    const container = document.getElementById('review-items');
+    if (!Array.isArray(reviews) || reviews.length === 0) {
+        container.innerHTML = '<div class="empty-state">No review items for the selected filter.</div>';
+        return;
+    }
+    container.innerHTML = reviews.map(item => {
+        const payload = item.payload || {};
+        const workflowId = payload.workflow_id || '';
+        const question = payload.question || payload.failure_message || '(no question)';
+        return `
+            <div class="review-card">
+                <div class="meta">
+                    <span>${escapeHtml(item.review_id || '')}</span>
+                    <span>${escapeHtml(item.reason_code || 'manual_review')}</span>
+                </div>
+                <div class="meta">
+                    <span>status: ${escapeHtml(item.status || '')}</span>
+                    <span>workflow: ${escapeHtml(String(workflowId || 'n/a'))}</span>
+                </div>
+                <div class="question">${escapeHtml(question)}</div>
+                <pre class="payload">${escapeHtml(formatPayload(payload))}</pre>
+                ${item.status === 'pending' ? `
+                    <div class="review-actions">
+                        <button class="btn-approve" onclick="reviewAction('${item.review_id}', 'approve')">Approve</button>
+                        <button class="btn-reject" onclick="reviewAction('${item.review_id}', 'reject')">Reject</button>
+                        <button class="btn-resume" onclick="reviewAction('${item.review_id}', 'resume')">Resume w/ Input</button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+async function reviewAction(reviewId, action) {
+    let body = {};
+    if (action === 'resume') {
+        const response = window.prompt('Resume response:');
+        if (!response || !response.trim()) return;
+        body = { response: response.trim() };
+    } else if (action === 'approve') {
+        const response = window.prompt('Approval response (default: yes):', 'yes');
+        if (response === null) return;
+        body = { response: (response || 'yes').trim() || 'yes' };
+    } else if (action === 'reject') {
+        const response = window.prompt('Rejection response (default: no):', 'no');
+        if (response === null) return;
+        body = { response: (response || 'no').trim() || 'no' };
+    }
+
+    try {
+        const result = await fetchJson(`/api/agent/reviews/${encodeURIComponent(reviewId)}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!result.success) {
+            window.alert(result.error || 'Action failed.');
+            return;
+        }
+        await loadReviewData();
+    } catch (err) {
+        window.alert('Review action failed.');
+    }
+}
+
+async function loadReviewData() {
+    const status = document.getElementById('review-status').value || 'pending';
+    try {
+        const [reviewPayload, blockedPayload] = await Promise.all([
+            fetchJson(`/api/agent/reviews?status=${encodeURIComponent(status)}&limit=200`),
+            fetchJson('/api/agent/reviews/blocked?limit=200'),
+        ]);
+        renderReviews(reviewPayload.reviews || []);
+        renderBlocked(blockedPayload.blocked_workflows || []);
+    } catch (err) {
+        document.getElementById('review-items').innerHTML = '<div class="empty-state">Failed to load review items.</div>';
+        document.getElementById('blocked-workflows').innerHTML = '<div class="empty-state">Failed to load blocked workflows.</div>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadReviewData);
+{% endblock %}

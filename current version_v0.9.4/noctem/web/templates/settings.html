@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Settings - Noctem{% endblock %}
+
+{% block extra_style %}
+.set-main { padding: 1.5rem 2rem; max-width: 900px; }
+.set-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.settings-form {
+    background: #2d2d2d; border: 1px solid #3c3c3c;
+    padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem;
+}
+.settings-form h2 { margin-top: 0; border-bottom: 1px solid #3c3c3c; padding-bottom: 0.5rem; margin-bottom: 1rem; font-size: 1rem; color: #e8eaed; }
+.form-group { margin-bottom: 1.25rem; }
+.form-group label { display: block; font-weight: 600; margin-bottom: 5px; color: #e8eaed; font-size: 0.85rem; }
+.form-group .help-text { font-size: 0.78rem; color: #5f6368; margin-top: 5px; }
+.form-group .help-text a { color: #8ab4f8; }
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="time"],
+.form-group input[type="number"],
+.form-group input[type="url"],
+.form-group input[type="file"],
+.form-group select {
+    width: 100%; max-width: 420px; padding: 10px;
+    background: #1f1f1f; color: #e8eaed; border: 1px solid #3c3c3c;
+    border-radius: 4px; font-size: 0.9rem;
+}
+.form-group input:focus, .form-group select:focus { outline: none; border-color: #8ab4f8; }
+.checkbox-group { margin-bottom: 0.85rem; }
+.checkbox-group label { display: flex; align-items: center; gap: 0.6rem; font-weight: 500; }
+.checkbox-group input[type="checkbox"] { transform: scale(1.1); }
+.save-btn {
+    background: #8ab4f8; color: #1f1f1f; border: none;
+    padding: 10px 24px; cursor: pointer; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
+}
+.save-btn:hover { opacity: 0.9; }
+.flash-messages { margin-bottom: 1rem; max-width: 760px; }
+.flash { padding: 10px 15px; border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; }
+.flash.success { background: rgba(129,201,149,0.15); color: #81c995; border: 1px solid #81c995; }
+.flash.error { background: rgba(242,139,130,0.15); color: #f28b82; border: 1px solid #f28b82; }
+.status-indicator { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.78rem; margin-left: 8px; }
+.status-ok { background: rgba(129,201,149,0.15); color: #81c995; }
+.status-missing { background: rgba(242,139,130,0.15); color: #f28b82; }
+.test-btn {
+    background: #3c3c3c; color: #9aa0a6; border: none;
+    padding: 8px 16px; cursor: pointer; border-radius: 4px; margin-left: 10px;
+}
+.test-btn:hover { background: #5f6368; color: #e8eaed; }
+
+.calendar-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.6rem; border-bottom: 1px solid #3c3c3c; gap: 10px;
+}
+.calendar-row:last-child { border-bottom: none; }
+.calendar-name { font-weight: 600; color: #e8eaed; flex: 1; font-size: 0.85rem; }
+.calendar-url {
+    color: #5f6368; font-size: 0.75rem; max-width: 280px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.calendar-actions { display: flex; gap: 6px; }
+.mini-btn {
+    border: none; border-radius: 4px; cursor: pointer;
+    padding: 4px 10px; font-size: 0.8rem;
+}
+.mini-btn.refresh { background: #8ab4f8; color: #1f1f1f; }
+.mini-btn.remove { background: #f28b82; color: #1f1f1f; }
+.mini-btn.refresh-all { background: #81c995; color: #1f1f1f; margin-bottom: 10px; padding: 8px 14px; }
+.danger-btn { background: #f28b82; color: #1f1f1f; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+.danger-btn:hover { opacity: 0.9; }
+.event-list { list-style: none; padding: 0; margin: 0; }
+.event-list li { padding: 0.45rem 0; border-bottom: 1px solid #3c3c3c; display: flex; gap: 12px; font-size: 0.82rem; }
+.event-list li:last-child { border-bottom: none; }
+.event-time { color: #9aa0a6; font-family: monospace; min-width: 130px; }
+.event-title { color: #e8eaed; flex: 1; }
+{% endblock %}
+
+{% block content %}
+<div class="set-main">
+    <h1>🔧 Settings</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('settings') }}">
+        <section class="settings-form">
+            <h2>📱 Telegram Bot</h2>
+            <div class="form-group">
+                <label for="telegram_bot_token">
+                    Bot Token
+                    {% if config.telegram_bot_token %}<span class="status-indicator status-ok">✓ Set</span>
+                    {% else %}<span class="status-indicator status-missing">Not set</span>{% endif %}
+                </label>
+                <input type="password" id="telegram_bot_token" name="telegram_bot_token" value="{{ config.telegram_bot_token }}" placeholder="123456789:ABCdef...">
+                <p class="help-text">Get a token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram.</p>
+            </div>
+            <div class="form-group">
+                <label for="telegram_chat_id">
+                    Chat ID
+                    {% if config.telegram_chat_id %}<span class="status-indicator status-ok">✓ Set</span>
+                    {% else %}<span class="status-indicator status-missing">Not set</span>{% endif %}
+                </label>
+                <input type="text" id="telegram_chat_id" name="telegram_chat_id" value="{{ config.telegram_chat_id }}" placeholder="Auto-set when you /start the bot">
+                <p class="help-text">Set automatically when you send /start to your bot.</p>
+            </div>
+        </section>
+
+        <section class="settings-form">
+            <h2>🕐 Time & Schedule</h2>
+            <div class="form-group">
+                <label for="timezone">Timezone</label>
+                <select id="timezone" name="timezone">
+                    {% for tz in timezones %}
+                    <option value="{{ tz }}" {% if tz == config.timezone %}selected{% endif %}>{{ tz }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </section>
+
+        <section class="settings-form">
+            <h2>🌐 Web Dashboard</h2>
+            <div class="form-group">
+                <label for="web_host">Listen Address</label>
+                <input type="text" id="web_host" name="web_host" value="{{ config.web_host }}" placeholder="0.0.0.0">
+                <p class="help-text">Use 0.0.0.0 for network access, or 127.0.0.1 for local only.</p>
+            </div>
+            <div class="form-group">
+                <label for="web_port">Port</label>
+                <input type="number" id="web_port" name="web_port" value="{{ config.web_port }}" min="1024" max="65535">
+            </div>
+        </section>
+
+        <section class="settings-form">
+            <h2>💬 Alfred Chat</h2>
+            <div class="form-group">
+                <label for="chat_assistant_name">Assistant Name</label>
+                <input type="text" id="chat_assistant_name" name="chat_assistant_name" value="{{ config.chat_assistant_name or 'Alfred' }}" placeholder="Alfred">
+            </div>
+            <div class="form-group">
+                <label for="chat_default_thread_id">Shared Thread ID</label>
+                <input type="text" id="chat_default_thread_id" name="chat_default_thread_id" value="{{ config.chat_default_thread_id or 'alfred-main' }}" placeholder="alfred-main">
+                <p class="help-text">Same thread ID is used across web/CLI/Telegram when unified continuity is enabled.</p>
+            </div>
+            <div class="form-group">
+                <label for="chat_ollama_model">Ollama Model</label>
+                <input type="text" id="chat_ollama_model" name="chat_ollama_model" value="{{ config.chat_ollama_model or 'qwen2.5:7b-instruct-q4_K_M' }}">
+            </div>
+            <div class="form-group">
+                <label for="chat_ollama_base_url">Ollama Base URL</label>
+                <input type="url" id="chat_ollama_base_url" name="chat_ollama_base_url" value="{{ config.chat_ollama_base_url or 'http://localhost:11434' }}" placeholder="http://localhost:11434">
+            </div>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="chat_model_first_enabled" {% if config.chat_model_first_enabled %}checked{% endif %}>
+                    Model-first chat enabled
+                </label>
+            </div>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="chat_unified_continuity" {% if config.chat_unified_continuity %}checked{% endif %}>
+                    Unified continuity across web / CLI / Telegram
+                </label>
+            </div>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="chat_brief_mode" {% if config.chat_brief_mode %}checked{% endif %}>
+                    Brief replies by default
+                </label>
+            </div>
+        </section>
+
+        <button type="submit" class="save-btn">💾 Save Settings</button>
+    </form>
+
+    <section class="settings-form" id="calendar-import" style="margin-top:2rem;">
+        <h2>📥 Calendar Import</h2>
+        <p class="help-text">Execution controls (refresh/run cadence/queue visibility) now live in the Control tab.</p>
+
+        {% if saved_urls %}
+        {% for u in saved_urls %}
+        <div class="calendar-row">
+            <span class="calendar-name">{{ u.name }}</span>
+            <span class="calendar-url" title="{{ u.url }}">{{ u.url }}</span>
+            <div class="calendar-actions">
+                <form method="POST" action="{{ url_for('calendar_remove_url') }}" style="display:inline;">
+                    <input type="hidden" name="next" value="settings">
+                    <input type="hidden" name="url" value="{{ u.url }}">
+                    <button type="submit" class="mini-btn remove" onclick="return confirm('Remove this calendar?')">✕</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="help-text">No saved calendar feeds yet.</p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('calendar_upload') }}" enctype="multipart/form-data" style="margin-top:1rem;">
+            <input type="hidden" name="next" value="settings">
+            <div class="form-group">
+                <label for="url_name">Calendar Name (optional)</label>
+                <input type="text" id="url_name" name="url_name" placeholder="Work Calendar">
+            </div>
+            <div class="form-group">
+                <label for="ics_url">Calendar URL</label>
+                <input type="url" id="ics_url" name="ics_url" placeholder="https://example.com/calendar.ics">
+            </div>
+            <div class="form-group">
+                <label for="ics_file">Or upload .ics file</label>
+                <input type="file" id="ics_file" name="ics_file" accept=".ics">
+            </div>
+            <button type="submit" class="save-btn">Add Calendar</button>
+        </form>
+    </section>
+
+    <section class="settings-form" style="margin-top:2rem;">
+        <h2>ℹ️ System Info</h2>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Version:</strong> Noctem v0.9.3</p>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Database:</strong> noctem/data/noctem.db</p>
+        <p style="color:#9aa0a6;font-size:0.85rem;"><strong>Dashboard URL:</strong> http://{{ request.host }}</p>
+    </section>
+
+    <section class="settings-form">
+        <h2>🔧 Test Connection</h2>
+        <form method="POST" action="{{ url_for('settings_test') }}">
+            <button type="submit" class="test-btn">Send Test Message to Telegram</button>
+        </form>
+        <p class="help-text" style="margin-top: 10px;">Sends a test message to verify your Telegram bot is working.</p>
+    </section>
+</div>
+{% endblock %}
