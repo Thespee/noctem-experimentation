@@ -146,10 +146,16 @@ def prepend_feedback(text: str, *, source: str = "fast_path") -> dict[str, Any]:
 
     with get_db() as conn:
         body, head_vid, head_vnum = _get_head_body(conn)
-        if body.strip():
-            new_body = text + "\n" + _DELIMITER + "\n" + body
+        existing = body.strip()
+        if not existing:
+            # First entry: surround with &&& above and below for consistency
+            new_body = _DELIMITER + "\n" + text + "\n" + _DELIMITER
+        elif existing.startswith(_DELIMITER):
+            # Existing already opens with &&&; it acts as the "below" delimiter
+            new_body = _DELIMITER + "\n" + text + "\n" + existing
         else:
-            new_body = text
+            # Existing has no leading delimiter; add &&& on both sides of new entry
+            new_body = _DELIMITER + "\n" + text + "\n" + _DELIMITER + "\n" + existing
         vid = _commit_body(conn, new_body, head_vid, head_vnum, source=source)
 
     return {"ok": True, "version_id": vid}

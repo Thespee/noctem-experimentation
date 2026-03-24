@@ -66,10 +66,20 @@ class TestFeedbackSingleton:
         body = get_feedback_text()
         assert "&&&" in body
 
-    def test_no_delimiter_for_single_entry(self):
+    def test_single_entry_surrounded_by_delimiters(self):
         prepend_feedback("solo")
         body = get_feedback_text()
-        assert "&&&" not in body
+        # First entry should also be surrounded: &&& above and below
+        assert body.startswith("&&&")
+        assert body.endswith("&&&")
+
+    def test_second_entry_no_double_delimiter(self):
+        prepend_feedback("first")
+        prepend_feedback("second")
+        body = get_feedback_text()
+        # Should not have &&& immediately followed by another &&& (no doubling)
+        import re
+        assert not re.search(r'&&&\s*&&&', body)
 
     def test_empty_text_rejected(self):
         result = prepend_feedback("")
