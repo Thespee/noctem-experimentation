@@ -185,12 +185,21 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - **Chat resume logic removed**: `chat_orchestrator.py` no longer attempts auto-resume of interrupted workflows in the chat path. Resume is handled exclusively through the review/Control surface.
 - **Legacy cleanup**: `tools.html` template deleted, old reason code migration added to `db.init_db()`, habit/briefing/slow-mode/butler/whisper test classes removed.
 
+## Session Learnings (Mar 2026, v0.9.4.1 Runtime Fixes)
+
+- **Nested `<script>` tags are fatal in Jinja templates.** `base.html` already wraps `{% block extra_script %}` inside a `<script>` tag (line 267). Child templates must NOT add their own `<script>`/`</script>` inside that block — doing so creates nested script elements that cause a JS parse error, silently killing ALL JavaScript on the page. This was the root cause of the Control tab rendering as a blank page with no interactivity.
+- **SQLite WAL mode is required for threaded Flask.** Running `app.run(threaded=True)` without `PRAGMA journal_mode = WAL` causes database-locked errors under concurrent reads/writes. WAL is now set in `db.get_connection()`.
+- **Monitoring surfaces need auto-polling.** The Control tab's `refreshControl()` now runs on a 5-second `setInterval` instead of requiring manual clicks, since review items and queue state change asynchronously.
+- **Chat must not show approval prompts for interrupted workflows.** When a workflow is interrupted and a review item exists, the chat response is replaced with a brief redirect message pointing to the Control tab. The old "Approve? Reply yes or no" inline prompt is removed from the chat path entirely.
+- **Route/tab renames require a full grep across templates AND tests.** The `/tools` → `/control` rename left stale references in `settings.html` ("Tools tab" text), test assertions (checking `/tools` routes, old `/api/agent/reviews/{id}/approve` endpoint), and test function names. Always search all `.html` and `test_*.py` files when renaming a route.
+- **PowerShell 5.1 mangles escaped quotes inside inline `python -c` strings.** For any non-trivial DB script, write to a temp `.py` file and execute it instead of trying to pass complex SQL through PowerShell string interpolation.
+
 ## Testing
 
-- Run all tests: `python -m pytest noctem/tests -v` from `current version_v0.9.4/`.
+- Run all tests: `python -m pytest tests -v` from `current version_v0.9.4/`.
 - Shared `conftest.py` provides an autouse temp-DB fixture for all test files.
-- 147 tests passing as of v0.9.4.1.
-- Test files cover: services, startup/imports, parser, review queue, compaction, plan tracker, scheduler gating, control API routes, review notifications, memory pack.
+- 311 tests passing as of v0.9.4.1 runtime fixes.
+- Test files cover: services, startup/imports, parser, review queue, compaction, plan tracker, scheduler gating, control tab API routes, review notifications, memory pack, conversation grounding, agentic agent flows.
 
 ## Build & Deployment
 
