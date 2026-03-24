@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Feedback - Noctem{% endblock %}
+
+{% block extra_style %}
+.fb-main { padding: 1.5rem 2rem; max-width: 800px; }
+.fb-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
+.section-card { background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.section-card h2 { font-size: 1rem; color: #e8eaed; margin-bottom: 0.75rem; }
+.fb-input-row { display: flex; gap: 0.5rem; }
+.fb-input-row input { flex: 1; background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 0.75rem; border-radius: 6px; font-size: 0.85rem; }
+.fb-input-row input:focus { outline: none; border-color: #8ab4f8; }
+.fb-input-row button { background: #8ab4f8; color: #1f1f1f; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.85rem; }
+.fb-input-row button:hover { background: #aecbfa; }
+.fb-status { margin-top: 0.5rem; font-size: 0.8rem; min-height: 1.2em; }
+.fb-status.ok { color: #81c995; }
+.fb-status.err { color: #f28b82; }
+.fb-meta { display: flex; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.78rem; color: #5f6368; flex-wrap: wrap; }
+.fb-meta span { background: #2d2d2d; padding: 0.25rem 0.6rem; border-radius: 4px; }
+.fb-body { background: #1f1f1f; border: 1px solid #3c3c3c; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.85rem; line-height: 1.6; color: #e8eaed; white-space: pre-wrap; word-break: break-word; min-height: 120px; max-height: 60vh; overflow-y: auto; }
+.fb-body-empty { color: #5f6368; font-style: italic; }
+.fb-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.fb-actions button { font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 4px; background: #3c3c3c; color: #9aa0a6; border: none; cursor: pointer; }
+.fb-actions button:hover { background: #5f6368; color: #e8eaed; }
+.delimiter-line { color: #5f6368; font-weight: bold; }
+{% endblock %}
+
+{% block content %}
+<div class="fb-main">
+    <h1>📝 Feedback</h1>
+
+    <div class="section-card">
+        <h2>Submit Feedback</h2>
+        <form class="fb-input-row" onsubmit="submitFeedback(event)">
+            <input type="text" id="fb-input" placeholder="Type feedback here..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+        <div class="fb-status" id="fb-status"></div>
+    </div>
+
+    <div class="section-card">
+        <h2>Feedback Document</h2>
+        <div class="fb-meta" id="fb-meta"></div>
+        <div class="fb-body" id="fb-body"><span class="fb-body-empty">Loading...</span></div>
+        <div class="fb-actions">
+            <button onclick="refreshFeedback()">🔄 Refresh</button>
+            <button onclick="copyFeedback()">📋 Copy Raw</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+async function loadFeedback() {
+    try {
+        const r = await fetch('/api/feedback');
+        const d = await r.json();
+        const metaEl = document.getElementById('fb-meta');
+        const bodyEl = document.getElementById('fb-body');
+        if (!d.success) { bodyEl.innerHTML = '<span class="fb-body-empty">Error loading feedback.</span>'; return; }
+        metaEl.innerHTML = '<span>Version: ' + (d.version_num || '—') + '</span>';
+        const body = (d.body || '').trim();
+        if (!body) {
+            bodyEl.innerHTML = '<span class="fb-body-empty">No feedback yet. Use the form above or <code>.f</code> from chat/CLI/Telegram.</span>';
+            return;
+        }
+        bodyEl.innerHTML = escapeHtml(body).replace(/&amp;&amp;&amp;/g, '<span class="delimiter-line">&&&</span>');
+    } catch(e) {
+        document.getElementById('fb-body').innerHTML = '<span class="fb-body-empty">Could not load feedback.</span>';
+    }
+}
+
+async function submitFeedback(e) {
+    e.preventDefault();
+    const inp = document.getElementById('fb-input');
+    const status = document.getElementById('fb-status');
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.disabled = true;
+    status.textContent = '';
+    try {
+        const r = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: '.f ' + text})
+        });
+        const d = await r.json();
+        if (d.success) {
+            status.textContent = '✓ Feedback captured.';
+            status.className = 'fb-status ok';
+            inp.value = '';
+            loadFeedback();
+        } else {
+            status.textContent = '✗ ' + (d.error || 'Failed');
+            status.className = 'fb-status err';
+        }
+    } catch(err) {
+        status.textContent = '✗ Connection error';
+        status.className = 'fb-status err';
+    } finally {
+        inp.disabled = false;
+        inp.focus();
+    }
+}
+
+function refreshFeedback() { loadFeedback(); }
+
+function copyFeedback() {
+    const bodyEl = document.getElementById('fb-body');
+    const text = bodyEl.innerText || bodyEl.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(() => btn.textContent = orig, 1500);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', loadFeedback);
+{% endblock %}

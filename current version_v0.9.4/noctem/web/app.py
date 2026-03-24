@@ -153,6 +153,11 @@ def create_app() -> Flask:
             next_week=two_week_data['next_week'],
         )
 
+    @app.route("/feedback")
+    def feedback_page():
+        """Feedback capture page — view and submit feedback."""
+        return render_template("feedback.html")
+
     @app.route("/control")
     def control():
         """Unified control surface: Reviews, Tasks, Background."""
