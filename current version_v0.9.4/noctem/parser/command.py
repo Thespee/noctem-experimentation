@@ -23,6 +23,7 @@ class CommandType(Enum):
     DONE = "done"
     SKIP = "skip"
     DELETE = "delete"
+    FEEDBACK = "feedback"
     NEW_TASK = "new_task"
 
 
@@ -67,6 +68,7 @@ def parse_command(text: str) -> ParsedCommand:
             "g": CommandType.GOAL,
             "d": CommandType.DONE,
             "s": CommandType.SKIP,
+            "f": CommandType.FEEDBACK,
         }
         cmd_map = {
             "start": CommandType.START,

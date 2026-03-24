@@ -375,6 +375,8 @@ def create_app() -> Flask:
         Returns JSON: {"response": "✓ Created task...", "success": true}
         """
         from ..agent.execution_queue_runtime import process_chat_message_via_queue
+        from ..parser.command import parse_command, CommandType
+        from ..services.feedback_service import prepend_feedback as _prepend_feedback
         
         data = request.get_json() or {}
         if not data or 'message' not in data:
@@ -383,6 +385,25 @@ def create_app() -> Flask:
         message = data['message'].strip()
         if not message:
             return jsonify({"error": "Empty message", "success": False}), 400
+
+        # Fast-path: .f feedback capture (bypass queue runtime)
+        _parsed_cmd = parse_command(message)
+        if _parsed_cmd.type == CommandType.FEEDBACK:
+            _fb_text = message
+            _lower = _fb_text.lower()
+            if _lower.startswith(".f") or _lower.startswith("/f"):
+                _fb_text = _fb_text[2:].strip()
+            if not _fb_text:
+                return jsonify({"error": "Empty feedback", "success": False}), 400
+            fb_result = _prepend_feedback(_fb_text, source="web.fast_path")
+            if not fb_result.get("ok"):
+                return jsonify({"error": "Unable to save feedback", "success": False}), 500
+            return jsonify({
+                "response": "✓ Feedback captured.",
+                "success": True,
+                "mode": "fast_path",
+                "timestamp": datetime.now().isoformat(),
+            })
 
         requested_thread_id = (
             (data.get("thread_id") or "")
@@ -480,6 +501,16 @@ def create_app() -> Flask:
             "history": history[-limit:],
         })
     
+    # =========================================================================
+    # Feedback export API
+    # =========================================================================
+
+    @app.route("/api/feedback")
+    def api_feedback_export():
+        """Export the singleton feedback document."""
+        from ..services.feedback_service import export_feedback
+        return jsonify({"success": True, **export_feedback()})
+
     # =========================================================================
     # v0.9.3: Agent workflow API
     # =========================================================================
