@@ -162,6 +162,14 @@ def get_feedback_text() -> str:
     return body
 
 
+def save_feedback_body(body: str, *, source: str = "web") -> dict[str, Any]:
+    """Overwrite the singleton feedback doc with *body* as-is. Returns status dict."""
+    with get_db() as conn:
+        _, head_vid, head_vnum = _get_head_body(conn)
+        vid = _commit_body(conn, body, head_vid, head_vnum, source=source)
+    return {"ok": True, "version_id": vid}
+
+
 def export_feedback() -> dict[str, Any]:
     """Export the feedback doc content for downstream consumption."""
     with get_db() as conn:

@@ -510,11 +510,20 @@ def create_app() -> Flask:
     # Feedback export API
     # =========================================================================
 
-    @app.route("/api/feedback")
+    @app.route("/api/feedback", methods=["GET"])
     def api_feedback_export():
         """Export the singleton feedback document."""
         from ..services.feedback_service import export_feedback
         return jsonify({"success": True, **export_feedback()})
+
+    @app.route("/api/feedback", methods=["POST"])
+    def api_feedback_save():
+        """Overwrite the singleton feedback document body."""
+        from ..services.feedback_service import save_feedback_body
+        data = request.get_json() or {}
+        body = data.get("body", "")
+        result = save_feedback_body(body, source="web")
+        return jsonify({"success": result.get("ok", False), "version_id": result.get("version_id")})
 
     # =========================================================================
     # v0.9.3: Agent workflow API

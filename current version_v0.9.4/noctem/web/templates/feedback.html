@@ -2,111 +2,101 @@
 {% block title %}Feedback - Noctem{% endblock %}
 
 {% block extra_style %}
-.fb-main { padding: 1.5rem 2rem; max-width: 800px; }
-.fb-main h1 { font-size: 1.3rem; margin-bottom: 1rem; color: #e8eaed; }
-.section-card { background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-.section-card h2 { font-size: 1rem; color: #e8eaed; margin-bottom: 0.75rem; }
-.fb-input-row { display: flex; gap: 0.5rem; }
-.fb-input-row input { flex: 1; background: #1f1f1f; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 0.75rem; border-radius: 6px; font-size: 0.85rem; }
-.fb-input-row input:focus { outline: none; border-color: #8ab4f8; }
-.fb-input-row button { background: #8ab4f8; color: #1f1f1f; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.85rem; }
-.fb-input-row button:hover { background: #aecbfa; }
-.fb-status { margin-top: 0.5rem; font-size: 0.8rem; min-height: 1.2em; }
+.fb-page { display: flex; flex-direction: column; height: 100vh; padding: 1.25rem 1.5rem; box-sizing: border-box; }
+.fb-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-shrink: 0; }
+.fb-header h1 { font-size: 1.2rem; margin: 0; color: #e8eaed; }
+.fb-toolbar { display: flex; align-items: center; gap: 0.5rem; }
+.fb-status { font-size: 0.78rem; min-width: 120px; text-align: right; }
 .fb-status.ok { color: #81c995; }
 .fb-status.err { color: #f28b82; }
-.fb-meta { display: flex; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.78rem; color: #5f6368; flex-wrap: wrap; }
-.fb-meta span { background: #2d2d2d; padding: 0.25rem 0.6rem; border-radius: 4px; }
-.fb-body { background: #1f1f1f; border: 1px solid #3c3c3c; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.85rem; line-height: 1.6; color: #e8eaed; white-space: pre-wrap; word-break: break-word; min-height: 120px; max-height: 60vh; overflow-y: auto; }
-.fb-body-empty { color: #5f6368; font-style: italic; }
-.fb-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
-.fb-actions button { font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 4px; background: #3c3c3c; color: #9aa0a6; border: none; cursor: pointer; }
-.fb-actions button:hover { background: #5f6368; color: #e8eaed; }
-.delimiter-line { color: #5f6368; font-weight: bold; }
+.fb-status.saving { color: #fdd663; }
+.btn { padding: 0.45rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 500; }
+.btn-primary { background: #8ab4f8; color: #1f1f1f; }
+.btn-primary:hover { background: #aecbfa; }
+.btn-ghost { background: #3c3c3c; color: #9aa0a6; }
+.btn-ghost:hover { background: #5f6368; color: #e8eaed; }
+#fb-editor {
+    flex: 1;
+    width: 100%;
+    background: #1a1a1a;
+    border: 1px solid #3c3c3c;
+    border-radius: 8px;
+    color: #e8eaed;
+    font-family: "JetBrains Mono", "Fira Mono", Consolas, monospace;
+    font-size: 0.88rem;
+    line-height: 1.65;
+    padding: 1rem 1.25rem;
+    resize: none;
+    box-sizing: border-box;
+    outline: none;
+    tab-size: 4;
+}
+#fb-editor:focus { border-color: #8ab4f8; }
 {% endblock %}
 
 {% block content %}
-<div class="fb-main">
-    <h1>📝 Feedback</h1>
-
-    <div class="section-card">
-        <h2>Submit Feedback</h2>
-        <form class="fb-input-row" onsubmit="submitFeedback(event)">
-            <input type="text" id="fb-input" placeholder="Type feedback here..." autocomplete="off">
-            <button type="submit">Send</button>
-        </form>
-        <div class="fb-status" id="fb-status"></div>
-    </div>
-
-    <div class="section-card">
-        <h2>Feedback Document</h2>
-        <div class="fb-meta" id="fb-meta"></div>
-        <div class="fb-body" id="fb-body"><span class="fb-body-empty">Loading...</span></div>
-        <div class="fb-actions">
-            <button onclick="refreshFeedback()">🔄 Refresh</button>
-            <button onclick="copyFeedback()">📋 Copy Raw</button>
+<div class="fb-page">
+    <div class="fb-header">
+        <h1>📝 Feedback</h1>
+        <div class="fb-toolbar">
+            <span class="fb-status" id="fb-status"></span>
+            <button class="btn btn-ghost" onclick="copyAll()">📋 Copy</button>
+            <button class="btn btn-primary" id="save-btn" onclick="saveFeedback()">Save</button>
         </div>
     </div>
+    <textarea id="fb-editor" placeholder="No feedback yet. Start typing, or send .f from chat / CLI / Telegram. Use &&& on its own line to delimit entries."
+              spellcheck="true" autocomplete="off"></textarea>
 </div>
 {% endblock %}
 
 {% block extra_script %}
+let _savedBody = null;
+let _dirty = false;
+let _saveTimeout = null;
+
 async function loadFeedback() {
     try {
         const r = await fetch('/api/feedback');
         const d = await r.json();
-        const metaEl = document.getElementById('fb-meta');
-        const bodyEl = document.getElementById('fb-body');
-        if (!d.success) { bodyEl.innerHTML = '<span class="fb-body-empty">Error loading feedback.</span>'; return; }
-        metaEl.innerHTML = '<span>Version: ' + (d.version_num || '—') + '</span>';
-        const body = (d.body || '').trim();
-        if (!body) {
-            bodyEl.innerHTML = '<span class="fb-body-empty">No feedback yet. Use the form above or <code>.f</code> from chat/CLI/Telegram.</span>';
-            return;
-        }
-        bodyEl.innerHTML = escapeHtml(body).replace(/&amp;&amp;&amp;/g, '<span class="delimiter-line">&&&</span>');
+        if (!d.success) { setStatus('err', '✗ Load failed'); return; }
+        _savedBody = d.body || '';
+        document.getElementById('fb-editor').value = _savedBody;
+        _dirty = false;
+        setStatus('', '');
     } catch(e) {
-        document.getElementById('fb-body').innerHTML = '<span class="fb-body-empty">Could not load feedback.</span>';
+        setStatus('err', '✗ Could not load');
     }
 }
 
-async function submitFeedback(e) {
-    e.preventDefault();
-    const inp = document.getElementById('fb-input');
-    const status = document.getElementById('fb-status');
-    const text = inp.value.trim();
-    if (!text) return;
-    inp.disabled = true;
-    status.textContent = '';
+async function saveFeedback() {
+    const editor = document.getElementById('fb-editor');
+    const body = editor.value;
+    setStatus('saving', 'Saving…');
+    document.getElementById('save-btn').disabled = true;
     try {
-        const r = await fetch('/api/chat', {
+        const r = await fetch('/api/feedback', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({message: '.f ' + text})
+            body: JSON.stringify({body})
         });
         const d = await r.json();
         if (d.success) {
-            status.textContent = '✓ Feedback captured.';
-            status.className = 'fb-status ok';
-            inp.value = '';
-            loadFeedback();
+            _savedBody = body;
+            _dirty = false;
+            setStatus('ok', '✓ Saved');
+            setTimeout(() => { if (!_dirty) setStatus('', ''); }, 2000);
         } else {
-            status.textContent = '✗ ' + (d.error || 'Failed');
-            status.className = 'fb-status err';
+            setStatus('err', '✗ Save failed');
         }
-    } catch(err) {
-        status.textContent = '✗ Connection error';
-        status.className = 'fb-status err';
+    } catch(e) {
+        setStatus('err', '✗ Connection error');
     } finally {
-        inp.disabled = false;
-        inp.focus();
+        document.getElementById('save-btn').disabled = false;
     }
 }
 
-function refreshFeedback() { loadFeedback(); }
-
-function copyFeedback() {
-    const bodyEl = document.getElementById('fb-body');
-    const text = bodyEl.innerText || bodyEl.textContent || '';
+function copyAll() {
+    const text = document.getElementById('fb-editor').value;
     navigator.clipboard.writeText(text).then(() => {
         const btn = event.target;
         const orig = btn.textContent;
@@ -115,5 +105,28 @@ function copyFeedback() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', loadFeedback);
+function setStatus(cls, msg) {
+    const el = document.getElementById('fb-status');
+    el.textContent = msg;
+    el.className = 'fb-status' + (cls ? ' ' + cls : '');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadFeedback();
+    const editor = document.getElementById('fb-editor');
+    editor.addEventListener('input', () => {
+        _dirty = true;
+        setStatus('saving', 'Unsaved');
+        clearTimeout(_saveTimeout);
+        _saveTimeout = setTimeout(saveFeedback, 3000);
+    });
+    // Ctrl+S / Cmd+S to save
+    editor.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            clearTimeout(_saveTimeout);
+            saveFeedback();
+        }
+    });
+});
 {% endblock %}
