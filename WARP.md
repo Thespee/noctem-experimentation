@@ -194,12 +194,26 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - **Route/tab renames require a full grep across templates AND tests.** The `/tools` → `/control` rename left stale references in `settings.html` ("Tools tab" text), test assertions (checking `/tools` routes, old `/api/agent/reviews/{id}/approve` endpoint), and test function names. Always search all `.html` and `test_*.py` files when renaming a route.
 - **PowerShell 5.1 mangles escaped quotes inside inline `python -c` strings.** For any non-trivial DB script, write to a temp `.py` file and execute it instead of trying to pass complex SQL through PowerShell string interpolation.
 
+## Session Learnings (Mar 2026, Feedback Capture Surface)
+
+- **Feedback doc is a singleton object** (`feedback_doc:1`) stored in the object-core tables (`objects`, `object_versions`, `object_refs`). Exactly one record exists system-wide; created lazily on first access via `services/feedback_service.py`.
+- **`.f` is a fast command** that bypasses the agentic runtime entirely, identical in routing weight to `.t`/`.d`. Registered as `CommandType.FEEDBACK` in `parser/command.py` with `.f`/`/f` shorthand. Everything after `.f ` is treated as raw feedback text.
+- **Fast-path routing for `.f`**: CLI → `_fast_feedback()` in `cli.py`; Telegram → `_fast_feedback()` in `telegram/handlers.py`; Web chat → intercepted before `process_chat_message_via_queue()` in `api_chat`.
+- **Delimiter convention**: `&&&` on its own line separates feedback entries. New `.f` submissions are always **prepended** (newest first) and surrounded by `&&&` above and below. If the existing doc already opens with `&&&`, the new entry reuses it as the below-delimiter to avoid doubling.
+- **Two write paths**:
+  - `prepend_feedback(text)` — fast insert, adds entry at top with surrounding delimiters.
+  - `save_feedback_body(body)` — wholesale overwrite, used by the web editor.
+- **Web surface** (`/feedback`): single full-viewport editable textarea. Auto-saves 3 seconds after last keystroke; Ctrl+S saves immediately. Status indicator: `Unsaved` → `Saving…` → `✓ Saved`. Copy button for raw export.
+- **APIs**: `GET /api/feedback` returns `{body, version_id, version_num}`; `POST /api/feedback` with `{body}` overwrites.
+- **Sidebar link** under Tools section in `base.html`.
+- Do not integrate feedback doc with the agentic workflow or review runtime until explicitly requested — this surface is manual and deterministic only.
+
 ## Testing
 
 - Run all tests: `python -m pytest tests -v` from `current version_v0.9.4/`.
 - Shared `conftest.py` provides an autouse temp-DB fixture for all test files.
-- 311 tests passing as of v0.9.4.1 runtime fixes.
-- Test files cover: services, startup/imports, parser, review queue, compaction, plan tracker, scheduler gating, control tab API routes, review notifications, memory pack, conversation grounding, agentic agent flows.
+- 167 tests passing as of feedback capture surface (Mar 2026).
+- Test files cover: services, startup/imports, parser, review queue, compaction, plan tracker, scheduler gating, control tab API routes, review notifications, memory pack, conversation grounding, agentic agent flows, feedback capture.
 
 ## Build & Deployment
 

@@ -12,6 +12,7 @@ from .mcp.resolver import resolve_task_target
 from .parser.command import CommandType, parse_command
 from .parser.task_parser import parse_task
 from .services import goal_service, project_service, task_service
+from .services.feedback_service import prepend_feedback
 from .services.message_logger import MessageLog
 
 
@@ -25,6 +26,7 @@ Active commands:
   .d <target> or done <x>    Fast-path complete (MCP)
   skip <target>              Fast-path skip/defer (MCP)
   delete <target>            Fast-path delete (MCP, preview+commit)
+  .f <text>                   Fast-path feedback capture
   .p <name>                  Create project
   .g <name>                  Create goal
   projects                   List projects
@@ -38,6 +40,21 @@ Active commands:
 Natural language goes through the agentic runtime.
 """
     )
+
+
+def _fast_feedback(input_text: str) -> str:
+    stripped = (input_text or "").strip()
+    lowered = stripped.lower()
+    if lowered.startswith(".f"):
+        stripped = stripped[2:].strip()
+    elif lowered.startswith("/f"):
+        stripped = stripped[2:].strip()
+    if not stripped:
+        return "❌ Please provide feedback text after .f"
+    result = prepend_feedback(stripped, source="cli.fast_path")
+    if not result.get("ok"):
+        return "❌ Unable to save feedback."
+    return "✓ Feedback captured."
 
 
 def _fast_create_task(input_text: str) -> str:
@@ -247,6 +264,14 @@ def handle_input(text: str, log: MessageLog | None = None) -> bool:
         print(msg)
         if log:
             log.set_action("fast_delete")
+            log.set_result(not msg.startswith("❌"))
+        return True
+
+    if parsed.type == CommandType.FEEDBACK:
+        msg = _fast_feedback(text)
+        print(msg)
+        if log:
+            log.set_action("fast_feedback")
             log.set_result(not msg.startswith("❌"))
         return True
 

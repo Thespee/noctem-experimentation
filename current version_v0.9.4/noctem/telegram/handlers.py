@@ -91,6 +91,24 @@ async def _safe_reply_text(update: Update, text: str, *, parse_mode: str | None 
     return False
 
 
+async def _fast_feedback(update: Update, text: str):
+    stripped = text.strip()
+    lowered = stripped.lower()
+    if lowered.startswith(".f"):
+        stripped = stripped[2:].strip()
+    elif lowered.startswith("/f"):
+        stripped = stripped[2:].strip()
+    if not stripped:
+        await update.message.reply_text("❌ Please provide feedback text after .f")
+        return
+    from ..services.feedback_service import prepend_feedback
+    result = prepend_feedback(stripped, source="telegram.fast_path")
+    if not result.get("ok"):
+        await update.message.reply_text("❌ Unable to save feedback.")
+        return
+    await update.message.reply_text("✓ Feedback captured.")
+
+
 async def _fast_create_task(update: Update, text: str):
     stripped = text.strip()
     lowered = stripped.lower()
@@ -403,6 +421,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if parsed.type == CommandType.DELETE:
             await _fast_delete(update, parsed)
             log.set_action("fast_delete")
+            log.set_result(True)
+            return
+        if parsed.type == CommandType.FEEDBACK:
+            await _fast_feedback(update, text)
+            log.set_action("fast_feedback")
             log.set_result(True)
             return
         if parsed.type == CommandType.NEW_TASK and (text.lower().startswith(".t ") or text.lower().startswith("/t ")):
