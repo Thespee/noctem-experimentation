@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Live Music Ingestion{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.cu-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+.cu-header h1 { font-size: 1.4rem; margin: 0; }
+.cu-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.cu-tab { background: #2d2d2d; border: 1px solid #3c3c3c; color: #9aa0a6; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.82rem; }
+.cu-tab.active { background: #3c4043; color: #8ab4f8; border-color: #8ab4f8; }
+.cu-section { display: none; }
+.cu-section.active { display: block; }
+.cu-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.cu-table th, .cu-table td { padding: 0.5rem 0.6rem; text-align: left; border-bottom: 1px solid #3c3c3c; }
+.cu-table th { color: #9aa0a6; font-weight: 500; background: #2d2d2d; }
+.cu-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 500; }
+.cu-badge.ok { background: #1b5e20; color: #a5d6a7; }
+.cu-badge.err { background: #b71c1c; color: #ef9a9a; }
+.cu-badge.off { background: #3c3c3c; color: #9aa0a6; }
+.cu-badge.fix { background: #e65100; color: #ffcc80; }
+.cu-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+.cu-btn:hover { background: #5f6368; }
+.cu-btn.primary { background: #1a73e8; border-color: #1a73e8; }
+.cu-btn.primary:hover { background: #1565c0; }
+.cu-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.cu-links a { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; padding: 0.3rem 0.7rem; background: #2d2d2d; border-radius: 4px; border: 1px solid #3c3c3c; }
+.cu-links a:hover { background: #3c4043; }
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 1rem 0; }
+{% endblock %}
+
+{% block content %}
+<div class="cu-wrap">
+    <div class="cu-header">
+        <h1>🎵 Cor Unum</h1>
+        <button class="cu-btn primary" onclick="refreshAll()">Refresh All Sources</button>
+    </div>
+
+    <div class="cu-tabs">
+        <div class="cu-tab active" onclick="switchTab('sources')">Source Control</div>
+        <div class="cu-tab" onclick="switchTab('fixing')">Needs Fixing</div>
+        <div class="cu-tab" onclick="switchTab('runs')">Run History</div>
+    </div>
+
+    <!-- Source Control -->
+    <div id="tab-sources" class="cu-section active">
+        <table class="cu-table">
+            <thead><tr><th>Source</th><th>Status</th><th>Last Run</th><th>Error</th><th>Actions</th></tr></thead>
+            <tbody id="sources-body"><tr><td colspan="5" class="cu-empty">Loading...</td></tr></tbody>
+        </table>
+    </div>
+
+    <!-- Needs Fixing -->
+    <div id="tab-fixing" class="cu-section">
+        <table class="cu-table">
+            <thead><tr><th>Source</th><th>Error</th><th>Last Run</th><th>Actions</th></tr></thead>
+            <tbody id="fixing-body"><tr><td colspan="4" class="cu-empty">Loading...</td></tr></tbody>
+        </table>
+    </div>
+
+    <!-- Run History -->
+    <div id="tab-runs" class="cu-section">
+        <table class="cu-table">
+            <thead><tr><th>Source</th><th>Status</th><th>Events</th><th>Artists</th><th>Venues</th><th>Dupes</th><th>Started</th></tr></thead>
+            <tbody id="runs-body"><tr><td colspan="7" class="cu-empty">Loading...</td></tr></tbody>
+        </table>
+    </div>
+
+    <div class="cu-links" style="margin-top:1.5rem;">
+        <strong style="color:#9aa0a6;font-size:0.82rem;padding:0.3rem 0;">DB Views:</strong>
+        <a href="/cor-unum/db/events">Events</a>
+        <a href="/cor-unum/db/artists">Artists</a>
+        <a href="/cor-unum/db/venues">Venues</a>
+        <a href="/cor-unum/db/event-sources">Event Sources</a>
+        <a href="/cor-unum/db/source-registry">Source Registry</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+function switchTab(name) {
+    document.querySelectorAll('.cu-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.cu-section').forEach(s => s.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+async function loadSources() {
+    try {
+        const r = await fetch('/api/cor-unum/sources');
+        const d = await r.json();
+        const body = document.getElementById('sources-body');
+        const fixBody = document.getElementById('fixing-body');
+        if (!d.sources || !d.sources.length) {
+            body.innerHTML = '<tr><td colspan="5" class="cu-empty">No sources configured.</td></tr>';
+            fixBody.innerHTML = '<tr><td colspan="4" class="cu-empty">Nothing needs fixing.</td></tr>';
+            return;
+        }
+        body.innerHTML = d.sources.map(s => `<tr>
+            <td><strong>${escapeHtml(s.source_label || s.source_key)}</strong><br><span style="color:#9aa0a6;font-size:0.72rem">${escapeHtml(s.source_key)}</span></td>
+            <td>${s.enabled ? (s.needs_fixing ? '<span class="cu-badge fix">Needs Fix</span>' : (s.last_status === 'success' ? '<span class="cu-badge ok">Healthy</span>' : (s.last_status === 'error' ? '<span class="cu-badge err">Error</span>' : '<span class="cu-badge off">Idle</span>'))) : '<span class="cu-badge off">Disabled</span>'}</td>
+            <td style="font-size:0.75rem">${s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}</td>
+            <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.last_error ? escapeHtml(s.last_error.substring(0,80)) : '—'}</td>
+            <td>
+                <button class="cu-btn" onclick="refreshSource('${s.source_key}')">Refresh</button>
+                <button class="cu-btn" onclick="toggleEnabled('${s.source_key}', ${s.enabled ? 'false' : 'true'})">${s.enabled ? 'Disable' : 'Enable'}</button>
+                ${s.needs_fixing ? `<button class="cu-btn" onclick="clearError('${s.source_key}')">Clear Error</button>` : ''}
+            </td>
+        </tr>`).join('');
+        const broken = d.sources.filter(s => s.needs_fixing);
+        fixBody.innerHTML = broken.length ? broken.map(s => `<tr>
+            <td>${escapeHtml(s.source_label || s.source_key)}</td>
+            <td style="font-size:0.75rem">${escapeHtml(s.last_error || '—')}</td>
+            <td style="font-size:0.75rem">${s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}</td>
+            <td><button class="cu-btn" onclick="clearError('${s.source_key}')">Clear</button> <button class="cu-btn" onclick="refreshSource('${s.source_key}')">Retry</button></td>
+        </tr>`).join('') : '<tr><td colspan="4" class="cu-empty">Nothing needs fixing.</td></tr>';
+    } catch(e) { console.error('loadSources', e); }
+}
+
+async function loadRuns() {
+    try {
+        const r = await fetch('/api/cor-unum/runs?limit=30');
+        const d = await r.json();
+        const body = document.getElementById('runs-body');
+        if (!d.runs || !d.runs.length) { body.innerHTML = '<tr><td colspan="7" class="cu-empty">No runs yet.</td></tr>'; return; }
+        body.innerHTML = d.runs.map(r => `<tr>
+            <td>${escapeHtml(r.source_key)}</td>
+            <td>${r.status === 'success' ? '<span class="cu-badge ok">OK</span>' : '<span class="cu-badge err">Error</span>'}</td>
+            <td>${r.events_ingested}</td><td>${r.artists_added}</td><td>${r.venues_added}</td><td>${r.duplicates_skipped}</td>
+            <td style="font-size:0.75rem">${new Date(r.started_at).toLocaleString()}</td>
+        </tr>`).join('');
+    } catch(e) { console.error('loadRuns', e); }
+}
+
+async function refreshSource(key) {
+    if (!confirm('Refresh ' + key + '?')) return;
+    const r = await fetch('/api/cor-unum/sources/' + key + '/refresh', {method:'POST'});
+    const d = await r.json();
+    alert(d.success ? 'Done: ' + (d.result.events_ingested||0) + ' events ingested' : 'Error: ' + (d.result.error_message||'unknown'));
+    loadSources(); loadRuns();
+}
+
+async function refreshAll() {
+    if (!confirm('Refresh all enabled sources?')) return;
+    const r = await fetch('/api/cor-unum/sources/refresh-all', {method:'POST'});
+    const d = await r.json();
+    alert('Done: ' + (d.result.total_events_ingested||0) + ' events ingested');
+    loadSources(); loadRuns();
+}
+
+async function toggleEnabled(key, enabled) {
+    await fetch('/api/cor-unum/sources/' + key + '/enabled', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({enabled: enabled === 'true'})});
+    loadSources();
+}
+
+async function clearError(key) {
+    await fetch('/api/cor-unum/sources/' + key + '/clear-error', {method:'PATCH'});
+    loadSources();
+}
+
+loadSources();
+loadRuns();
+{% endblock %}

@@ -2069,6 +2069,118 @@ def create_app() -> Flask:
             "error": "Skills runtime removed from active backend in v0.9.3",
         }), 410
     
+    # =========================================================================
+    # Cor Unum: Live Music Ingestion Surface
+    # =========================================================================
+
+    @app.route("/cor-unum")
+    def cor_unum():
+        """Cor Unum — live music ingestion dashboard."""
+        return render_template("cor_unum.html")
+
+    @app.route("/cor-unum/db/events")
+    def cor_unum_db_events():
+        return render_template("cor_unum_db.html", table="events", title="Events")
+
+    @app.route("/cor-unum/db/artists")
+    def cor_unum_db_artists():
+        return render_template("cor_unum_db.html", table="artists", title="Artists")
+
+    @app.route("/cor-unum/db/venues")
+    def cor_unum_db_venues():
+        return render_template("cor_unum_db.html", table="venues", title="Venues")
+
+    @app.route("/cor-unum/db/event-sources")
+    def cor_unum_db_event_sources():
+        return render_template("cor_unum_db.html", table="event-sources", title="Event Sources")
+
+    @app.route("/cor-unum/db/source-registry")
+    def cor_unum_db_source_registry():
+        return render_template("cor_unum_db.html", table="source-registry", title="Source Registry")
+
+    # --- Cor Unum API endpoints ---
+
+    @app.route("/api/cor-unum/sources")
+    def api_cu_sources():
+        from ..ingestion.service import get_source_registry
+        return jsonify({"success": True, "sources": get_source_registry()})
+
+    @app.route("/api/cor-unum/sources/<source_key>/refresh", methods=["POST"])
+    def api_cu_refresh_source(source_key):
+        from ..ingestion.service import refresh_source
+        result = refresh_source(source_key)
+        return jsonify({"success": result.get("status") != "error", "result": result})
+
+    @app.route("/api/cor-unum/sources/refresh-all", methods=["POST"])
+    def api_cu_refresh_all():
+        from ..ingestion.service import refresh_all_sources
+        result = refresh_all_sources()
+        return jsonify({"success": True, "result": result})
+
+    @app.route("/api/cor-unum/sources/<source_key>/enabled", methods=["PATCH"])
+    def api_cu_set_enabled(source_key):
+        from ..ingestion.service import set_source_enabled
+        data = request.get_json(silent=True) or {}
+        enabled = bool(data.get("enabled", True))
+        updated = set_source_enabled(source_key, enabled)
+        if not updated:
+            return jsonify({"success": False, "error": "Source not found"}), 404
+        return jsonify({"success": True, "source": updated})
+
+    @app.route("/api/cor-unum/sources/<source_key>/clear-error", methods=["PATCH"])
+    def api_cu_clear_error(source_key):
+        from ..ingestion.service import clear_source_error
+        updated = clear_source_error(source_key)
+        if not updated:
+            return jsonify({"success": False, "error": "Source not found"}), 404
+        return jsonify({"success": True, "source": updated})
+
+    @app.route("/api/cor-unum/runs")
+    def api_cu_runs():
+        from ..ingestion.service import get_run_summary
+        source_key = (request.args.get("source_key") or "").strip() or None
+        limit = max(1, min(request.args.get("limit", 20, type=int), 200))
+        runs = get_run_summary(source_key=source_key, limit=limit)
+        return jsonify({"success": True, "runs": runs})
+
+    @app.route("/api/cor-unum/events")
+    def api_cu_events():
+        from ..ingestion.service import get_events
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        search = (request.args.get("search") or "").strip()
+        return jsonify({"success": True, **get_events(page, per_page, search)})
+
+    @app.route("/api/cor-unum/artists")
+    def api_cu_artists():
+        from ..ingestion.service import get_artists
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        search = (request.args.get("search") or "").strip()
+        return jsonify({"success": True, **get_artists(page, per_page, search)})
+
+    @app.route("/api/cor-unum/venues")
+    def api_cu_venues():
+        from ..ingestion.service import get_venues
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        search = (request.args.get("search") or "").strip()
+        return jsonify({"success": True, **get_venues(page, per_page, search)})
+
+    @app.route("/api/cor-unum/event-sources")
+    def api_cu_event_sources():
+        from ..ingestion.service import get_event_sources
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        return jsonify({"success": True, **get_event_sources(page, per_page)})
+
+    @app.route("/api/cor-unum/source-registry")
+    def api_cu_source_registry():
+        from ..ingestion.service import get_source_registry_page
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        return jsonify({"success": True, **get_source_registry_page(page, per_page)})
+
     return app
 
 
