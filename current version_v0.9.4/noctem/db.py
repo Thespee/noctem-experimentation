@@ -444,8 +444,20 @@ def init_db():
     # Run migrations for existing databases
     _migrate_db()
     _drop_legacy_runtime_tables()
+
+    # Cor Unum ingestion tables (additive)
+    _init_cu_tables()
     
     print(f"Database initialized at {DB_PATH}")
+
+
+def _init_cu_tables():
+    """Create and seed Cor Unum ingestion tables."""
+    from .ingestion.schema import init_cu_schema, seed_cu_data
+
+    with get_db() as conn:
+        init_cu_schema(conn)
+        seed_cu_data(conn)
 
 
 def _migrate_db():
