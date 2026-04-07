@@ -2,6 +2,9 @@
 
 AdmitOne renders event listings at /events/vancouver.
 We use Playwright to load the page and parse event cards from the DOM.
+
+Card text structure (pipe = newline):
+  Title | [subtitle] | Mon, Apr 6, 2026, 8:00 p.m. | Vogue Theatre, Vancouver | Get tickets
 """
 from __future__ import annotations
 
@@ -13,6 +16,11 @@ from ..models import RawEvent
 from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
+
+# Lines to skip when looking for venue
+_SKIP_LINES = {"get tickets", "tickets not available", "free", "see more events",
+               "explore more events", "explore more headliner events",
+               "upcoming events", "more events"}
 
 
 class AdmitOneScraper(BaseScraper):
@@ -26,18 +34,20 @@ class AdmitOneScraper(BaseScraper):
 
         events: list[RawEvent] = []
 
-        # AdmitOne typically lists events as cards/links with title, date, venue
-        cards = page.query_selector_all(
-            "a[href*='/events/'], .event-card, .event-item, "
-            "[class*='event'], article"
-        )
+        cards = page.query_selector_all('a[href*="/events/"]')
         seen_urls: set[str] = set()
         for card in cards:
             try:
                 href = card.get_attribute("href") or ""
-                # Only process actual event detail links
-                if "/events/" not in href or href.rstrip("/") == self.target_url.rstrip("/"):
+                # Must be a detail link with an ID-like slug at the end
+                # e.g. /events/vancouver/pro/concerts/.../69053f8a23bab7085db83500
+                if not re.search(r"/events/.+/.+/", href):
                     continue
+                # Skip section links like /events/vancouver/pro
+                parts = [p for p in href.strip("/").split("/") if p]
+                if len(parts) < 4:
+                    continue
+
                 full_url = href if href.startswith("http") else f"https://admitone.com{href}"
                 if full_url in seen_urls:
                     continue
@@ -53,23 +63,20 @@ class AdmitOneScraper(BaseScraper):
                 event_date = None
 
                 for line in lines[1:]:
+                    if line.lower() in _SKIP_LINES:
+                        continue
                     if not event_date:
                         parsed = _try_parse_date(line)
                         if parsed:
                             event_date = parsed
                             continue
-                    if not venue_name and not line.startswith("$") and not line.isdigit():
-                        venue_name = line
+                    # After date is found, next non-junk line is venue
+                    if event_date and not venue_name:
+                        if not line.startswith("$") and not line.isdigit():
+                            venue_name = _clean_venue(line)
 
                 if not event_date:
-                    # Try datetime attribute on child elements
-                    time_el = card.query_selector("time, [datetime]")
-                    if time_el:
-                        raw = time_el.get_attribute("datetime") or time_el.inner_text()
-                        event_date = _try_parse_date(raw)
-
-                if not event_date:
-                    continue  # skip events with no parseable date
+                    continue
 
                 events.append(RawEvent(
                     title=title,
@@ -84,34 +91,39 @@ class AdmitOneScraper(BaseScraper):
         return events
 
 
+def _clean_venue(text: str) -> str:
+    """Strip trailing city from venue name, e.g. 'Vogue Theatre, Vancouver' -> 'Vogue Theatre'."""
+    # Remove trailing ", City" or ", City, Province" patterns
+    cleaned = re.sub(r",\s*(Vancouver|Burnaby|Surrey|Richmond|BC|Canada).*$", "", text, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _try_parse_date(text: str) -> date | None:
-    """Parse common date formats seen on AdmitOne."""
+    """Parse AdmitOne date formats like 'Mon, Apr 6, 2026, 8:00 p.m.'."""
     if not text:
         return None
     text = text.strip()
-    for fmt in (
-        "%B %d, %Y",       # "April 15, 2026"
-        "%b %d, %Y",       # "Apr 15, 2026"
-        "%A, %B %d, %Y",   # "Tuesday, April 15, 2026"
-        "%a, %b %d, %Y",   # "Tue, Apr 15, 2026"
-        "%Y-%m-%d",
-        "%Y-%m-%dT%H:%M:%S",
-    ):
-        try:
-            return datetime.strptime(text[:50], fmt).date()
-        except ValueError:
-            continue
-    m = re.search(r"(\d{4}-\d{2}-\d{2})", text)
+
+    # Strategy 1: regex extract "Mon, Apr 6, 2026" from "Mon, Apr 6, 2026, 8:00 p.m."
+    m = re.match(
+        r"(?:\w+,\s+)?"           # optional day name + comma
+        r"(\w+ \d{1,2},\s*\d{4})",  # "Apr 6, 2026"
+        text,
+    )
     if m:
+        date_part = m.group(1)
+        for fmt in ("%b %d, %Y", "%B %d, %Y"):
+            try:
+                return datetime.strptime(date_part, fmt).date()
+            except ValueError:
+                continue
+
+    # Strategy 2: ISO date
+    m2 = re.search(r"(\d{4}-\d{2}-\d{2})", text)
+    if m2:
         try:
-            return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+            return datetime.strptime(m2.group(1), "%Y-%m-%d").date()
         except ValueError:
             pass
-    # "Apr 15" without year
-    for fmt in ("%B %d", "%b %d"):
-        try:
-            parsed = datetime.strptime(text[:20], fmt)
-            return parsed.replace(year=date.today().year).date()
-        except ValueError:
-            continue
+
     return None

@@ -47,12 +47,23 @@ class EventbriteScraper(BaseScraper):
                 data = json.loads(script.inner_text())
             except (json.JSONDecodeError, Exception):
                 continue
-            items = data if isinstance(data, list) else [data]
-            for item in items:
-                if item.get("@type") not in ("Event", "MusicEvent"):
-                    continue
+
+            # Eventbrite wraps events in ItemList -> itemListElement -> ListItem -> item
+            event_dicts = []
+            if isinstance(data, list):
+                event_dicts = data
+            elif isinstance(data, dict):
+                if data.get("@type") == "ItemList":
+                    for li in data.get("itemListElement", []):
+                        inner = li.get("item", li)
+                        if isinstance(inner, dict):
+                            event_dicts.append(inner)
+                elif data.get("@type") in ("Event", "MusicEvent"):
+                    event_dicts.append(data)
+
+            for item in event_dicts:
                 try:
-                    title = item.get("name", "").strip()
+                    title = (item.get("name") or "").strip()
                     start = item.get("startDate", "")
                     event_date = _parse_date(start)
                     if not title or not event_date:
@@ -72,7 +83,7 @@ class EventbriteScraper(BaseScraper):
                         date=event_date,
                         venue_name=venue_name,
                         artists=artists,
-                        description=item.get("description", "")[:500],
+                        description=(item.get("description") or "")[:500],
                         source_url=source_url,
                     ))
                 except Exception as exc:
