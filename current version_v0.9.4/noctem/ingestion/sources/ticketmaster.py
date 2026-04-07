@@ -1,8 +1,8 @@
 """Ticketmaster Vancouver scraper.
 
-Strategy: Navigate to Ticketmaster.ca, set location to Vancouver,
-filter to music events, and extract structured data from
-application/ld+json script tags (schema.org MusicEvent).
+Strategy: Navigate to the Ticketmaster.ca discover/concerts page for
+Vancouver, which embeds structured ld+json MusicEvent data in the HTML.
+The search page is blocked by Akamai CAPTCHA, but the discover page loads.
 Falls back to DOM parsing if ld+json is unavailable.
 """
 from __future__ import annotations
@@ -17,11 +17,10 @@ from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
-_SEARCH_URL = (
-    "https://www.ticketmaster.ca/search?q=*&daterange=all"
-    "&tab=events&classificationName=Music&city=Vancouver"
-    "&stateCode=BC&countryCode=CA&radius=50&unit=km"
-    "&sort=date,asc"
+# The discover page embeds ld+json MusicEvent data and isn't blocked
+_DISCOVER_URL = (
+    "https://www.ticketmaster.ca/discover/vancouver"
+    "?categoryId=KZFzniwnSyZfZ7v7nJ"  # Concerts category
 )
 
 
@@ -30,9 +29,9 @@ class TicketmasterScraper(BaseScraper):
     target_url = "https://www.ticketmaster.ca/"
 
     def scrape(self, page) -> list[RawEvent]:
-        logger.info("Ticketmaster: navigating to search URL")
-        page.goto(_SEARCH_URL, wait_until="domcontentloaded", timeout=30_000)
-        # Wait for either event list or ld+json to load
+        logger.info("Ticketmaster: navigating to discover page")
+        page.goto(_DISCOVER_URL, wait_until="domcontentloaded", timeout=30_000)
+        # Wait for page content including ld+json to load
         page.wait_for_timeout(5000)
 
         events: list[RawEvent] = []
