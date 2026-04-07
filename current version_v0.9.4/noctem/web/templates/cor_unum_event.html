@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Event{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-ev-header { margin: 1.2rem 0 0.5rem; }
+.cu-ev-title { font-size: 1.5rem; font-weight: 600; margin: 0 0 0.3rem; }
+.cu-ev-meta { font-size: 0.85rem; color: #9aa0a6; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-bottom: 1rem; }
+.cu-ev-meta .venue { color: #8ab4f8; }
+
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
+
+/* Artists list */
+.cu-artists { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.cu-artist-chip { background: #2d2d2d; border: 1px solid #3c3c3c; padding: 0.3rem 0.7rem; border-radius: 6px; font-size: 0.82rem; color: #e8eaed; text-decoration: none; transition: background 0.12s; }
+.cu-artist-chip:hover { background: #3c4043; color: #8ab4f8; }
+
+/* Description */
+.cu-description { font-size: 0.85rem; color: #bdc1c6; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; padding: 0.75rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; }
+
+/* Source links */
+.cu-source-links { display: flex; flex-direction: column; gap: 0.4rem; }
+.cu-source-link { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: #8ab4f8; font-size: 0.82rem; padding: 0.4rem 0.6rem; background: #2d2d2d; border-radius: 4px; border: 1px solid #3c3c3c; transition: background 0.12s; }
+.cu-source-link:hover { background: #3c4043; }
+.cu-source-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cu-source-dot.ra_vancouver { background: #e040fb; }
+.cu-source-dot.ticketmaster_vancouver { background: #0091ff; }
+.cu-source-dot.eventbrite_vancouver { background: #f05537; }
+.cu-source-dot.admitone_vancouver { background: #4caf50; }
+.cu-source-label { color: #9aa0a6; font-size: 0.75rem; }
+.cu-source-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+{% endblock %}
+
+{% block content %}
+<div class="cu-wrap">
+    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
+    <div id="eventDetail"><div class="cu-empty">Loading...</div></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const EVENT_ID = {{ event_id }};
+
+const SOURCE_NAMES = {
+    'ra_vancouver': 'Resident Advisor',
+    'ticketmaster_vancouver': 'Ticketmaster',
+    'eventbrite_vancouver': 'Eventbrite',
+    'admitone_vancouver': 'AdmitOne',
+};
+
+async function loadEvent() {
+    try {
+        const r = await fetch('/api/cor-unum/events/' + EVENT_ID);
+        const d = await r.json();
+        if (!d.success) {
+            document.getElementById('eventDetail').innerHTML = '<div class="cu-empty">Event not found.</div>';
+            return;
+        }
+        const ev = d.event;
+        const dateObj = new Date(ev.date + 'T00:00:00');
+        const dateStr = dateObj.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+
+        let html = `<div class="cu-ev-header">
+            <h1 class="cu-ev-title">${escapeHtml(ev.title)}</h1>
+            <div class="cu-ev-meta">
+                <span>${dateStr}</span>
+                <span class="venue">${escapeHtml(ev.venue_name || 'TBA')}</span>
+                ${ev.venue_address ? `<span>${escapeHtml(ev.venue_address)}</span>` : ''}
+            </div>
+        </div>`;
+
+        // Artists
+        const performers = ev.performers || [];
+        if (performers.length) {
+            html += `<div class="cu-section-label">Artists</div>`;
+            html += `<div class="cu-artists">`;
+            for (const p of performers) {
+                html += `<a href="/cor-unum/artist/${p.id}" class="cu-artist-chip">${escapeHtml(p.name)}</a>`;
+            }
+            html += `</div>`;
+        }
+
+        // Description
+        if (ev.description && ev.description.trim()) {
+            html += `<div class="cu-section-label">Description</div>`;
+            html += `<div class="cu-description">${escapeHtml(ev.description)}</div>`;
+        }
+
+        // Source links
+        const sources = ev.sources || [];
+        if (sources.length) {
+            html += `<div class="cu-section-label">Ticket Sources</div>`;
+            html += `<div class="cu-source-links">`;
+            for (const s of sources) {
+                const label = SOURCE_NAMES[s.source_type] || s.source_type || 'Unknown';
+                const dotClass = s.source_type || '';
+                if (s.source_url) {
+                    html += `<a href="${s.source_url}" target="_blank" rel="noopener" class="cu-source-link">
+                        <span class="cu-source-dot ${dotClass}"></span>
+                        <span class="cu-source-label">${escapeHtml(label)}</span>
+                        <span class="cu-source-url">${escapeHtml(s.source_url)}</span>
+                    </a>`;
+                }
+            }
+            html += `</div>`;
+        }
+
+        document.getElementById('eventDetail').innerHTML = html;
+    } catch(e) { console.error('loadEvent', e); }
+}
+
+loadEvent();
+{% endblock %}

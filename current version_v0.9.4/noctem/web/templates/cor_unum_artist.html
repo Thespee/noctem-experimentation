@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Artist{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-art-header { margin: 1.2rem 0 0.3rem; }
+.cu-art-name { font-size: 1.5rem; font-weight: 600; margin: 0; }
+.cu-art-meta { font-size: 0.82rem; color: #9aa0a6; margin-bottom: 1rem; }
+.cu-art-meta a { color: #8ab4f8; text-decoration: none; }
+.cu-art-meta a:hover { text-decoration: underline; }
+
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
+
+/* Event list on artist page */
+.cu-art-event { display: flex; gap: 0.9rem; padding: 0.6rem 0; border-bottom: 1px solid #2d2d2d; text-decoration: none; color: inherit; transition: background 0.12s; }
+.cu-art-event:hover { background: #262626; }
+.cu-art-ev-date { flex-shrink: 0; width: 90px; font-size: 0.82rem; color: #9aa0a6; }
+.cu-art-ev-title { flex: 1; font-size: 0.9rem; color: #e8eaed; }
+.cu-art-ev-venue { font-size: 0.78rem; color: #8ab4f8; flex-shrink: 0; }
+
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+{% endblock %}
+
+{% block content %}
+<div class="cu-wrap">
+    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
+    <div id="artistDetail"><div class="cu-empty">Loading...</div></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const ARTIST_ID = {{ artist_id }};
+
+async function loadArtist() {
+    try {
+        const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID);
+        const d = await r.json();
+        if (!d.success) {
+            document.getElementById('artistDetail').innerHTML = '<div class="cu-empty">Artist not found.</div>';
+            return;
+        }
+        const a = d.artist;
+        let html = `<div class="cu-art-header">
+            <h1 class="cu-art-name">${escapeHtml(a.name)}</h1>
+            <div class="cu-art-meta">
+                ${a.bio_link ? `<a href="${a.bio_link}" target="_blank" rel="noopener">${escapeHtml(a.bio_link)}</a>` : ''}
+                ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
+            </div>
+        </div>`;
+
+        const events = a.events || [];
+        html += `<div class="cu-section-label">Events (${events.length})</div>`;
+        if (events.length) {
+            for (const ev of events) {
+                const dateObj = new Date(ev.date + 'T00:00:00');
+                const dateStr = dateObj.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+                html += `<a href="/cor-unum/event/${ev.id}" class="cu-art-event">
+                    <div class="cu-art-ev-date">${dateStr}</div>
+                    <div class="cu-art-ev-title">${escapeHtml(ev.title)}</div>
+                    <div class="cu-art-ev-venue">${escapeHtml(ev.venue_name || 'TBA')}</div>
+                </a>`;
+            }
+        } else {
+            html += `<div class="cu-empty">No events found for this artist.</div>`;
+        }
+
+        document.getElementById('artistDetail').innerHTML = html;
+    } catch(e) { console.error('loadArtist', e); }
+}
+
+loadArtist();
+{% endblock %}

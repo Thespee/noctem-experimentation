@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Upcoming Events{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
+.cu-top { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+.cu-top h1 { font-size: 1.4rem; margin: 0; flex: 1; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-search { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.85rem; width: 200px; }
+
+/* Date group header */
+.cu-date-group { margin-bottom: 0.25rem; }
+.cu-date-header { font-size: 0.78rem; color: #9aa0a6; text-transform: uppercase; letter-spacing: 0.04em; padding: 1.2rem 0 0.4rem; border-bottom: 1px solid #3c3c3c; margin-bottom: 0; }
+.cu-date-header:first-child { padding-top: 0; }
+
+/* Event card */
+.cu-event { display: flex; gap: 0.9rem; padding: 0.75rem 0; border-bottom: 1px solid #2d2d2d; transition: background 0.12s; cursor: pointer; text-decoration: none; color: inherit; }
+.cu-event:hover { background: #262626; }
+.cu-event-date { flex-shrink: 0; width: 48px; text-align: center; padding-top: 0.1rem; }
+.cu-event-day { font-size: 1.3rem; font-weight: 600; color: #e8eaed; line-height: 1.1; }
+.cu-event-dow { font-size: 0.68rem; color: #9aa0a6; text-transform: uppercase; }
+.cu-event-info { flex: 1; min-width: 0; }
+.cu-event-title { font-size: 0.95rem; font-weight: 500; color: #e8eaed; margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cu-event-venue { font-size: 0.78rem; color: #8ab4f8; margin-bottom: 0.15rem; }
+.cu-event-artists { font-size: 0.75rem; color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cu-event-sources { display: flex; gap: 0.35rem; flex-shrink: 0; align-items: center; }
+.cu-source-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #5f6368; }
+.cu-source-dot.ra { background: #e040fb; }
+.cu-source-dot.ticketmaster { background: #0091ff; }
+.cu-source-dot.eventbrite { background: #f05537; }
+.cu-source-dot.admitone { background: #4caf50; }
+
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+.cu-count { font-size: 0.78rem; color: #5f6368; margin-bottom: 1rem; }
+{% endblock %}
+
+{% block content %}
+<div class="cu-wrap">
+    <div class="cu-top">
+        <a href="/cor-unum" class="cu-back">← Cor Unum</a>
+        <h1>Upcoming Events</h1>
+        <input class="cu-search" id="searchInput" placeholder="Filter events..." oninput="filterEvents()">
+    </div>
+    <div class="cu-count" id="eventCount"></div>
+    <div id="eventList"><div class="cu-empty">Loading...</div></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let allEvents = [];
+
+function sourceColor(type) {
+    if (!type) return '';
+    const t = type.toLowerCase();
+    if (t.includes('ra')) return 'ra';
+    if (t.includes('ticketmaster')) return 'ticketmaster';
+    if (t.includes('eventbrite')) return 'eventbrite';
+    if (t.includes('admitone')) return 'admitone';
+    return '';
+}
+
+function formatDate(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return {
+        day: d.getDate(),
+        dow: days[d.getDay()],
+        month: months[d.getMonth()],
+        year: d.getFullYear(),
+        full: d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'}),
+        key: dateStr,
+    };
+}
+
+function renderEvents(events) {
+    const container = document.getElementById('eventList');
+    const countEl = document.getElementById('eventCount');
+    if (!events.length) {
+        container.innerHTML = '<div class="cu-empty">No upcoming events found.</div>';
+        countEl.textContent = '';
+        return;
+    }
+    countEl.textContent = events.length + ' upcoming events';
+
+    // Group by date
+    const groups = {};
+    for (const ev of events) {
+        const key = ev.date;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(ev);
+    }
+
+    let html = '';
+    for (const [dateKey, evs] of Object.entries(groups)) {
+        const fd = formatDate(dateKey);
+        html += `<div class="cu-date-group">`;
+        html += `<div class="cu-date-header">${fd.full}</div>`;
+        for (const ev of evs) {
+            const fd2 = formatDate(ev.date);
+            const artists = (ev.performers || []).map(p => escapeHtml(p.name)).join(', ');
+            const sources = (ev.sources || []).map(s =>
+                `<span class="cu-source-dot ${sourceColor(s.source_type)}" title="${escapeHtml(s.source_type || '')}"></span>`
+            ).join('');
+            html += `<a href="/cor-unum/event/${ev.id}" class="cu-event">
+                <div class="cu-event-date">
+                    <div class="cu-event-day">${fd2.day}</div>
+                    <div class="cu-event-dow">${fd2.dow}</div>
+                </div>
+                <div class="cu-event-info">
+                    <div class="cu-event-title">${escapeHtml(ev.title)}</div>
+                    <div class="cu-event-venue">${escapeHtml(ev.venue_name || 'TBA')}</div>
+                    ${artists ? `<div class="cu-event-artists">${artists}</div>` : ''}
+                </div>
+                <div class="cu-event-sources">${sources}</div>
+            </a>`;
+        }
+        html += `</div>`;
+    }
+    container.innerHTML = html;
+}
+
+function filterEvents() {
+    const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+    if (!q) { renderEvents(allEvents); return; }
+    const filtered = allEvents.filter(ev =>
+        ev.title.toLowerCase().includes(q) ||
+        (ev.venue_name || '').toLowerCase().includes(q) ||
+        (ev.performers || []).some(p => p.name.toLowerCase().includes(q))
+    );
+    renderEvents(filtered);
+}
+
+async function loadUpcoming() {
+    try {
+        const r = await fetch('/api/cor-unum/upcoming?limit=300');
+        const d = await r.json();
+        allEvents = d.events || [];
+        renderEvents(allEvents);
+    } catch(e) { console.error('loadUpcoming', e); }
+}
+
+loadUpcoming();
+{% endblock %}

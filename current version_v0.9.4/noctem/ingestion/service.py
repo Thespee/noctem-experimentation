@@ -213,3 +213,102 @@ def get_source_registry_page(page: int = 1, per_page: int = 50) -> dict:
             "SELECT COUNT(*) FROM cu_source_registry",
             (), page, per_page,
         )
+
+
+# --------------------------------------------------------------------------
+# Detail views
+# --------------------------------------------------------------------------
+
+def get_upcoming_events(limit: int = 200) -> list[dict]:
+    """Return upcoming events (today onward) with venue + performers + sources."""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.id, e.title, e.date, e.description, e.created_at,
+                      v.id AS venue_id, v.name AS venue_name
+               FROM cu_events e
+               LEFT JOIN cu_venues v ON e.venue_id = v.id
+               WHERE e.date >= ?
+               ORDER BY e.date ASC
+               LIMIT ?""",
+            (today, limit),
+        ).fetchall()
+        events = []
+        for r in rows:
+            ev = dict(r)
+            eid = ev["id"]
+            ev["performers"] = [
+                dict(a)
+                for a in conn.execute(
+                    """SELECT a.id, a.name FROM cu_artists a
+                       JOIN cu_event_performers ep ON a.id = ep.artist_id
+                       WHERE ep.event_id = ?""",
+                    (eid,),
+                ).fetchall()
+            ]
+            ev["sources"] = [
+                dict(s)
+                for s in conn.execute(
+                    "SELECT source_type, source_url FROM cu_event_sources WHERE event_id = ?",
+                    (eid,),
+                ).fetchall()
+            ]
+            events.append(ev)
+        return events
+
+
+def get_event_detail(event_id: int) -> dict | None:
+    """Return a single event with venue, performers, sources, and description."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT e.*, v.name AS venue_name, v.address AS venue_address,
+                      v.url AS venue_url
+               FROM cu_events e
+               LEFT JOIN cu_venues v ON e.venue_id = v.id
+               WHERE e.id = ?""",
+            (event_id,),
+        ).fetchone()
+        if not row:
+            return None
+        ev = dict(row)
+        ev["performers"] = [
+            dict(a)
+            for a in conn.execute(
+                """SELECT a.id, a.name, a.bio_link FROM cu_artists a
+                   JOIN cu_event_performers ep ON a.id = ep.artist_id
+                   WHERE ep.event_id = ?""",
+                (event_id,),
+            ).fetchall()
+        ]
+        ev["sources"] = [
+            dict(s)
+            for s in conn.execute(
+                "SELECT * FROM cu_event_sources WHERE event_id = ?",
+                (event_id,),
+            ).fetchall()
+        ]
+        return ev
+
+
+def get_artist_detail(artist_id: int) -> dict | None:
+    """Return an artist with all their linked events."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM cu_artists WHERE id = ?", (artist_id,)
+        ).fetchone()
+        if not row:
+            return None
+        artist = dict(row)
+        artist["events"] = [
+            dict(r)
+            for r in conn.execute(
+                """SELECT e.id, e.title, e.date, v.name AS venue_name
+                   FROM cu_events e
+                   JOIN cu_event_performers ep ON e.id = ep.event_id
+                   LEFT JOIN cu_venues v ON e.venue_id = v.id
+                   WHERE ep.artist_id = ?
+                   ORDER BY e.date DESC""",
+                (artist_id,),
+            ).fetchall()
+        ]
+        return artist

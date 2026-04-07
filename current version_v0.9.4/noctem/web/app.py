@@ -2181,6 +2181,45 @@ def create_app() -> Flask:
         per_page = request.args.get("per_page", 50, type=int)
         return jsonify({"success": True, **get_source_registry_page(page, per_page)})
 
+    # --- Cor Unum: browse pages ---
+
+    @app.route("/cor-unum/upcoming")
+    def cor_unum_upcoming():
+        """Upcoming events view — RA-style date-grouped listing."""
+        return render_template("cor_unum_upcoming.html")
+
+    @app.route("/cor-unum/event/<int:event_id>")
+    def cor_unum_event(event_id):
+        """Single event detail page."""
+        return render_template("cor_unum_event.html", event_id=event_id)
+
+    @app.route("/cor-unum/artist/<int:artist_id>")
+    def cor_unum_artist(artist_id):
+        """Artist page — lists their events."""
+        return render_template("cor_unum_artist.html", artist_id=artist_id)
+
+    @app.route("/api/cor-unum/upcoming")
+    def api_cu_upcoming():
+        from ..ingestion.service import get_upcoming_events
+        limit = max(1, min(request.args.get("limit", 200, type=int), 500))
+        return jsonify({"success": True, "events": get_upcoming_events(limit=limit)})
+
+    @app.route("/api/cor-unum/events/<int:event_id>")
+    def api_cu_event_detail(event_id):
+        from ..ingestion.service import get_event_detail
+        ev = get_event_detail(event_id)
+        if not ev:
+            return jsonify({"success": False, "error": "Event not found"}), 404
+        return jsonify({"success": True, "event": ev})
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>")
+    def api_cu_artist_detail(artist_id):
+        from ..ingestion.service import get_artist_detail
+        artist = get_artist_detail(artist_id)
+        if not artist:
+            return jsonify({"success": False, "error": "Artist not found"}), 404
+        return jsonify({"success": True, "artist": artist})
+
     return app
 
 
