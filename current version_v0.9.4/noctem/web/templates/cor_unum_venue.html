@@ -16,8 +16,14 @@
 .cu-ven-event:hover { background: #262626; }
 .cu-ven-ev-date { flex-shrink: 0; width: 90px; font-size: 0.82rem; color: #9aa0a6; }
 .cu-ven-ev-title { flex: 1; font-size: 0.9rem; color: #e8eaed; }
-
 .cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+.cu-aliases { font-size: 0.78rem; color: #9aa0a6; margin-bottom: 0.5rem; }
+.cu-aliases span { background: #2d2d2d; padding: 0.15rem 0.5rem; border-radius: 4px; margin-right: 0.3rem; }
+.cu-merge-bar { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; padding: 0.6rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; font-size: 0.82rem; }
+.cu-merge-bar input { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
+.cu-merge-results { list-style: none; padding: 0; margin: 0.3rem 0 0; font-size: 0.82rem; }
+.cu-merge-results li { padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 4px; }
+.cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
 {% endblock %}
 
 {% block content %}
@@ -30,6 +36,8 @@
 {% block extra_script %}
 const VENUE_ID = {{ venue_id }};
 
+let mergeTimer = null;
+
 async function loadVenue() {
     try {
         const r = await fetch('/api/cor-unum/venues/' + VENUE_ID);
@@ -39,6 +47,10 @@ async function loadVenue() {
             return;
         }
         const v = d.venue;
+        if (v.redirect_to) {
+            window.location.href = '/cor-unum/venue/' + v.redirect_to;
+            return;
+        }
         let html = `<div class="cu-ven-header">
             <h1 class="cu-ven-name">${escapeHtml(v.name)}</h1>
             <div class="cu-ven-meta">
@@ -46,6 +58,11 @@ async function loadVenue() {
                 ${v.url ? ` · <a href="${v.url}" target="_blank" rel="noopener">${escapeHtml(v.url)}</a>` : ''}
             </div>
         </div>`;
+
+        const aliases = v.aliases || [];
+        if (aliases.length) {
+            html += `<div class="cu-aliases">Also known as: ${aliases.map(al => `<span>${escapeHtml(al.name)}</span>`).join('')}</div>`;
+        }
 
         const events = v.events || [];
         html += `<div class="cu-section-label">Events (${events.length})</div>`;
@@ -62,8 +79,41 @@ async function loadVenue() {
             html += `<div class="cu-empty">No events found for this venue.</div>`;
         }
 
+        html += `<div class="cu-merge-bar">
+            <span style="color:#9aa0a6;white-space:nowrap">Merge into:</span>
+            <input id="mergeSearch" placeholder="Search venue..." oninput="searchMerge()">
+            <ul class="cu-merge-results" id="mergeResults"></ul>
+        </div>`;
+
         document.getElementById('venueDetail').innerHTML = html;
     } catch(e) { console.error('loadVenue', e); }
+}
+
+async function searchMerge() {
+    clearTimeout(mergeTimer);
+    mergeTimer = setTimeout(async () => {
+        const q = document.getElementById('mergeSearch').value.trim();
+        const el = document.getElementById('mergeResults');
+        if (q.length < 2) { el.innerHTML = ''; return; }
+        const r = await fetch('/api/cor-unum/venues/search?exclude=' + VENUE_ID + '&q=' + encodeURIComponent(q));
+        const d = await r.json();
+        el.innerHTML = (d.results || []).map(v =>
+            `<li onclick="doMerge(${v.id}, '${escapeHtml(v.name)}')">` + escapeHtml(v.name) + `</li>`
+        ).join('');
+    }, 250);
+}
+
+async function doMerge(canonicalId, canonicalName) {
+    if (!confirm('Merge this venue into \"' + canonicalName + '\"? All events will be moved.')) return;
+    const r = await fetch('/api/cor-unum/venues/' + VENUE_ID + '/merge-into', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({canonical_id: canonicalId}),
+    });
+    const d = await r.json();
+    if (d.success) {
+        window.location.href = '/cor-unum/venue/' + canonicalId;
+    }
 }
 
 loadVenue();

@@ -103,6 +103,22 @@ def init_cu_schema(conn) -> None:
     Call this from db.init_db() after the main schema is applied.
     """
     conn.executescript(CU_SCHEMA)
+    _migrate_cu_columns(conn)
+
+
+def _migrate_cu_columns(conn) -> None:
+    """Add columns to existing cu_ tables (safe to run repeatedly)."""
+    migrations = [
+        ("cu_artists", "alias_of", "INTEGER REFERENCES cu_artists(id)"),
+        ("cu_venues", "alias_of", "INTEGER REFERENCES cu_venues(id)"),
+    ]
+    for table, column, col_type in migrations:
+        try:
+            cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")').fetchall()]
+            if column not in cols:
+                conn.execute(f'ALTER TABLE "{table}" ADD COLUMN {column} {col_type}')
+        except Exception:
+            pass
 
 
 def seed_cu_data(conn) -> None:

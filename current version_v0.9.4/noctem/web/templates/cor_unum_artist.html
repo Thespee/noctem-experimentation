@@ -20,6 +20,14 @@
 .cu-art-ev-venue { font-size: 0.78rem; color: #8ab4f8; flex-shrink: 0; }
 
 .cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+.cu-aliases { font-size: 0.78rem; color: #9aa0a6; margin-bottom: 0.5rem; }
+.cu-aliases span { background: #2d2d2d; padding: 0.15rem 0.5rem; border-radius: 4px; margin-right: 0.3rem; }
+.cu-merge-bar { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; padding: 0.6rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; font-size: 0.82rem; }
+.cu-merge-bar input { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
+.cu-merge-bar button { background: #b71c1c; border: none; color: #fff; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
+.cu-merge-results { list-style: none; padding: 0; margin: 0.3rem 0 0; font-size: 0.82rem; }
+.cu-merge-results li { padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 4px; }
+.cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
 {% endblock %}
 
 {% block content %}
@@ -32,6 +40,8 @@
 {% block extra_script %}
 const ARTIST_ID = {{ artist_id }};
 
+let mergeTimer = null;
+
 async function loadArtist() {
     try {
         const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID);
@@ -41,6 +51,11 @@ async function loadArtist() {
             return;
         }
         const a = d.artist;
+        // Redirect if alias
+        if (a.redirect_to) {
+            window.location.href = '/cor-unum/artist/' + a.redirect_to;
+            return;
+        }
         let html = `<div class="cu-art-header">
             <h1 class="cu-art-name">${escapeHtml(a.name)}</h1>
             <div class="cu-art-meta">
@@ -48,6 +63,12 @@ async function loadArtist() {
                 ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
             </div>
         </div>`;
+
+        // Aliases
+        const aliases = a.aliases || [];
+        if (aliases.length) {
+            html += `<div class="cu-aliases">Also known as: ${aliases.map(al => `<span>${escapeHtml(al.name)}</span>`).join('')}</div>`;
+        }
 
         const events = a.events || [];
         html += `<div class="cu-section-label">Events (${events.length})</div>`;
@@ -65,8 +86,42 @@ async function loadArtist() {
             html += `<div class="cu-empty">No events found for this artist.</div>`;
         }
 
+        // Merge bar
+        html += `<div class="cu-merge-bar">
+            <span style="color:#9aa0a6;white-space:nowrap">Merge into:</span>
+            <input id="mergeSearch" placeholder="Search artist..." oninput="searchMerge()">
+            <ul class="cu-merge-results" id="mergeResults"></ul>
+        </div>`;
+
         document.getElementById('artistDetail').innerHTML = html;
     } catch(e) { console.error('loadArtist', e); }
+}
+
+async function searchMerge() {
+    clearTimeout(mergeTimer);
+    mergeTimer = setTimeout(async () => {
+        const q = document.getElementById('mergeSearch').value.trim();
+        const el = document.getElementById('mergeResults');
+        if (q.length < 2) { el.innerHTML = ''; return; }
+        const r = await fetch('/api/cor-unum/artists/search?exclude=' + ARTIST_ID + '&q=' + encodeURIComponent(q));
+        const d = await r.json();
+        el.innerHTML = (d.results || []).map(a =>
+            `<li onclick="doMerge(${a.id}, '${escapeHtml(a.name)}')">` + escapeHtml(a.name) + `</li>`
+        ).join('');
+    }, 250);
+}
+
+async function doMerge(canonicalId, canonicalName) {
+    if (!confirm('Merge this artist into \"' + canonicalName + '\"? All events will be moved.')) return;
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/merge-into', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({canonical_id: canonicalId}),
+    });
+    const d = await r.json();
+    if (d.success) {
+        window.location.href = '/cor-unum/artist/' + canonicalId;
+    }
 }
 
 loadArtist();

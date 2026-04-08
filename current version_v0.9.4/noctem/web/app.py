@@ -2233,6 +2233,46 @@ def create_app() -> Flask:
             return jsonify({"success": False, "error": "Venue not found"}), 404
         return jsonify({"success": True, "venue": venue})
 
+    # --- Cor Unum: merge / alias endpoints ---
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>/merge-into", methods=["POST"])
+    def api_cu_merge_artist(artist_id):
+        from ..ingestion.service import merge_artists
+        data = request.get_json(silent=True) or {}
+        canonical_id = data.get("canonical_id")
+        if not canonical_id:
+            return jsonify({"success": False, "error": "canonical_id required"}), 400
+        result = merge_artists(artist_id, int(canonical_id))
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/cor-unum/venues/<int:venue_id>/merge-into", methods=["POST"])
+    def api_cu_merge_venue(venue_id):
+        from ..ingestion.service import merge_venues
+        data = request.get_json(silent=True) or {}
+        canonical_id = data.get("canonical_id")
+        if not canonical_id:
+            return jsonify({"success": False, "error": "canonical_id required"}), 400
+        result = merge_venues(venue_id, int(canonical_id))
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/cor-unum/artists/search")
+    def api_cu_search_artists():
+        from ..ingestion.service import search_artists_for_merge
+        q = (request.args.get("q") or "").strip()
+        exclude = request.args.get("exclude", type=int)
+        return jsonify({"success": True, "results": search_artists_for_merge(q, exclude)})
+
+    @app.route("/api/cor-unum/venues/search")
+    def api_cu_search_venues():
+        from ..ingestion.service import search_venues_for_merge
+        q = (request.args.get("q") or "").strip()
+        exclude = request.args.get("exclude", type=int)
+        return jsonify({"success": True, "results": search_venues_for_merge(q, exclude)})
+
     return app
 
 

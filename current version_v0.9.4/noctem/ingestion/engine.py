@@ -217,23 +217,25 @@ def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
 
 
 def _get_or_create_venue(conn, name: str) -> int:
-    """Return venue ID, creating if necessary."""
-    row = conn.execute("SELECT id FROM cu_venues WHERE name = ?", (name,)).fetchone()
+    """Return canonical venue ID, creating if necessary. Follows alias_of."""
+    row = conn.execute("SELECT id, alias_of FROM cu_venues WHERE name = ?", (name,)).fetchone()
     if row:
-        return row["id"]
+        # Follow alias chain to canonical
+        return row["alias_of"] or row["id"]
     cursor = conn.execute("INSERT INTO cu_venues (name) VALUES (?)", (name,))
     return cursor.lastrowid
 
 
 def _get_or_create_artist(conn, name: str) -> int:
-    """Return artist ID, creating if necessary."""
-    row = conn.execute("SELECT id FROM cu_artists WHERE name = ?", (name,)).fetchone()
+    """Return canonical artist ID, creating if necessary. Follows alias_of."""
+    row = conn.execute("SELECT id, alias_of FROM cu_artists WHERE name = ?", (name,)).fetchone()
     if row:
+        canonical_id = row["alias_of"] or row["id"]
         conn.execute(
             "UPDATE cu_artists SET last_seen = ? WHERE id = ?",
-            (datetime.utcnow().isoformat(), row["id"]),
+            (datetime.utcnow().isoformat(), canonical_id),
         )
-        return row["id"]
+        return canonical_id
     cursor = conn.execute(
         "INSERT INTO cu_artists (name, last_seen) VALUES (?, ?)",
         (name, datetime.utcnow().isoformat()),

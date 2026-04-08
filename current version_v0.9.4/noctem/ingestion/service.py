@@ -153,39 +153,39 @@ def get_events(page: int = 1, per_page: int = 50, search: str = "") -> dict:
 
 
 def get_artists(page: int = 1, per_page: int = 50, search: str = "") -> dict:
-    """Paginated artists with optional name search."""
+    """Paginated artists (excluding aliases) with optional name search."""
     with get_db() as conn:
         if search:
             like = f"%{search}%"
             return _paginate(
                 conn,
-                "SELECT * FROM cu_artists WHERE name LIKE ? ORDER BY name",
-                "SELECT COUNT(*) FROM cu_artists WHERE name LIKE ?",
+                "SELECT * FROM cu_artists WHERE alias_of IS NULL AND name LIKE ? ORDER BY name",
+                "SELECT COUNT(*) FROM cu_artists WHERE alias_of IS NULL AND name LIKE ?",
                 (like,), page, per_page,
             )
         return _paginate(
             conn,
-            "SELECT * FROM cu_artists ORDER BY name",
-            "SELECT COUNT(*) FROM cu_artists",
+            "SELECT * FROM cu_artists WHERE alias_of IS NULL ORDER BY name",
+            "SELECT COUNT(*) FROM cu_artists WHERE alias_of IS NULL",
             (), page, per_page,
         )
 
 
 def get_venues(page: int = 1, per_page: int = 50, search: str = "") -> dict:
-    """Paginated venues with optional name search."""
+    """Paginated venues (excluding aliases) with optional name search."""
     with get_db() as conn:
         if search:
             like = f"%{search}%"
             return _paginate(
                 conn,
-                "SELECT * FROM cu_venues WHERE name LIKE ? ORDER BY name",
-                "SELECT COUNT(*) FROM cu_venues WHERE name LIKE ?",
+                "SELECT * FROM cu_venues WHERE alias_of IS NULL AND name LIKE ? ORDER BY name",
+                "SELECT COUNT(*) FROM cu_venues WHERE alias_of IS NULL AND name LIKE ?",
                 (like,), page, per_page,
             )
         return _paginate(
             conn,
-            "SELECT * FROM cu_venues ORDER BY name",
-            "SELECT COUNT(*) FROM cu_venues",
+            "SELECT * FROM cu_venues WHERE alias_of IS NULL ORDER BY name",
+            "SELECT COUNT(*) FROM cu_venues WHERE alias_of IS NULL",
             (), page, per_page,
         )
 
@@ -291,7 +291,7 @@ def get_event_detail(event_id: int) -> dict | None:
 
 
 def get_artist_detail(artist_id: int) -> dict | None:
-    """Return an artist with all their linked events."""
+    """Return an artist with events and aliases. Follows alias_of redirect."""
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM cu_artists WHERE id = ?", (artist_id,)
@@ -299,6 +299,10 @@ def get_artist_detail(artist_id: int) -> dict | None:
         if not row:
             return None
         artist = dict(row)
+        # If this is an alias, redirect to canonical
+        if artist.get("alias_of"):
+            artist["redirect_to"] = artist["alias_of"]
+            return artist
         artist["events"] = [
             dict(r)
             for r in conn.execute(
@@ -311,11 +315,18 @@ def get_artist_detail(artist_id: int) -> dict | None:
                 (artist_id,),
             ).fetchall()
         ]
+        artist["aliases"] = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, name FROM cu_artists WHERE alias_of = ?",
+                (artist_id,),
+            ).fetchall()
+        ]
         return artist
 
 
 def get_venue_detail(venue_id: int) -> dict | None:
-    """Return a venue with all events held there."""
+    """Return a venue with events and aliases. Follows alias_of redirect."""
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM cu_venues WHERE id = ?", (venue_id,)
@@ -323,6 +334,9 @@ def get_venue_detail(venue_id: int) -> dict | None:
         if not row:
             return None
         venue = dict(row)
+        if venue.get("alias_of"):
+            venue["redirect_to"] = venue["alias_of"]
+            return venue
         venue["events"] = [
             dict(r)
             for r in conn.execute(
@@ -333,4 +347,106 @@ def get_venue_detail(venue_id: int) -> dict | None:
                 (venue_id,),
             ).fetchall()
         ]
+        venue["aliases"] = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, name FROM cu_venues WHERE alias_of = ?",
+                (venue_id,),
+            ).fetchall()
+        ]
         return venue
+
+
+# --------------------------------------------------------------------------
+# Merge / alias operations
+# --------------------------------------------------------------------------
+
+def merge_artists(duplicate_id: int, canonical_id: int) -> dict:
+    """Merge a duplicate artist into a canonical one.
+
+    Moves all event_performer links, sets alias_of, returns summary.
+    """
+    if duplicate_id == canonical_id:
+        return {"error": "Cannot merge an artist into itself"}
+    with get_db() as conn:
+        # Verify both exist
+        dup = conn.execute("SELECT id, name FROM cu_artists WHERE id = ?", (duplicate_id,)).fetchone()
+        canon = conn.execute("SELECT id, name FROM cu_artists WHERE id = ?", (canonical_id,)).fetchone()
+        if not dup or not canon:
+            return {"error": "Artist not found"}
+        # Move performer links
+        conn.execute(
+            """UPDATE OR IGNORE cu_event_performers
+               SET artist_id = ? WHERE artist_id = ?""",
+            (canonical_id, duplicate_id),
+        )
+        # Remove any leftover duplicate links (from IGNORE)
+        conn.execute(
+            "DELETE FROM cu_event_performers WHERE artist_id = ?",
+            (duplicate_id,),
+        )
+        # Set alias
+        conn.execute(
+            "UPDATE cu_artists SET alias_of = ? WHERE id = ?",
+            (canonical_id, duplicate_id),
+        )
+        return {
+            "merged": True,
+            "duplicate": {"id": dup["id"], "name": dup["name"]},
+            "canonical": {"id": canon["id"], "name": canon["name"]},
+        }
+
+
+def merge_venues(duplicate_id: int, canonical_id: int) -> dict:
+    """Merge a duplicate venue into a canonical one.
+
+    Moves all event venue references, sets alias_of, returns summary.
+    """
+    if duplicate_id == canonical_id:
+        return {"error": "Cannot merge a venue into itself"}
+    with get_db() as conn:
+        dup = conn.execute("SELECT id, name FROM cu_venues WHERE id = ?", (duplicate_id,)).fetchone()
+        canon = conn.execute("SELECT id, name FROM cu_venues WHERE id = ?", (canonical_id,)).fetchone()
+        if not dup or not canon:
+            return {"error": "Venue not found"}
+        # Move event references
+        conn.execute(
+            "UPDATE cu_events SET venue_id = ? WHERE venue_id = ?",
+            (canonical_id, duplicate_id),
+        )
+        # Set alias
+        conn.execute(
+            "UPDATE cu_venues SET alias_of = ? WHERE id = ?",
+            (canonical_id, duplicate_id),
+        )
+        return {
+            "merged": True,
+            "duplicate": {"id": dup["id"], "name": dup["name"]},
+            "canonical": {"id": canon["id"], "name": canon["name"]},
+        }
+
+
+def search_artists_for_merge(query: str, exclude_id: int | None = None) -> list[dict]:
+    """Search canonical artists for the merge picker."""
+    with get_db() as conn:
+        like = f"%{query}%"
+        rows = conn.execute(
+            """SELECT id, name FROM cu_artists
+               WHERE alias_of IS NULL AND name LIKE ? AND id != ?
+               ORDER BY name LIMIT 20""",
+            (like, exclude_id or -1),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def search_venues_for_merge(query: str, exclude_id: int | None = None) -> list[dict]:
+    """Search canonical venues for the merge picker."""
+    with get_db() as conn:
+        like = f"%{query}%"
+        rows = conn.execute(
+            """SELECT id, name FROM cu_venues
+               WHERE alias_of IS NULL AND name LIKE ? AND id != ?
+               ORDER BY name LIMIT 20""",
+            (like, exclude_id or -1),
+        ).fetchall()
+        return [dict(r) for r in rows]
