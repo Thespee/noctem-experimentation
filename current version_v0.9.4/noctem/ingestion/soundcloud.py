@@ -120,40 +120,51 @@ def check_artist_locality(artist_id: int) -> dict:
     if not token:
         return {"error": "SoundCloud credentials not configured or token failed"}
 
-    try:
-        resp = requests.get(
-            "https://api.soundcloud.com/users",
-            params={"q": artist_name, "limit": 5},
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        users = resp.json()
-        if isinstance(users, dict):
-            users = users.get("collection", [])
-    except Exception as exc:
-        logger.error("SoundCloud search failed for '%s': %s", artist_name, exc)
-        return {"error": str(exc)}
-
-    # Check each result for Vancouver in city
+    # Try location-filtered search first, fall back to unfiltered
     is_local = False
     sc_url = None
     city_found = None
 
-    for user in users:
-        user_name = (user.get("username") or "").strip()
-        user_city = (user.get("city") or "").strip()
-        permalink = user.get("permalink_url") or ""
+    for params in [
+        {"q": artist_name, "limit": 15, "filter.place": "vancouver"},
+        {"q": artist_name, "limit": 15},
+    ]:
+        try:
+            resp = requests.get(
+                "https://api.soundcloud.com/users",
+                params=params,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            users = resp.json()
+            if isinstance(users, dict):
+                users = users.get("collection", [])
+        except Exception as exc:
+            logger.error("SoundCloud search failed for '%s': %s", artist_name, exc)
+            return {"error": str(exc)}
 
-        # Name match: check if the SoundCloud username is close to our artist name
-        if not _names_match(artist_name, user_name):
-            continue
+        # Check all matching results (not just the first)
+        for user in users:
+            user_name = (user.get("username") or "").strip()
+            user_city = (user.get("city") or "").strip()
+            permalink = user.get("permalink_url") or ""
 
-        sc_url = permalink
-        city_found = user_city
-        if "vancouver" in user_city.lower():
-            is_local = True
-            break
+            if not _names_match(artist_name, user_name):
+                continue
+
+            if "vancouver" in user_city.lower():
+                is_local = True
+                sc_url = permalink
+                city_found = user_city
+                break
+            elif not sc_url:
+                # Keep first name-match as fallback SC link
+                sc_url = permalink
+                city_found = user_city
+
+        if is_local:
+            break  # found a local match, no need for unfiltered search
 
     # Store result
     with get_db() as conn:
