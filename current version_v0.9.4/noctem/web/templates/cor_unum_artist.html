@@ -28,6 +28,14 @@
 .cu-merge-results { list-style: none; padding: 0; margin: 0.3rem 0 0; font-size: 0.82rem; }
 .cu-merge-results li { padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 4px; }
 .cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
+.cu-local-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 500; margin-left: 0.5rem; vertical-align: middle; }
+.cu-local-badge.yes { background: #1b5e20; color: #a5d6a7; }
+.cu-local-badge.no { background: #3c3c3c; color: #9aa0a6; }
+.cu-local-badge.unknown { background: #2d2d2d; color: #5f6368; border: 1px solid #3c3c3c; }
+.cu-check-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; margin-left: 0.5rem; }
+.cu-check-btn:hover { background: #5f6368; }
+.cu-sc-link { font-size: 0.78rem; color: #f50; text-decoration: none; margin-left: 0.5rem; }
+.cu-sc-link:hover { text-decoration: underline; }
 {% endblock %}
 
 {% block content %}
@@ -56,10 +64,19 @@ async function loadArtist() {
             window.location.href = '/cor-unum/artist/' + a.redirect_to;
             return;
         }
+        // Locality badge
+        let localBadge = '';
+        if (a.is_local === 1) localBadge = '<span class="cu-local-badge yes">Local</span>';
+        else if (a.is_local === 0) localBadge = '<span class="cu-local-badge no">Not Local</span>';
+        else localBadge = '<span class="cu-local-badge unknown">Unchecked</span><button class="cu-check-btn" onclick="checkLocality()">Check via SoundCloud</button>';
+
+        let scLink = a.soundcloud_url ? `<a href="${a.soundcloud_url}" target="_blank" rel="noopener" class="cu-sc-link">SoundCloud ↗</a>` : '';
+
         let html = `<div class="cu-art-header">
-            <h1 class="cu-art-name">${escapeHtml(a.name)}</h1>
+            <h1 class="cu-art-name">${escapeHtml(a.name)}${localBadge}</h1>
             <div class="cu-art-meta">
                 ${a.bio_link ? `<a href="${a.bio_link}" target="_blank" rel="noopener">${escapeHtml(a.bio_link)}</a>` : ''}
+                ${scLink}
                 ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
             </div>
         </div>`;
@@ -122,6 +139,12 @@ async function doMerge(canonicalId, canonicalName) {
     if (d.success) {
         window.location.href = '/cor-unum/artist/' + canonicalId;
     }
+}
+
+async function checkLocality() {
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-locality', {method:'POST'});
+    const d = await r.json();
+    loadArtist();  // reload to show updated badge
 }
 
 loadArtist();

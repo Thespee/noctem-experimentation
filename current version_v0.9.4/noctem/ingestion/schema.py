@@ -111,6 +111,8 @@ def _migrate_cu_columns(conn) -> None:
     migrations = [
         ("cu_artists", "alias_of", "INTEGER REFERENCES cu_artists(id)"),
         ("cu_venues", "alias_of", "INTEGER REFERENCES cu_venues(id)"),
+        ("cu_artists", "is_local", "INTEGER"),  # nullable: NULL=unchecked, 0=no, 1=yes
+        ("cu_artists", "soundcloud_url", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

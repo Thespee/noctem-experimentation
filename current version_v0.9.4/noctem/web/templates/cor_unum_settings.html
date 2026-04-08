@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Settings{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 600px; margin: 0 auto; padding: 1.5rem; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+h1 { font-size: 1.3rem; margin: 1rem 0; }
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
+.cu-field { margin-bottom: 0.75rem; }
+.cu-field label { display: block; font-size: 0.82rem; color: #9aa0a6; margin-bottom: 0.2rem; }
+.cu-field input { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.7rem; border-radius: 4px; font-size: 0.85rem; width: 100%; box-sizing: border-box; }
+.cu-btn { background: #1a73e8; border: none; color: #fff; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+.cu-btn:hover { background: #1565c0; }
+.cu-btn.secondary { background: #3c4043; border: 1px solid #5f6368; }
+.cu-btn.secondary:hover { background: #5f6368; }
+.cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+.cu-toast.show { opacity: 1; }
+.cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+.cu-hint { font-size: 0.75rem; color: #5f6368; margin-top: 0.2rem; }
+.cu-status { font-size: 0.82rem; color: #9aa0a6; margin-top: 0.5rem; padding: 0.5rem; background: #262626; border-radius: 4px; }
+{% endblock %}
+
+{% block content %}
+<div id="toast" class="cu-toast"></div>
+<div class="cu-wrap">
+    <a href="/cor-unum" class="cu-back">← Cor Unum</a>
+    <h1>Cor Unum Settings</h1>
+
+    <div class="cu-section-label">SoundCloud API (Artist Locality Check)</div>
+    <div class="cu-field">
+        <label>Client ID</label>
+        <input id="scClientId" type="text" placeholder="Your SoundCloud client_id">
+    </div>
+    <div class="cu-field">
+        <label>Client Secret</label>
+        <input id="scClientSecret" type="password" placeholder="Your SoundCloud client_secret">
+    </div>
+    <div class="cu-hint">Register at SoundCloud via their support chatbot. Used to check if artists are from Vancouver.</div>
+    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+        <button class="cu-btn" onclick="saveSettings()">Save</button>
+        <button class="cu-btn secondary" onclick="checkAll()">Check All Unchecked Artists</button>
+    </div>
+    <div id="statusArea" class="cu-status" style="display:none;"></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'cu-toast show' + (isError ? ' err' : '');
+    clearTimeout(t._tid);
+    t._tid = setTimeout(() => t.className = 'cu-toast', 3000);
+}
+
+async function loadSettings() {
+    const r = await fetch('/api/cor-unum/settings');
+    const d = await r.json();
+    if (d.success) {
+        document.getElementById('scClientId').value = d.settings.client_id || '';
+        document.getElementById('scClientSecret').value = d.settings.client_secret ? '••••••••' : '';
+    }
+}
+
+async function saveSettings() {
+    const clientId = document.getElementById('scClientId').value.trim();
+    const clientSecret = document.getElementById('scClientSecret').value.trim();
+    if (clientSecret === '••••••••') {
+        showToast('Secret unchanged — only saving client ID');
+    }
+    const body = {client_id: clientId};
+    if (clientSecret && clientSecret !== '••••••••') {
+        body.client_secret = clientSecret;
+    }
+    const r = await fetch('/api/cor-unum/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    showToast(d.success ? 'Settings saved' : 'Error: ' + d.error, !d.success);
+}
+
+async function checkAll() {
+    const status = document.getElementById('statusArea');
+    status.style.display = 'block';
+    status.textContent = 'Checking unchecked artists via SoundCloud...';
+    const r = await fetch('/api/cor-unum/artists/check-all-locality', {method: 'POST'});
+    const d = await r.json();
+    if (d.success) {
+        const s = d.result;
+        status.textContent = `Done: ${s.checked} checked, ${s.local} local, ${s.not_local} not local, ${s.errors} errors`;
+    } else {
+        status.textContent = 'Error: ' + (d.error || 'unknown');
+    }
+}
+
+loadSettings();
+{% endblock %}

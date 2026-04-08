@@ -2273,6 +2273,50 @@ def create_app() -> Flask:
         exclude = request.args.get("exclude", type=int)
         return jsonify({"success": True, "results": search_venues_for_merge(q, exclude)})
 
+    # --- Cor Unum: settings + SoundCloud locality ---
+
+    @app.route("/cor-unum/settings")
+    def cor_unum_settings():
+        return render_template("cor_unum_settings.html")
+
+    @app.route("/api/cor-unum/settings", methods=["GET"])
+    def api_cu_settings_get():
+        from ..ingestion.soundcloud import get_sc_config
+        cfg = get_sc_config()
+        # Mask secret for GET
+        return jsonify({"success": True, "settings": {
+            "client_id": cfg.get("client_id", ""),
+            "client_secret": bool(cfg.get("client_secret", "")),
+        }})
+
+    @app.route("/api/cor-unum/settings", methods=["POST"])
+    def api_cu_settings_save():
+        from ..ingestion.soundcloud import get_sc_config, save_sc_config
+        data = request.get_json(silent=True) or {}
+        existing = get_sc_config()
+        client_id = data.get("client_id", existing.get("client_id", "")).strip()
+        client_secret = data.get("client_secret", "").strip()
+        # If no new secret provided, keep existing
+        if not client_secret:
+            client_secret = existing.get("client_secret", "")
+        save_sc_config(client_id, client_secret)
+        return jsonify({"success": True})
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>/check-locality", methods=["POST"])
+    def api_cu_check_artist_locality(artist_id):
+        from ..ingestion.soundcloud import check_artist_locality
+        result = check_artist_locality(artist_id)
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/cor-unum/artists/check-all-locality", methods=["POST"])
+    def api_cu_check_all_locality():
+        from ..ingestion.soundcloud import check_all_unchecked_artists
+        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
+        result = check_all_unchecked_artists(limit=limit)
+        return jsonify({"success": True, "result": result})
+
     return app
 
 
