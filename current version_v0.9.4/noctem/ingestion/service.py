@@ -152,22 +152,28 @@ def get_events(page: int = 1, per_page: int = 50, search: str = "") -> dict:
         )
 
 
-def get_artists(page: int = 1, per_page: int = 50, search: str = "") -> dict:
-    """Paginated artists (excluding aliases) with optional name search."""
+def get_artists(page: int = 1, per_page: int = 50, search: str = "",
+                local: str = "") -> dict:
+    """Paginated artists (excluding aliases) with optional name search and local filter."""
+    # Build WHERE clause
+    conditions = ["alias_of IS NULL"]
+    params: list = []
+    if search:
+        conditions.append("name LIKE ?")
+        params.append(f"%{search}%")
+    if local == "local":
+        conditions.append("is_local = 1")
+    elif local == "not_local":
+        conditions.append("is_local = 0")
+    elif local == "unchecked":
+        conditions.append("is_local IS NULL")
+    where = " AND ".join(conditions)
     with get_db() as conn:
-        if search:
-            like = f"%{search}%"
-            return _paginate(
-                conn,
-                "SELECT * FROM cu_artists WHERE alias_of IS NULL AND name LIKE ? ORDER BY name",
-                "SELECT COUNT(*) FROM cu_artists WHERE alias_of IS NULL AND name LIKE ?",
-                (like,), page, per_page,
-            )
         return _paginate(
             conn,
-            "SELECT * FROM cu_artists WHERE alias_of IS NULL ORDER BY name",
-            "SELECT COUNT(*) FROM cu_artists WHERE alias_of IS NULL",
-            (), page, per_page,
+            f"SELECT * FROM cu_artists WHERE {where} ORDER BY name",
+            f"SELECT COUNT(*) FROM cu_artists WHERE {where}",
+            tuple(params), page, per_page,
         )
 
 

@@ -23,6 +23,14 @@
         {% if table in ['events', 'artists', 'venues'] %}
         <input class="cu-search" id="searchInput" placeholder="Search..." oninput="debouncedLoad()">
         {% endif %}
+        {% if table == 'artists' %}
+        <select class="cu-search" id="localFilter" onchange="currentPage=1;loadData()" style="width:auto;">
+            <option value="">All Artists</option>
+            <option value="local">Local Only</option>
+            <option value="not_local">Not Local</option>
+            <option value="unchecked">Unchecked</option>
+        </select>
+        {% endif %}
     </div>
     <table class="cu-table">
         <thead id="table-head"></thead>
@@ -78,6 +86,8 @@ async function loadData() {
     const q = search ? search.value.trim() : '';
     let url = API_MAP[TABLE] + '?page=' + currentPage + '&per_page=50';
     if (q) url += '&search=' + encodeURIComponent(q);
+    const localFilter = document.getElementById('localFilter');
+    if (localFilter && localFilter.value) url += '&local=' + localFilter.value;
     try {
         const r = await fetch(url);
         const d = await r.json();
