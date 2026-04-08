@@ -104,17 +104,23 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
 
     Returns a dict of what was created/skipped.
     """
-    result = {"event_created": 0, "artists_created": 0, "venue_created": 0, "duplicate": 0}
+    result = {"event_created": 0, "artists_created": 0, "venue_created": 0,
+              "duplicate": 0, "updated": 0}
 
     fingerprint = compute_fingerprint(raw.title, raw.date)
 
-    # Check exact fingerprint duplicate
+    # Check exact fingerprint duplicate — but still update the event
     existing_fp = conn.execute(
         "SELECT id, event_id FROM cu_event_sources WHERE source_fingerprint = ?",
         (fingerprint,),
     ).fetchone()
     if existing_fp:
+        # Still update description + performers on the existing event
+        event_id = existing_fp["event_id"]
+        _update_event_if_better(conn, event_id, raw)
+        _link_performers(conn, event_id, raw.artists)
         result["duplicate"] = 1
+        result["updated"] = 1
         return result
 
     # Get-or-create venue
@@ -123,13 +129,12 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
         venue_name = FALLBACK_VENUE_NAME
     venue_id = _get_or_create_venue(conn, venue_name)
     if venue_name != FALLBACK_VENUE_NAME:
-        # Check if this was a new venue
         existing_venue = conn.execute(
             "SELECT id FROM cu_venues WHERE name = ? AND id != ?",
             (venue_name, venue_id),
         ).fetchone()
         if not existing_venue:
-            result["venue_created"] = 1  # approximation
+            result["venue_created"] = 1
 
     # Fuzzy match against existing events on same date
     date_str = raw.date.isoformat()
@@ -153,6 +158,7 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
             (matched_event_id, source_key, raw.source_url, fingerprint,
              datetime.utcnow().isoformat()),
         )
+        _update_event_if_better(conn, matched_event_id, raw)
     else:
         # Create new event
         cursor = conn.execute(
@@ -172,19 +178,42 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
         )
         matched_event_id = new_event_id
 
-    # Get-or-create artists and link as performers
-    for artist_name in raw.artists:
+    # Link performers
+    result["artists_created"] = _link_performers(conn, matched_event_id, raw.artists)
+
+    return result
+
+
+def _update_event_if_better(conn, event_id: int, raw: RawEvent) -> None:
+    """Update an existing event's description if the new one is longer/better."""
+    if not raw.description:
+        return
+    existing = conn.execute(
+        "SELECT description FROM cu_events WHERE id = ?", (event_id,)
+    ).fetchone()
+    old_desc = (existing["description"] or "") if existing else ""
+    # Update if we have a description and the existing one is shorter or empty
+    if len(raw.description.strip()) > len(old_desc.strip()):
+        conn.execute(
+            "UPDATE cu_events SET description = ? WHERE id = ?",
+            (raw.description[:2000], event_id),
+        )
+
+
+def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
+    """Get-or-create artists and link as performers. Returns count linked."""
+    count = 0
+    for artist_name in artist_names:
         artist_name = artist_name.strip()
         if not artist_name:
             continue
         artist_id = _get_or_create_artist(conn, artist_name)
         conn.execute(
             "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
-            (matched_event_id, artist_id),
+            (event_id, artist_id),
         )
-        result["artists_created"] += 1  # rough count; includes existing
-
-    return result
+        count += 1
+    return count
 
 
 def _get_or_create_venue(conn, name: str) -> int:

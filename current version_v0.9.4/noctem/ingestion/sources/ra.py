@@ -9,6 +9,7 @@ Vancouver area ID = 39 (discovered via area lookup query).
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 
 import requests
@@ -42,6 +43,8 @@ query GET_EVENT_LISTINGS($filters: FilterInputDtoInput, $pageSize: Int, $page: I
                 date
                 startTime
                 contentUrl
+                content
+                lineup
                 venue {
                     id
                     name
@@ -142,11 +145,27 @@ class RAScraper(BaseScraper):
         if venue_name.upper() in ("TBA", "TBA - VANCOUVER", ""):
             venue_name = ""
 
+        # Artists: merge the structured artists field with plain-text names
+        # from the lineup field. RA's lineup contains both:
+        #   <artist id="123">Name</artist>   (linked)
+        #   Plain Name                        (unlinked, text-only)
         artists = [
             a.get("name", "").strip()
             for a in (event.get("artists") or [])
             if a.get("name", "").strip()
         ]
+        lineup_raw = event.get("lineup") or ""
+        if lineup_raw:
+            lineup_names = _parse_lineup(lineup_raw)
+            # Merge: add any lineup names not already in artists (case-insensitive)
+            known = {n.lower() for n in artists}
+            for name in lineup_names:
+                if name.lower() not in known:
+                    artists.append(name)
+                    known.add(name.lower())
+
+        # Description from content field
+        description = (event.get("content") or "").strip()
 
         content_url = event.get("contentUrl") or ""
         source_url = f"https://ra.co{content_url}" if content_url else ""
@@ -156,11 +175,13 @@ class RAScraper(BaseScraper):
             date=event_date,
             venue_name=venue_name,
             artists=artists,
+            description=description,
             source_url=source_url,
         )
 
     @staticmethod
     def _parse_date(raw: str) -> date | None:
+        """Parse RA date strings."""
         if not raw:
             return None
         # RA dates: "2026-04-11T00:00:00.000"
@@ -173,3 +194,42 @@ class RAScraper(BaseScraper):
             return datetime.strptime(raw[:10], "%Y-%m-%d").date()
         except (ValueError, IndexError):
             return None
+
+
+def _parse_lineup(raw: str) -> list[str]:
+    """Extract all artist names from RA's lineup field.
+
+    The field mixes XML-tagged artists and plain-text names:
+        <artist id="136804">The Ryze</artist> Jaladé Kristen Losso
+        Charlie\n<artist id="125384">Fizch</artist>\nOzk4r
+
+    Returns a list of all names (both tagged and plain-text).
+    """
+    if not raw:
+        return []
+    # 1) Extract names from <artist> tags
+    tagged = re.findall(r'<artist[^>]*>([^<]+)</artist>', raw)
+    # 2) Strip all tags to get plain text, then split on newlines and common separators
+    plain = re.sub(r'<[^>]+>', '\n', raw)  # replace tags with newlines to separate
+    # Also strip @ prefix (RA uses @Artist sometimes)
+    plain = re.sub(r'@\s*', '', plain)
+    # Replace non-breaking spaces (\xa0) with newlines — RA uses these between artists
+    plain = plain.replace('\xa0', '\n')
+    # Split on newlines, commas, and common delimiters
+    parts = re.split(r'[\n,;/]|\sb2b\s', plain)
+    names = []
+    for part in parts:
+        # Clean up parenthetical b2b/group markers but keep the name
+        name = re.sub(r'\([^)]*\)', '', part).strip()
+        # Skip empty, very short, or clearly-not-a-name tokens
+        if name and len(name) >= 2 and not name.startswith('http'):
+            names.append(name)
+    # Combine tagged + plain, dedup preserving order
+    all_names = []
+    seen = set()
+    for n in tagged + names:
+        n = n.strip()
+        if n and n.lower() not in seen:
+            all_names.append(n)
+            seen.add(n.lower())
+    return all_names

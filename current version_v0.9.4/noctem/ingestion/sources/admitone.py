@@ -8,8 +8,10 @@ Card text structure (pipe = newline):
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from datetime import date, datetime
 
 from ..models import RawEvent
@@ -87,8 +89,53 @@ class AdmitOneScraper(BaseScraper):
             except Exception as exc:
                 logger.debug("AdmitOne parse error: %s", exc)
 
+        # Visit each event page to grab description from ld+json
+        for ev in events:
+            if not ev.source_url:
+                continue
+            try:
+                time.sleep(0.5)  # polite delay
+                page.goto(ev.source_url, wait_until="domcontentloaded", timeout=15_000)
+                page.wait_for_timeout(1500)
+                desc = _extract_description(page)
+                if desc:
+                    ev.description = desc
+            except Exception as exc:
+                logger.debug("AdmitOne detail fetch error for %s: %s", ev.source_url, exc)
+
         logger.info("AdmitOne: extracted %d events", len(events))
         return events
+
+
+def _extract_description(page) -> str:
+    """Extract event description from an AdmitOne event detail page.
+
+    Tries ld+json first, then falls back to DOM selectors.
+    """
+    # Try ld+json
+    scripts = page.query_selector_all('script[type="application/ld+json"]')
+    for script in scripts:
+        try:
+            data = json.loads(script.inner_text())
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if item.get("@type") in ("Event", "MusicEvent"):
+                    desc = (item.get("description") or "").strip()
+                    if desc:
+                        return desc[:2000]
+        except Exception:
+            pass
+    # Fallback: look for description in DOM
+    for sel in ('[class*="description"]', '[class*="about"]', 'article p'):
+        try:
+            els = page.query_selector_all(sel)
+            if els:
+                text = els[0].inner_text().strip()
+                if len(text) > 20:
+                    return text[:2000]
+        except Exception:
+            pass
+    return ""
 
 
 def _clean_venue(text: str) -> str:
