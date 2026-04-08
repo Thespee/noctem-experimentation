@@ -312,3 +312,25 @@ def get_artist_detail(artist_id: int) -> dict | None:
             ).fetchall()
         ]
         return artist
+
+
+def get_venue_detail(venue_id: int) -> dict | None:
+    """Return a venue with all events held there."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM cu_venues WHERE id = ?", (venue_id,)
+        ).fetchone()
+        if not row:
+            return None
+        venue = dict(row)
+        venue["events"] = [
+            dict(r)
+            for r in conn.execute(
+                """SELECT e.id, e.title, e.date
+                   FROM cu_events e
+                   WHERE e.venue_id = ?
+                   ORDER BY e.date DESC""",
+                (venue_id,),
+            ).fetchall()
+        ]
+        return venue

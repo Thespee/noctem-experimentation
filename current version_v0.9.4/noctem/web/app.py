@@ -2198,6 +2198,11 @@ def create_app() -> Flask:
         """Artist page — lists their events."""
         return render_template("cor_unum_artist.html", artist_id=artist_id)
 
+    @app.route("/cor-unum/venue/<int:venue_id>")
+    def cor_unum_venue(venue_id):
+        """Venue page — lists events at this venue."""
+        return render_template("cor_unum_venue.html", venue_id=venue_id)
+
     @app.route("/api/cor-unum/upcoming")
     def api_cu_upcoming():
         from ..ingestion.service import get_upcoming_events
@@ -2219,6 +2224,14 @@ def create_app() -> Flask:
         if not artist:
             return jsonify({"success": False, "error": "Artist not found"}), 404
         return jsonify({"success": True, "artist": artist})
+
+    @app.route("/api/cor-unum/venues/<int:venue_id>")
+    def api_cu_venue_detail(venue_id):
+        from ..ingestion.service import get_venue_detail
+        venue = get_venue_detail(venue_id)
+        if not venue:
+            return jsonify({"success": False, "error": "Venue not found"}), 404
+        return jsonify({"success": True, "venue": venue})
 
     return app
 

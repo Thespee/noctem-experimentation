@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Cor Unum — Venue{% endblock %}
+
+{% block extra_style %}
+.cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-ven-header { margin: 1.2rem 0 0.3rem; }
+.cu-ven-name { font-size: 1.5rem; font-weight: 600; margin: 0; }
+.cu-ven-meta { font-size: 0.82rem; color: #9aa0a6; margin-bottom: 1rem; }
+.cu-ven-meta a { color: #8ab4f8; text-decoration: none; }
+.cu-ven-meta a:hover { text-decoration: underline; }
+
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
+
+.cu-ven-event { display: flex; gap: 0.9rem; padding: 0.6rem 0; border-bottom: 1px solid #2d2d2d; text-decoration: none; color: inherit; transition: background 0.12s; }
+.cu-ven-event:hover { background: #262626; }
+.cu-ven-ev-date { flex-shrink: 0; width: 90px; font-size: 0.82rem; color: #9aa0a6; }
+.cu-ven-ev-title { flex: 1; font-size: 0.9rem; color: #e8eaed; }
+
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
+{% endblock %}
+
+{% block content %}
+<div class="cu-wrap">
+    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
+    <div id="venueDetail"><div class="cu-empty">Loading...</div></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const VENUE_ID = {{ venue_id }};
+
+async function loadVenue() {
+    try {
+        const r = await fetch('/api/cor-unum/venues/' + VENUE_ID);
+        const d = await r.json();
+        if (!d.success) {
+            document.getElementById('venueDetail').innerHTML = '<div class="cu-empty">Venue not found.</div>';
+            return;
+        }
+        const v = d.venue;
+        let html = `<div class="cu-ven-header">
+            <h1 class="cu-ven-name">${escapeHtml(v.name)}</h1>
+            <div class="cu-ven-meta">
+                ${v.address ? `<span>${escapeHtml(v.address)}</span>` : ''}
+                ${v.url ? ` · <a href="${v.url}" target="_blank" rel="noopener">${escapeHtml(v.url)}</a>` : ''}
+            </div>
+        </div>`;
+
+        const events = v.events || [];
+        html += `<div class="cu-section-label">Events (${events.length})</div>`;
+        if (events.length) {
+            for (const ev of events) {
+                const dateObj = new Date(ev.date + 'T00:00:00');
+                const dateStr = dateObj.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+                html += `<a href="/cor-unum/event/${ev.id}" class="cu-ven-event">
+                    <div class="cu-ven-ev-date">${dateStr}</div>
+                    <div class="cu-ven-ev-title">${escapeHtml(ev.title)}</div>
+                </a>`;
+            }
+        } else {
+            html += `<div class="cu-empty">No events found for this venue.</div>`;
+        }
+
+        document.getElementById('venueDetail').innerHTML = html;
+    } catch(e) { console.error('loadVenue', e); }
+}
+
+loadVenue();
+{% endblock %}

@@ -67,7 +67,7 @@ async function loadEvent() {
             <h1 class="cu-ev-title">${escapeHtml(ev.title)}</h1>
             <div class="cu-ev-meta">
                 <span>${dateStr}</span>
-                <span class="venue">${escapeHtml(ev.venue_name || 'TBA')}</span>
+                ${ev.venue_id ? `<a href="/cor-unum/venue/${ev.venue_id}" class="venue" style="text-decoration:none">${escapeHtml(ev.venue_name || 'TBA')}</a>` : `<span class="venue">${escapeHtml(ev.venue_name || 'TBA')}</span>`}
                 ${ev.venue_address ? `<span>${escapeHtml(ev.venue_address)}</span>` : ''}
             </div>
         </div>`;
