@@ -183,19 +183,29 @@ def check_artist_locality(artist_id: int) -> dict:
     }
 
 
-def check_all_unchecked_artists(limit: int = 50) -> dict:
-    """Batch-check all artists where is_local IS NULL.
+def check_all_unchecked_artists(limit: int = 50, recheck_all: bool = False) -> dict:
+    """Batch-check artists via SoundCloud.
 
-    Returns summary with counts.
+    recheck_all=False: only artists where is_local IS NULL.
+    recheck_all=True: all canonical artists (re-checks previously checked ones too).
     """
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT id, name FROM cu_artists
-               WHERE is_local IS NULL AND alias_of IS NULL
-               ORDER BY last_seen DESC NULLS LAST
-               LIMIT ?""",
-            (limit,),
-        ).fetchall()
+        if recheck_all:
+            rows = conn.execute(
+                """SELECT id, name FROM cu_artists
+                   WHERE alias_of IS NULL
+                   ORDER BY last_seen DESC NULLS LAST
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, name FROM cu_artists
+                   WHERE is_local IS NULL AND alias_of IS NULL
+                   ORDER BY last_seen DESC NULLS LAST
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
 
     results = {"checked": 0, "local": 0, "not_local": 0, "errors": 0}
     for row in rows:

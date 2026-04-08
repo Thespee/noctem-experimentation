@@ -36,9 +36,10 @@ h1 { font-size: 1.3rem; margin: 1rem 0; }
         <input id="scClientSecret" type="password" placeholder="Your SoundCloud client_secret">
     </div>
     <div class="cu-hint">Register at SoundCloud via their support chatbot. Used to check if artists are from Vancouver.</div>
-    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
         <button class="cu-btn" onclick="saveSettings()">Save</button>
-        <button class="cu-btn secondary" onclick="checkAll()">Check All Unchecked Artists</button>
+        <button class="cu-btn secondary" onclick="checkBatch('unchecked')">Check Unchecked Artists</button>
+        <button class="cu-btn secondary" onclick="checkBatch('all')">Recheck All Artists</button>
     </div>
     <div id="statusArea" class="cu-status" style="display:none;"></div>
 </div>
@@ -81,11 +82,12 @@ async function saveSettings() {
     showToast(d.success ? 'Settings saved' : 'Error: ' + d.error, !d.success);
 }
 
-async function checkAll() {
+async function checkBatch(mode) {
     const status = document.getElementById('statusArea');
     status.style.display = 'block';
-    status.textContent = 'Checking unchecked artists via SoundCloud...';
-    const r = await fetch('/api/cor-unum/artists/check-all-locality', {method: 'POST'});
+    status.textContent = (mode === 'all' ? 'Rechecking all' : 'Checking unchecked') + ' artists via SoundCloud...';
+    const url = '/api/cor-unum/artists/check-all-locality?mode=' + mode;
+    const r = await fetch(url, {method: 'POST'});
     const d = await r.json();
     if (d.success) {
         const s = d.result;

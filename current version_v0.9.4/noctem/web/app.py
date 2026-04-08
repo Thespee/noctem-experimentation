@@ -2315,7 +2315,8 @@ def create_app() -> Flask:
     def api_cu_check_all_locality():
         from ..ingestion.soundcloud import check_all_unchecked_artists
         limit = max(1, min(request.args.get("limit", 50, type=int), 200))
-        result = check_all_unchecked_artists(limit=limit)
+        mode = (request.args.get("mode") or "unchecked").strip()
+        result = check_all_unchecked_artists(limit=limit, recheck_all=(mode == "all"))
         return jsonify({"success": True, "result": result})
 
     return app
