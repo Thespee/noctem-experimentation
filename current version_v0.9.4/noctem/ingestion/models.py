@@ -33,6 +33,12 @@ SOURCE_REGISTRY_SEEDS = [
         "source_kind": "web",
         "target_url": "https://www.eventbrite.ca/b/canada--vancouver/music/",
     },
+    {
+        "source_key": "soundcloud",
+        "source_label": "SoundCloud Locality",
+        "source_kind": "social",
+        "target_url": "https://api-v2.soundcloud.com/search/users",
+    },
 ]
 
 

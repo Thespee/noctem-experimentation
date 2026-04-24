@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Live Music Ingestion{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 .cu-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
 .cu-header h1 { font-size: 1.4rem; margin: 0; }
@@ -31,7 +31,7 @@
 .cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div id="toast" class="cu-toast"></div>
 <div class="cu-wrap">
     <div class="cu-header">
@@ -64,13 +64,14 @@
     <!-- Run History -->
     <div id="tab-runs" class="cu-section">
         <table class="cu-table">
-            <thead><tr><th>Source</th><th>Status</th><th>Events</th><th>Artists</th><th>Venues</th><th>Dupes</th><th>Started</th></tr></thead>
-            <tbody id="runs-body"><tr><td colspan="7" class="cu-empty">Loading...</td></tr></tbody>
+            <thead><tr><th>Source</th><th>Status</th><th>Report</th><th>Started</th></tr></thead>
+            <tbody id="runs-body"><tr><td colspan="4" class="cu-empty">Loading...</td></tr></tbody>
         </table>
     </div>
 
     <div class="cu-links" style="margin-top:1.5rem;">
         <a href="/cor-unum/upcoming" style="background:#1a73e8;border-color:#1a73e8;color:#fff;font-weight:500;">Upcoming Events</a>
+        <a href="/cor-unum/add-event" style="background:#1b5e20;border-color:#1b5e20;color:#fff;font-weight:500;">+ Add Event</a>
     </div>
     <div class="cu-links" style="margin-top:0.5rem;">
         <strong style="color:#9aa0a6;font-size:0.82rem;padding:0.3rem 0;">DB Views:</strong>
@@ -79,7 +80,6 @@
         <a href="/cor-unum/db/venues">Venues</a>
         <a href="/cor-unum/db/event-sources">Event Sources</a>
         <a href="/cor-unum/db/source-registry">Source Registry</a>
-        <a href="/cor-unum/settings" style="margin-left:auto;">Settings</a>
     </div>
 </div>
 {% endblock %}
@@ -124,16 +124,39 @@ async function loadSources() {
     } catch(e) { console.error('loadSources', e); }
 }
 
+function formatReport(run) {
+    let summary = {};
+    try { summary = typeof run.raw_summary_json === 'string' ? JSON.parse(run.raw_summary_json) : (run.raw_summary_json || {}); } catch(e) { summary = {}; }
+    const type = summary.report_type || 'events';
+    // Keys to skip in the report display
+    const skip = new Set(['source_key','started_at','status','report_type','error_message']);
+    const labels = {
+        events_ingested: 'Events', artists_added: 'Artists', venues_added: 'Venues',
+        duplicates_skipped: 'Dupes', checked: 'Checked', local: 'Local',
+        not_local: 'Not Local', errors: 'Errors'
+    };
+    const parts = [];
+    for (const [k, v] of Object.entries(summary)) {
+        if (skip.has(k) || v === null || v === undefined) continue;
+        if (typeof v === 'number' || (typeof v === 'string' && v.length < 40)) {
+            const label = labels[k] || k.replace(/_/g, ' ');
+            parts.push(`<span style="white-space:nowrap">${escapeHtml(label)}: <strong>${escapeHtml(String(v))}</strong></span>`);
+        }
+    }
+    if (run.error_message) parts.push(`<span style="color:#ef9a9a">${escapeHtml(run.error_message.substring(0,80))}</span>`);
+    return parts.join(' &middot; ') || '—';
+}
+
 async function loadRuns() {
     try {
         const r = await fetch('/api/cor-unum/runs?limit=30');
         const d = await r.json();
         const body = document.getElementById('runs-body');
-        if (!d.runs || !d.runs.length) { body.innerHTML = '<tr><td colspan="7" class="cu-empty">No runs yet.</td></tr>'; return; }
+        if (!d.runs || !d.runs.length) { body.innerHTML = '<tr><td colspan="4" class="cu-empty">No runs yet.</td></tr>'; return; }
         body.innerHTML = d.runs.map(r => `<tr>
             <td>${escapeHtml(r.source_key)}</td>
             <td>${r.status === 'success' ? '<span class="cu-badge ok">OK</span>' : '<span class="cu-badge err">Error</span>'}</td>
-            <td>${r.events_ingested}</td><td>${r.artists_added}</td><td>${r.venues_added}</td><td>${r.duplicates_skipped}</td>
+            <td style="font-size:0.75rem">${formatReport(r)}</td>
             <td style="font-size:0.75rem">${new Date(r.started_at).toLocaleString()}</td>
         </tr>`).join('');
     } catch(e) { console.error('loadRuns', e); }
@@ -151,7 +174,16 @@ async function refreshSource(key) {
     showToast('Refreshing ' + key + '...');
     const r = await fetch('/api/cor-unum/sources/' + key + '/refresh', {method:'POST'});
     const d = await r.json();
-    showToast(d.success ? 'Done: ' + (d.result.events_ingested||0) + ' events ingested' : 'Error: ' + (d.result.error_message||'unknown'), !d.success);
+    if (d.success) {
+        const res = d.result;
+        if (res.report_type === 'social') {
+            showToast(`Done: ${res.checked||0} checked, ${res.local||0} local`);
+        } else {
+            showToast('Done: ' + (res.events_ingested||0) + ' events ingested');
+        }
+    } else {
+        showToast('Error: ' + (d.result?.error_message || 'unknown'), true);
+    }
     loadSources(); loadRuns();
 }
 

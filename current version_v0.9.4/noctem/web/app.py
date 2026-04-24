@@ -2184,6 +2184,85 @@ def create_app() -> Flask:
 
     # --- Cor Unum: browse pages ---
 
+    @app.route("/cor-unum/add-event")
+    def cor_unum_add_event():
+        """Manual event creation page."""
+        return render_template("cor_unum_add_event.html")
+
+    @app.route("/api/cor-unum/events/create", methods=["POST"])
+    def api_cu_create_event():
+        from ..ingestion.models import FALLBACK_VENUE_NAME
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or "").strip()
+        date_str = (data.get("date") or "").strip()
+        if not title or not date_str:
+            return jsonify({"success": False, "error": "Title and date required"}), 400
+
+        venue_id = data.get("venue_id")
+        venue_name = (data.get("venue_name") or "").strip()
+        description = (data.get("description") or "").strip()
+        artist_list = data.get("artists") or []
+
+        with get_db() as conn:
+            # Resolve or create venue
+            if venue_id:
+                pass  # use existing
+            elif venue_name:
+                row = conn.execute("SELECT id, alias_of FROM cu_venues WHERE name = ?", (venue_name,)).fetchone()
+                if row:
+                    venue_id = row["alias_of"] or row["id"]
+                else:
+                    cur = conn.execute("INSERT INTO cu_venues (name) VALUES (?)", (venue_name,))
+                    venue_id = cur.lastrowid
+            else:
+                row = conn.execute("SELECT id FROM cu_venues WHERE name = ?", (FALLBACK_VENUE_NAME,)).fetchone()
+                venue_id = row["id"] if row else None
+
+            # Create event
+            cur = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id, description) VALUES (?, ?, ?, ?)",
+                (title, date_str, venue_id, description[:2000] if description else ""),
+            )
+            event_id = cur.lastrowid
+
+            # Create source record (manual)
+            conn.execute(
+                """INSERT INTO cu_event_sources
+                   (event_id, source_type, source_url, source_fingerprint, captured_at)
+                   VALUES (?, 'manual', '', 'manual_' || ?, ?)""",
+                (event_id, str(event_id), datetime.utcnow().isoformat()),
+            )
+
+            # Process artists
+            for art in artist_list:
+                art_name = (art.get("name") or "").strip()
+                if not art_name:
+                    continue
+                art_id = art.get("id")
+                if art_id and not art.get("is_new"):
+                    # Existing artist — resolve alias
+                    row = conn.execute("SELECT id, alias_of FROM cu_artists WHERE id = ?", (art_id,)).fetchone()
+                    if row:
+                        art_id = row["alias_of"] or row["id"]
+                else:
+                    # New or unresolved — get-or-create
+                    row = conn.execute("SELECT id, alias_of FROM cu_artists WHERE name = ?", (art_name,)).fetchone()
+                    if row:
+                        art_id = row["alias_of"] or row["id"]
+                    else:
+                        is_local = 1 if art.get("is_local") else None
+                        cur2 = conn.execute(
+                            "INSERT INTO cu_artists (name, is_local, last_seen) VALUES (?, ?, ?)",
+                            (art_name, is_local, datetime.utcnow().isoformat()),
+                        )
+                        art_id = cur2.lastrowid
+                conn.execute(
+                    "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                    (event_id, art_id),
+                )
+
+        return jsonify({"success": True, "event_id": event_id})
+
     @app.route("/cor-unum/upcoming")
     def cor_unum_upcoming():
         """Upcoming events view — RA-style date-grouped listing."""
@@ -2272,6 +2351,8 @@ def create_app() -> Flask:
         from ..ingestion.service import search_venues_for_merge
         q = (request.args.get("q") or "").strip()
         exclude = request.args.get("exclude", type=int)
+        if not q:
+            return jsonify({"success": True, "results": []})
         return jsonify({"success": True, "results": search_venues_for_merge(q, exclude)})
 
     # --- Cor Unum: settings + SoundCloud locality ---
@@ -2283,30 +2364,48 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/settings", methods=["GET"])
     def api_cu_settings_get():
         from ..ingestion.soundcloud import get_sc_config
-        cfg = get_sc_config()
-        # Mask secret for GET
-        return jsonify({"success": True, "settings": {
-            "client_id": cfg.get("client_id", ""),
-            "client_secret": bool(cfg.get("client_secret", "")),
-        }})
+        return jsonify({"success": True, "settings": get_sc_config()})
 
     @app.route("/api/cor-unum/settings", methods=["POST"])
     def api_cu_settings_save():
-        from ..ingestion.soundcloud import get_sc_config, save_sc_config
+        from ..ingestion.soundcloud import save_sc_config
         data = request.get_json(silent=True) or {}
-        existing = get_sc_config()
-        client_id = data.get("client_id", existing.get("client_id", "")).strip()
-        client_secret = data.get("client_secret", "").strip()
-        # If no new secret provided, keep existing
-        if not client_secret:
-            client_secret = existing.get("client_secret", "")
-        save_sc_config(client_id, client_secret)
+        save_sc_config(
+            min_followers=int(data.get("min_followers", 0)),
+            search_limit=int(data.get("search_limit", 5)),
+        )
+        return jsonify({"success": True})
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>/update", methods=["POST"])
+    def api_cu_update_artist(artist_id):
+        data = request.get_json(silent=True) or {}
+        updates = []
+        params = []
+        if "is_local" in data:
+            val = data["is_local"]
+            updates.append("is_local = ?")
+            params.append(1 if val else (0 if val is not None else None))
+        if "soundcloud_url" in data:
+            updates.append("soundcloud_url = ?")
+            params.append(data["soundcloud_url"].strip() or None)
+        if "instagram_url" in data:
+            updates.append("instagram_url = ?")
+            params.append(data["instagram_url"].strip() or None)
+        if not updates:
+            return jsonify({"success": False, "error": "No fields to update"}), 400
+        params.append(artist_id)
+        with get_db() as conn:
+            conn.execute(
+                f"UPDATE cu_artists SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
         return jsonify({"success": True})
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/check-locality", methods=["POST"])
     def api_cu_check_artist_locality(artist_id):
         from ..ingestion.soundcloud import check_artist_locality
-        result = check_artist_locality(artist_id)
+        force = request.args.get("force", "0") == "1"
+        result = check_artist_locality(artist_id, force=force)
         if result.get("error"):
             return jsonify({"success": False, "error": result["error"]}), 400
         return jsonify({"success": True, **result})

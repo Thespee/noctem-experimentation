@@ -1,12 +1,17 @@
 """SoundCloud locality checker for Cor Unum artists.
 
-Uses the SoundCloud API (Client Credentials OAuth flow) to search for
-artists and check if their profile city contains 'Vancouver'.
+Uses the SoundCloud api-v2 endpoint with a public client_id extracted
+from SoundCloud's frontend JS bundles.  No OAuth credentials needed.
+
+Search strategy:
+  1. Unfiltered search — look for name matches whose city contains 'vancouver'
+  2. Location-filtered search (filter.place=vancouver) — catch profiles that
+     didn't surface in the unfiltered pass
 """
 from __future__ import annotations
 
-import base64
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -17,161 +22,241 @@ from ..db import get_db
 
 logger = logging.getLogger(__name__)
 
-# Token cache (module-level, refreshed when expired)
-_token: str | None = None
-_token_expires_at: datetime | None = None
-
 _SC_CONFIG_PREFIX = "cu_soundcloud_"
+
+# Cached public client_id (extracted from SoundCloud JS bundles)
+_public_client_id: str | None = None
+_public_client_id_expires: datetime | None = None
+_CLIENT_ID_TTL = timedelta(hours=6)
 
 
 # --------------------------------------------------------------------------
-# Config helpers
+# Config helpers (shared settings)
 # --------------------------------------------------------------------------
 
 def get_sc_config() -> dict:
-    """Return SoundCloud config (client_id, client_secret)."""
+    """Return SoundCloud scraper settings."""
+    raw_mf = Config.get(f"{_SC_CONFIG_PREFIX}min_followers", "0")
+    raw_sl = Config.get(f"{_SC_CONFIG_PREFIX}search_limit", "5")
+    try:
+        min_f = int(raw_mf)
+    except (ValueError, TypeError):
+        min_f = 0
+    try:
+        search_l = int(raw_sl)
+    except (ValueError, TypeError):
+        search_l = 5
     return {
-        "client_id": Config.get(f"{_SC_CONFIG_PREFIX}client_id", ""),
-        "client_secret": Config.get(f"{_SC_CONFIG_PREFIX}client_secret", ""),
+        "min_followers": max(0, min_f),
+        "search_limit": max(1, min(search_l, 50)),
     }
 
 
-def save_sc_config(client_id: str, client_secret: str) -> None:
-    """Save SoundCloud credentials to the config table."""
-    Config.set(f"{_SC_CONFIG_PREFIX}client_id", client_id)
-    Config.set(f"{_SC_CONFIG_PREFIX}client_secret", client_secret)
+def save_sc_config(*, min_followers: int | None = None,
+                   search_limit: int | None = None) -> None:
+    """Save SoundCloud scraper settings."""
+    if min_followers is not None:
+        Config.set(f"{_SC_CONFIG_PREFIX}min_followers", str(max(0, min_followers)))
+    if search_limit is not None:
+        Config.set(f"{_SC_CONFIG_PREFIX}search_limit", str(max(1, min(search_limit, 50))))
     Config.clear_cache()
-    # Invalidate cached token
-    global _token, _token_expires_at
-    _token = None
-    _token_expires_at = None
 
 
 # --------------------------------------------------------------------------
-# OAuth token management
+# Public client_id extraction
 # --------------------------------------------------------------------------
 
-def _get_token() -> str | None:
-    """Get a valid access token, refreshing if needed."""
-    global _token, _token_expires_at
+def _get_public_client_id() -> str | None:
+    """Extract a fresh public client_id from SoundCloud's JS bundles.
 
-    if _token and _token_expires_at and datetime.utcnow() < _token_expires_at:
-        return _token
+    SoundCloud embeds a client_id in their compiled JS assets.
+    We fetch the homepage, find the script bundle URLs, then regex for
+    the client_id string.  Result is cached for several hours.
+    """
+    global _public_client_id, _public_client_id_expires
 
-    cfg = get_sc_config()
-    client_id = cfg.get("client_id", "").strip()
-    client_secret = cfg.get("client_secret", "").strip()
-    if not client_id or not client_secret:
-        logger.warning("SoundCloud credentials not configured")
-        return None
+    if (_public_client_id
+            and _public_client_id_expires
+            and datetime.utcnow() < _public_client_id_expires):
+        return _public_client_id
 
     try:
-        # Client Credentials flow with Basic auth header
-        creds = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-        resp = requests.post(
-            "https://secure.soundcloud.com/oauth/token",
-            headers={
-                "Accept": "application/json; charset=utf-8",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Authorization": f"Basic {creds}",
-            },
-            data="grant_type=client_credentials",
+        page = requests.get(
+            "https://soundcloud.com",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15,
+        )
+        page.raise_for_status()
+
+        # Find JS bundle URLs
+        script_urls = re.findall(
+            r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"',
+            page.text,
+        )
+        if not script_urls:
+            logger.warning("No SoundCloud JS bundles found on homepage")
+            return None
+
+        # Check the last few bundles (client_id is usually in one of the later ones)
+        for url in reversed(script_urls[-5:]):
+            try:
+                js = requests.get(url, timeout=15).text
+                match = re.search(r'client_id:"([a-zA-Z0-9]{32})"', js)
+                if match:
+                    _public_client_id = match.group(1)
+                    _public_client_id_expires = datetime.utcnow() + _CLIENT_ID_TTL
+                    logger.info("Extracted SoundCloud public client_id: %s…",
+                                _public_client_id[:8])
+                    return _public_client_id
+            except Exception:
+                continue
+
+        logger.warning("Could not extract client_id from SoundCloud JS bundles")
+        return None
+    except Exception as exc:
+        logger.error("Failed to fetch SoundCloud homepage: %s", exc)
+        return None
+
+
+# --------------------------------------------------------------------------
+# api-v2 search
+# --------------------------------------------------------------------------
+
+def _search_users(query: str, limit: int = 5,
+                  filter_place: str | None = None) -> list[dict]:
+    """Search SoundCloud api-v2 for user profiles."""
+    client_id = _get_public_client_id()
+    if not client_id:
+        return []
+
+    params: dict = {"q": query, "limit": limit, "client_id": client_id}
+    if filter_place:
+        params["filter.place"] = filter_place
+
+    try:
+        resp = requests.get(
+            "https://api-v2.soundcloud.com/search/users",
+            params=params,
+            headers={"Accept": "application/json"},
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
-        _token = data.get("access_token")
-        expires_in = data.get("expires_in", 3600)
-        _token_expires_at = datetime.utcnow() + timedelta(seconds=max(expires_in - 60, 60))
-        logger.info("SoundCloud token acquired, expires in %ds", expires_in)
-        return _token
+        return data.get("collection", [])
     except Exception as exc:
-        logger.error("SoundCloud token request failed: %s", exc)
-        _token = None
-        _token_expires_at = None
-        return None
+        logger.error("SoundCloud api-v2 search failed for '%s': %s", query, exc)
+        return []
 
 
 # --------------------------------------------------------------------------
-# Artist locality check
+# Name matching
 # --------------------------------------------------------------------------
 
-def check_artist_locality(artist_id: int) -> dict:
-    """Check if an artist is from Vancouver via SoundCloud.
+def _names_match(our_name: str, sc_name: str) -> bool:
+    """Loose check if a SoundCloud username matches our artist name."""
+    a = our_name.lower().strip()
+    b = sc_name.lower().strip()
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    for suffix in (" (ca)", " (vancouver)", " dj", "dj "):
+        a2 = a.replace(suffix, "").strip()
+        if a2 and (a2 == b or a2 in b or b in a2):
+            return True
+    return False
 
-    Searches SoundCloud for the artist name, checks if any matching
-    user's city contains 'vancouver' (case-insensitive).
 
-    Returns: {"is_local": bool|None, "soundcloud_url": str|None, "city": str|None}
+# --------------------------------------------------------------------------
+# Single artist locality check
+# --------------------------------------------------------------------------
+
+def check_artist_locality(artist_id: int, force: bool = False) -> dict:
+    """Check if an artist is from Vancouver via SoundCloud api-v2.
+
+    Two-pass search:
+      1. Unfiltered — look for name matches with city containing 'vancouver'
+      2. Location-filtered (filter.place=vancouver) — catches profiles that
+         the unfiltered search may have ranked lower
+
+    force=True bypasses the is_local==1 skip (for manual rechecks).
+
+    Returns: {"is_local": bool, "soundcloud_url": str|None, ...}
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, alias_of FROM cu_artists WHERE id = ?",
+            "SELECT id, name, alias_of, is_local FROM cu_artists WHERE id = ?",
             (artist_id,),
         ).fetchone()
         if not row:
             return {"error": "Artist not found"}
-        # Follow alias
         if row["alias_of"]:
-            return check_artist_locality(row["alias_of"])
+            return check_artist_locality(row["alias_of"], force=force)
+        if not force and row["is_local"] is not None:
+            return {"artist_id": artist_id, "artist_name": row["name"],
+                    "is_local": bool(row["is_local"]), "skipped": True}
         artist_name = row["name"]
 
-    token = _get_token()
-    if not token:
-        return {"error": "SoundCloud credentials not configured or token failed"}
+    cfg = get_sc_config()
+    min_followers = cfg["min_followers"]
+    search_limit = cfg["search_limit"]
 
-    # Try location-filtered search first, fall back to unfiltered
-    is_local = False
-    sc_url = None
-    city_found = None
+    # Collect all name-matched candidates across both passes, deduped by URL
+    candidates: dict[str, dict] = {}  # permalink_url -> user info
 
-    for params in [
-        {"q": artist_name, "limit": 15, "filter.place": "vancouver"},
-        {"q": artist_name, "limit": 15},
-    ]:
-        try:
-            resp = requests.get(
-                "https://api.soundcloud.com/users",
-                params=params,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            users = resp.json()
-            if isinstance(users, dict):
-                users = users.get("collection", [])
-        except Exception as exc:
-            logger.error("SoundCloud search failed for '%s': %s", artist_name, exc)
-            return {"error": str(exc)}
+    # Pass 1: unfiltered search
+    # Pass 2: location-filtered search
+    for filter_place in [None, "vancouver"]:
+        users = _search_users(artist_name, limit=search_limit,
+                              filter_place=filter_place)
 
-        # Check all matching results (not just the first)
         for user in users:
             user_name = (user.get("username") or "").strip()
+            full_name = (user.get("full_name") or "").strip()
             user_city = (user.get("city") or "").strip()
             permalink = user.get("permalink_url") or ""
+            followers = user.get("followers_count", 0) or 0
 
-            if not _names_match(artist_name, user_name):
+            if not permalink:
+                continue
+            if not (_names_match(artist_name, user_name) or
+                    _names_match(artist_name, full_name)):
+                continue
+            if followers < min_followers:
                 continue
 
-            if "vancouver" in user_city.lower():
-                is_local = True
-                sc_url = permalink
-                city_found = user_city
-                break
-            elif not sc_url:
-                # Keep first name-match as fallback SC link
-                sc_url = permalink
-                city_found = user_city
+            # Keep highest-follower entry per profile
+            if (permalink not in candidates
+                    or followers > candidates[permalink]["followers"]):
+                candidates[permalink] = {
+                    "permalink_url": permalink,
+                    "city": user_city,
+                    "followers": followers,
+                    "is_vancouver": "vancouver" in user_city.lower(),
+                }
 
-        if is_local:
-            break  # found a local match, no need for unfiltered search
+    # Pick best match: prefer Vancouver locals, then highest followers
+    local_matches = [c for c in candidates.values() if c["is_vancouver"]]
+    other_matches = [c for c in candidates.values() if not c["is_vancouver"]]
+
+    best = None
+    is_local = False
+    if local_matches:
+        best = max(local_matches, key=lambda c: c["followers"])
+        is_local = True
+    elif other_matches:
+        best = max(other_matches, key=lambda c: c["followers"])
+
+    sc_url = best["permalink_url"] if best else None
+    city_found = best["city"] if best else None
+    followers_found = best["followers"] if best else None
 
     # Store result
     with get_db() as conn:
         conn.execute(
-            """UPDATE cu_artists SET is_local = ?, soundcloud_url = ?
+            """UPDATE cu_artists SET is_local = ?, soundcloud_url = ?, sc_followers = ?
                WHERE id = ?""",
-            (1 if is_local else 0, sc_url, artist_id),
+            (1 if is_local else 0, sc_url, followers_found, artist_id),
         )
 
     return {
@@ -180,20 +265,26 @@ def check_artist_locality(artist_id: int) -> dict:
         "is_local": is_local,
         "soundcloud_url": sc_url,
         "city": city_found,
+        "followers": followers_found,
     }
 
 
-def check_all_unchecked_artists(limit: int = 50, recheck_all: bool = False) -> dict:
-    """Batch-check artists via SoundCloud.
+# --------------------------------------------------------------------------
+# Batch check
+# --------------------------------------------------------------------------
+
+def check_all_unchecked_artists(limit: int = 50,
+                                recheck_all: bool = False) -> dict:
+    """Batch-check artists via SoundCloud api-v2.
 
     recheck_all=False: only artists where is_local IS NULL.
-    recheck_all=True: all canonical artists (re-checks previously checked ones too).
+    recheck_all=True: unchecked + not-local (skips confirmed local).
     """
     with get_db() as conn:
         if recheck_all:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
-                   WHERE alias_of IS NULL
+                   WHERE alias_of IS NULL AND (is_local IS NULL OR is_local = 0)
                    ORDER BY last_seen DESC NULLS LAST
                    LIMIT ?""",
                 (limit,),
@@ -209,7 +300,7 @@ def check_all_unchecked_artists(limit: int = 50, recheck_all: bool = False) -> d
 
     results = {"checked": 0, "local": 0, "not_local": 0, "errors": 0}
     for row in rows:
-        time.sleep(0.3)  # polite rate limiting
+        time.sleep(0.3)
         result = check_artist_locality(row["id"])
         results["checked"] += 1
         if result.get("error"):
@@ -220,20 +311,3 @@ def check_all_unchecked_artists(limit: int = 50, recheck_all: bool = False) -> d
             results["not_local"] += 1
 
     return results
-
-
-def _names_match(our_name: str, sc_name: str) -> bool:
-    """Loose check if a SoundCloud username matches our artist name."""
-    a = our_name.lower().strip()
-    b = sc_name.lower().strip()
-    if not a or not b:
-        return False
-    # Exact or containment
-    if a == b or a in b or b in a:
-        return True
-    # Strip common suffixes/prefixes and retry
-    for suffix in (" (ca)", " (vancouver)", " dj", "dj "):
-        a2 = a.replace(suffix, "").strip()
-        if a2 and (a2 == b or a2 in b or b in a2):
-            return True
-    return False

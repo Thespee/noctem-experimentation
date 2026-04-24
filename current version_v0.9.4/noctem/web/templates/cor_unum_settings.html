@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Settings{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 600px; margin: 0 auto; padding: 1.5rem; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 h1 { font-size: 1.3rem; margin: 1rem 0; }
@@ -20,28 +20,26 @@ h1 { font-size: 1.3rem; margin: 1rem 0; }
 .cu-status { font-size: 0.82rem; color: #9aa0a6; margin-top: 0.5rem; padding: 0.5rem; background: #262626; border-radius: 4px; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div id="toast" class="cu-toast"></div>
 <div class="cu-wrap">
-    <a href="/cor-unum" class="cu-back">← Cor Unum</a>
-    <h1>Cor Unum Settings</h1>
+    <h1>Settings</h1>
 
-    <div class="cu-section-label">SoundCloud API (Artist Locality Check)</div>
+    <div class="cu-section-label">SoundCloud Locality</div>
+    <div class="cu-hint" style="margin-bottom:0.75rem;">Uses SoundCloud's api-v2 with an auto-extracted public client ID. No credentials needed. Run from the main Source Control page.</div>
     <div class="cu-field">
-        <label>Client ID</label>
-        <input id="scClientId" type="text" placeholder="Your SoundCloud client_id">
+        <label>Min SoundCloud Followers</label>
+        <input id="scMinFollowers" type="number" min="0" step="1" placeholder="0">
     </div>
+    <div class="cu-hint">Reject any SoundCloud match with fewer followers than this threshold. Set to 0 to accept all.</div>
     <div class="cu-field">
-        <label>Client Secret</label>
-        <input id="scClientSecret" type="password" placeholder="Your SoundCloud client_secret">
+        <label>Search Limit</label>
+        <input id="scSearchLimit" type="number" min="1" max="50" step="1" placeholder="5">
     </div>
-    <div class="cu-hint">Register at SoundCloud via their support chatbot. Used to check if artists are from Vancouver.</div>
-    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap;">
+    <div class="cu-hint">Number of results to fetch per search query (1–50). Higher values find more matches but are slower.</div>
+    <div style="margin-top:0.75rem;">
         <button class="cu-btn" onclick="saveSettings()">Save</button>
-        <button class="cu-btn secondary" onclick="checkBatch('unchecked')">Check Unchecked Artists</button>
-        <button class="cu-btn secondary" onclick="checkBatch('all')">Recheck All Artists</button>
     </div>
-    <div id="statusArea" class="cu-status" style="display:none;"></div>
 </div>
 {% endblock %}
 
@@ -58,43 +56,21 @@ async function loadSettings() {
     const r = await fetch('/api/cor-unum/settings');
     const d = await r.json();
     if (d.success) {
-        document.getElementById('scClientId').value = d.settings.client_id || '';
-        document.getElementById('scClientSecret').value = d.settings.client_secret ? '••••••••' : '';
+        document.getElementById('scMinFollowers').value = d.settings.min_followers || 0;
+        document.getElementById('scSearchLimit').value = d.settings.search_limit || 5;
     }
 }
 
 async function saveSettings() {
-    const clientId = document.getElementById('scClientId').value.trim();
-    const clientSecret = document.getElementById('scClientSecret').value.trim();
-    if (clientSecret === '••••••••') {
-        showToast('Secret unchanged — only saving client ID');
-    }
-    const body = {client_id: clientId};
-    if (clientSecret && clientSecret !== '••••••••') {
-        body.client_secret = clientSecret;
-    }
+    const minFollowers = parseInt(document.getElementById('scMinFollowers').value) || 0;
+    const searchLimit = parseInt(document.getElementById('scSearchLimit').value) || 5;
     const r = await fetch('/api/cor-unum/settings', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
+        body: JSON.stringify({min_followers: minFollowers, search_limit: searchLimit}),
     });
     const d = await r.json();
     showToast(d.success ? 'Settings saved' : 'Error: ' + d.error, !d.success);
-}
-
-async function checkBatch(mode) {
-    const status = document.getElementById('statusArea');
-    status.style.display = 'block';
-    status.textContent = (mode === 'all' ? 'Rechecking all' : 'Checking unchecked') + ' artists via SoundCloud...';
-    const url = '/api/cor-unum/artists/check-all-locality?mode=' + mode;
-    const r = await fetch(url, {method: 'POST'});
-    const d = await r.json();
-    if (d.success) {
-        const s = d.result;
-        status.textContent = `Done: ${s.checked} checked, ${s.local} local, ${s.not_local} not local, ${s.errors} errors`;
-    } else {
-        status.textContent = 'Error: ' + (d.error || 'unknown');
-    }
 }
 
 loadSettings();

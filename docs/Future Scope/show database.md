@@ -52,6 +52,12 @@ Implement manual execution paths only:
 - Update source status fields (`last_run_at`, `last_status`, `last_error`, `needs_fixing`).
 - Record ingestion run summaries in persistent tables/logs.
 
+Here are the 4 sources I want to begin this testing with; intested in upcoming shows at the moment; some of these sites may have non music related things; These are all ticketing websites of some sort, and most likely wont have repeated events:
+- https://www.ticketmaster.ca/ (need to select Vancouver for location)
+- https://ra.co/events/ca/vancouver
+- https://admitone.com/events/vancouver
+- https://www.eventbrite.ca/b/canada--vancouver/music/
+
 Do not:
 - auto-enqueue jobs
 - auto-run on timers

@@ -44,10 +44,10 @@ class TestSchema:
         assert len(indexes) >= 5
 
     def test_seed_sources(self):
-        """4 source registry rows seeded on init."""
+        """5 source registry rows seeded on init (4 event + 1 social)."""
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 4
+        assert count == 5
 
     def test_seed_fallback_venue(self):
         """'Out in the Wild' venue exists."""
@@ -63,7 +63,7 @@ class TestSchema:
         db.init_db()
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 4  # no duplicates
+        assert count == 5  # no duplicates
 
 
 # =========================================================================
@@ -201,9 +201,10 @@ class TestService:
     def test_get_source_registry(self):
         from ..ingestion.service import get_source_registry
         sources = get_source_registry()
-        assert len(sources) == 4
+        assert len(sources) == 5
         keys = {s["source_key"] for s in sources}
         assert "ticketmaster_vancouver" in keys
+        assert "soundcloud" in keys
 
     def test_set_source_enabled(self):
         from ..ingestion.service import set_source_enabled, get_source_status
@@ -273,7 +274,7 @@ class TestAPI:
         assert r.status_code == 200
         data = r.get_json()
         assert data["success"]
-        assert len(data["sources"]) == 4
+        assert len(data["sources"]) == 5
 
     def test_api_runs(self, client):
         r = client.get("/api/cor-unum/runs")

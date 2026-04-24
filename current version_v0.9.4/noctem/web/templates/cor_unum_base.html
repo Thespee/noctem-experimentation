@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block extra_style %}
+/* Cor Unum nav bar */
+.cu-nav { display: flex; align-items: center; gap: 0.25rem; padding: 0.5rem 1.5rem; background: #1a1a1a; border-bottom: 1px solid #3c3c3c; font-size: 0.82rem; flex-wrap: wrap; }
+.cu-nav a { color: #9aa0a6; text-decoration: none; padding: 0.35rem 0.7rem; border-radius: 5px; transition: all 0.12s; white-space: nowrap; }
+.cu-nav a:hover { background: #2d2d2d; color: #e8eaed; }
+.cu-nav a.active { background: #3c4043; color: #8ab4f8; }
+.cu-nav .cu-nav-brand { font-weight: 600; color: #e8eaed; margin-right: 0.5rem; }
+.cu-nav .cu-nav-spacer { flex: 1; }
+{% block cu_extra_style %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+<div class="cu-nav">
+    <a href="/cor-unum" class="cu-nav-brand">Cor Unum</a>
+    <a href="/cor-unum/upcoming" class="{% if request.path == '/cor-unum/upcoming' %}active{% endif %}">Upcoming</a>
+    <a href="/cor-unum/db/events" class="{% if request.path == '/cor-unum/db/events' %}active{% endif %}">Events</a>
+    <a href="/cor-unum/db/artists" class="{% if request.path == '/cor-unum/db/artists' %}active{% endif %}">Artists</a>
+    <a href="/cor-unum/db/venues" class="{% if request.path == '/cor-unum/db/venues' %}active{% endif %}">Venues</a>
+    <span class="cu-nav-spacer"></span>
+    <a href="/cor-unum/settings" class="{% if request.path == '/cor-unum/settings' %}active{% endif %}">Settings</a>
+</div>
+{% block cu_content %}{% endblock %}
+{% endblock %}

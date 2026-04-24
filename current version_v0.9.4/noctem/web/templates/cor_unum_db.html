@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — {{ title }}{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 .cu-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
 .cu-header h1 { font-size: 1.3rem; margin: 0; }
@@ -15,10 +15,9 @@
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div class="cu-wrap">
     <div class="cu-header">
-        <a href="/cor-unum" class="cu-back">← Cor Unum</a>
         <h1>{{ title }}</h1>
         {% if table in ['events', 'artists', 'venues'] %}
         <input class="cu-search" id="searchInput" placeholder="Search..." oninput="debouncedLoad()">

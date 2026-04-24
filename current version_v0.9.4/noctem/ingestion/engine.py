@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Scraper registry: source_key → scraper class
 _SCRAPER_MAP: dict[str, type] | None = None
 
+# Social source keys — handled by run_social_ingestion instead of run_ingestion
+SOCIAL_SOURCE_KEYS = {"soundcloud"}
+
 
 def _get_scraper_map():
     global _SCRAPER_MAP
@@ -34,6 +37,11 @@ def _get_scraper_map():
             "eventbrite_vancouver": EventbriteScraper,
         }
     return _SCRAPER_MAP
+
+
+def is_social_source(source_key: str) -> bool:
+    """Return True if the source key is a social/enrichment scraper."""
+    return source_key in SOCIAL_SOURCE_KEYS
 
 
 def get_scraper(source_key: str):
@@ -55,6 +63,7 @@ def run_ingestion(source_key: str) -> dict:
         "source_key": source_key,
         "started_at": started_at.isoformat(),
         "status": "running",
+        "report_type": "events",
         "events_ingested": 0,
         "artists_added": 0,
         "venues_added": 0,
@@ -289,3 +298,58 @@ def _update_source_status(source_key: str, status: str, error: str | None) -> No
             )
     except Exception as exc:
         logger.error("Failed to update source status for %s: %s", source_key, exc)
+
+
+# --------------------------------------------------------------------------
+# Social / enrichment scraper runner
+# --------------------------------------------------------------------------
+
+def run_social_ingestion(source_key: str) -> dict:
+    """Run a social/enrichment scraper (e.g. SoundCloud locality check).
+
+    These don't produce events — they enrich artist records.
+    Results are recorded in cu_ingestion_runs via raw_summary_json.
+    """
+    started_at = datetime.utcnow()
+    summary = {
+        "source_key": source_key,
+        "started_at": started_at.isoformat(),
+        "status": "running",
+        "report_type": "social",
+        "checked": 0,
+        "local": 0,
+        "not_local": 0,
+        "errors": 0,
+        "error_message": None,
+    }
+
+    try:
+        if source_key == "soundcloud":
+            from .soundcloud import check_all_unchecked_artists
+            result = check_all_unchecked_artists(limit=100)
+        else:
+            raise ValueError(f"Unknown social source_key: {source_key}")
+
+        summary["checked"] = result.get("checked", 0)
+        summary["local"] = result.get("local", 0)
+        summary["not_local"] = result.get("not_local", 0)
+        summary["errors"] = result.get("errors", 0)
+        summary["status"] = "success"
+    except Exception as exc:
+        summary["status"] = "error"
+        summary["error_message"] = str(exc)[:1000]
+
+    # Record run — use 0 for event-oriented columns, real data in raw_summary_json
+    _record_run({
+        **summary,
+        "events_ingested": 0,
+        "artists_added": 0,
+        "venues_added": 0,
+        "duplicates_skipped": 0,
+    }, started_at)
+    _update_source_status(
+        source_key,
+        summary["status"],
+        summary.get("error_message"),
+    )
+    return summary

@@ -8,7 +8,7 @@ import math
 from datetime import datetime
 
 from ..db import get_db
-from .engine import run_ingestion
+from .engine import is_social_source, run_ingestion, run_social_ingestion
 
 
 # --------------------------------------------------------------------------
@@ -17,6 +17,8 @@ from .engine import run_ingestion
 
 def refresh_source(source_key: str) -> dict:
     """Run the ingestion pipeline for a single source. Returns summary."""
+    if is_social_source(source_key):
+        return run_social_ingestion(source_key)
     return run_ingestion(source_key)
 
 
@@ -27,7 +29,7 @@ def refresh_all_sources() -> dict:
     for src in sources:
         if not src.get("enabled"):
             continue
-        result = run_ingestion(src["source_key"])
+        result = refresh_source(src["source_key"])
         results.append(result)
     return {
         "sources_run": len(results),

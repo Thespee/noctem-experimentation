@@ -113,6 +113,8 @@ def _migrate_cu_columns(conn) -> None:
         ("cu_venues", "alias_of", "INTEGER REFERENCES cu_venues(id)"),
         ("cu_artists", "is_local", "INTEGER"),  # nullable: NULL=unchecked, 0=no, 1=yes
         ("cu_artists", "soundcloud_url", "TEXT"),
+        ("cu_artists", "sc_followers", "INTEGER"),  # follower count from SoundCloud
+        ("cu_artists", "instagram_url", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -144,3 +146,14 @@ def seed_cu_data(conn) -> None:
                VALUES (?, ?, ?, ?, 1)""",
             (src["source_key"], src["source_label"], src["source_kind"], src["target_url"]),
         )
+
+    # Remove stale source keys that no longer exist in seeds
+    valid_keys = {s["source_key"] for s in SOURCE_REGISTRY_SEEDS}
+    existing = [r[0] for r in conn.execute(
+        "SELECT source_key FROM cu_source_registry"
+    ).fetchall()]
+    for key in existing:
+        if key not in valid_keys:
+            conn.execute(
+                "DELETE FROM cu_source_registry WHERE source_key = ?", (key,)
+            )

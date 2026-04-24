@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Artist{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 .cu-art-header { margin: 1.2rem 0 0.3rem; }
@@ -36,12 +36,21 @@
 .cu-check-btn:hover { background: #5f6368; }
 .cu-sc-link { font-size: 0.78rem; color: #f50; text-decoration: none; margin-left: 0.5rem; }
 .cu-sc-link:hover { text-decoration: underline; }
+.cu-ig-link { font-size: 0.78rem; color: #e1306c; text-decoration: none; margin-left: 0.5rem; }
+.cu-ig-link:hover { text-decoration: underline; }
+.cu-edit-section { margin-top: 1.5rem; padding: 0.75rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; }
+.cu-edit-section .cu-section-label { margin-top: 0; }
+.cu-edit-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-size: 0.82rem; }
+.cu-edit-row label { color: #9aa0a6; min-width: 110px; flex-shrink: 0; }
+.cu-edit-row input[type="text"] { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
+.cu-edit-row input[type="checkbox"] { accent-color: #1b5e20; width: 16px; height: 16px; }
+.cu-save-btn { background: #1a73e8; border: none; color: #fff; padding: 0.35rem 0.9rem; border-radius: 4px; cursor: pointer; font-size: 0.82rem; margin-top: 0.25rem; }
+.cu-save-btn:hover { background: #1565c0; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div class="cu-wrap">
-    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
-    <div id="artistDetail"><div class="cu-empty">Loading...</div></div>
+    <div id="artistDetail">
 </div>
 {% endblock %}
 
@@ -71,12 +80,13 @@ async function loadArtist() {
         else localBadge = '<span class="cu-local-badge unknown">Unchecked</span><button class="cu-check-btn" onclick="checkLocality()">Check via SoundCloud</button>';
 
         let scLink = a.soundcloud_url ? `<a href="${a.soundcloud_url}" target="_blank" rel="noopener" class="cu-sc-link">SoundCloud ↗</a>` : '';
+        let igLink = a.instagram_url ? `<a href="${a.instagram_url}" target="_blank" rel="noopener" class="cu-ig-link">Instagram ↗</a>` : '';
 
         let html = `<div class="cu-art-header">
             <h1 class="cu-art-name">${escapeHtml(a.name)}${localBadge}</h1>
             <div class="cu-art-meta">
                 ${a.bio_link ? `<a href="${a.bio_link}" target="_blank" rel="noopener">${escapeHtml(a.bio_link)}</a>` : ''}
-                ${scLink}
+                ${scLink}${igLink}
                 ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
             </div>
         </div>`;
@@ -110,6 +120,27 @@ async function loadArtist() {
             <ul class="cu-merge-results" id="mergeResults"></ul>
         </div>`;
 
+        // Edit section
+        html += `<div class="cu-edit-section">
+            <div class="cu-section-label">Edit Artist</div>
+            <div class="cu-edit-row">
+                <label>Local Artist</label>
+                <input type="checkbox" id="editLocal" ${a.is_local === 1 ? 'checked' : ''}>
+            </div>
+            <div class="cu-edit-row">
+                <label>SoundCloud URL</label>
+                <input type="text" id="editSoundcloud" value="${escapeHtml(a.soundcloud_url || '')}" placeholder="https://soundcloud.com/...">
+            </div>
+            <div class="cu-edit-row">
+                <label>Instagram URL</label>
+                <input type="text" id="editInstagram" value="${escapeHtml(a.instagram_url || '')}" placeholder="https://instagram.com/...">
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                <button class="cu-save-btn" onclick="saveArtist()">Save</button>
+                <button class="cu-check-btn" onclick="checkLocality()">Recheck SoundCloud</button>
+            </div>
+        </div>`;
+
         document.getElementById('artistDetail').innerHTML = html;
     } catch(e) { console.error('loadArtist', e); }
 }
@@ -141,10 +172,24 @@ async function doMerge(canonicalId, canonicalName) {
     }
 }
 
-async function checkLocality() {
-    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-locality', {method:'POST'});
+async function saveArtist() {
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            is_local: document.getElementById('editLocal').checked,
+            soundcloud_url: document.getElementById('editSoundcloud').value.trim(),
+            instagram_url: document.getElementById('editInstagram').value.trim(),
+        }),
+    });
     const d = await r.json();
-    loadArtist();  // reload to show updated badge
+    loadArtist();
+}
+
+async function checkLocality() {
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-locality?force=1', {method:'POST'});
+    const d = await r.json();
+    loadArtist();
 }
 
 loadArtist();

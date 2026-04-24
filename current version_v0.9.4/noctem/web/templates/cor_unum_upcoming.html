@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Upcoming Events{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
 .cu-top { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
 .cu-top h1 { font-size: 1.4rem; margin: 0; flex: 1; }
@@ -34,10 +34,9 @@
 .cu-count { font-size: 0.78rem; color: #5f6368; margin-bottom: 1rem; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div class="cu-wrap">
     <div class="cu-top">
-        <a href="/cor-unum" class="cu-back">← Cor Unum</a>
         <h1>Upcoming Events</h1>
         <input class="cu-search" id="searchInput" placeholder="Filter events..." oninput="filterEvents()">
     </div>

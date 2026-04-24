@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Event{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 .cu-ev-header { margin: 1.2rem 0 0.5rem; }
@@ -34,10 +34,9 @@
 .cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div class="cu-wrap">
-    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
-    <div id="eventDetail"><div class="cu-empty">Loading...</div></div>
+    <div id="eventDetail">
 </div>
 {% endblock %}
 

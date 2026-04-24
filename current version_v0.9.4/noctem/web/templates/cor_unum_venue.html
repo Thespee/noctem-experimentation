@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "cor_unum_base.html" %}
 {% block title %}Cor Unum — Venue{% endblock %}
 
-{% block extra_style %}
+{% block cu_extra_style %}
 .cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 .cu-ven-header { margin: 1.2rem 0 0.3rem; }
@@ -26,10 +26,9 @@
 .cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
 {% endblock %}
 
-{% block content %}
+{% block cu_content %}
 <div class="cu-wrap">
-    <a href="/cor-unum/upcoming" class="cu-back">← Upcoming</a>
-    <div id="venueDetail"><div class="cu-empty">Loading...</div></div>
+    <div id="venueDetail">
 </div>
 {% endblock %}
 
