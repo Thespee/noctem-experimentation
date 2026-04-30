@@ -6,7 +6,10 @@ from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Union, Optional
 import json
-from icalendar import Calendar
+try:
+    from icalendar import Calendar
+except ImportError:  # optional dependency in minimal test/runtime setups
+    Calendar = None
 from dateutil.rrule import rrulestr
 
 from ..db import get_db
@@ -30,6 +33,8 @@ def parse_ics_content(
     window_end: Optional[datetime] = None,
 ) -> list[dict]:
     """Parse ICS content (bytes) and return list of events."""
+    if Calendar is None:
+        raise RuntimeError("icalendar package is required for ICS parsing")
     cal = Calendar.from_ical(content)
     events = []
     

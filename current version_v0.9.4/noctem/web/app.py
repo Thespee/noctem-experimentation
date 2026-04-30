@@ -2,8 +2,10 @@
 Flask web dashboard for Noctem.
 Read-only view of goals, projects, and tasks.
 """
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 
 from ..config import Config
 from ..services import task_service, project_service, goal_service
@@ -34,6 +36,18 @@ COMMON_TIMEZONES = [
 ]
 
 
+@dataclass
+class User:
+    user_id: int
+    username: str
+    is_admin: bool = False
+
+
+@dataclass
+class Admin(User):
+    is_admin: bool = True
+
+
 def create_app() -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__, 
@@ -46,6 +60,25 @@ def create_app() -> Flask:
         if target == "settings":
             return redirect(url_for("settings", _anchor="calendar-import"))
         return redirect(url_for(default_endpoint))
+
+    def _get_current_cu_user() -> User:
+        if session.get("cu_user_id") != 1:
+            session["cu_user_id"] = 1
+            session["cu_username"] = "cor_unum_admin"
+            session["cu_is_admin"] = True
+        if session.get("cu_is_admin"):
+            return Admin(user_id=1, username=str(session.get("cu_username") or "cor_unum_admin"))
+        return User(user_id=1, username=str(session.get("cu_username") or "cor_unum_user"))
+
+    def _require_cu_admin():
+        user = _get_current_cu_user()
+        if not user.is_admin:
+            return jsonify({"success": False, "error": "Admin access required"}), 403
+        return None
+
+    @app.before_request
+    def _bootstrap_cu_session():
+        _get_current_cu_user()
     
     @app.route("/")
     def dashboard():
@@ -2078,6 +2111,11 @@ def create_app() -> Flask:
         """Cor Unum — live music ingestion dashboard."""
         return render_template("cor_unum.html")
 
+    @app.route("/cor-unum/duplicates")
+    def cor_unum_duplicates():
+        """Cor Unum duplicate review page."""
+        return render_template("cor_unum_duplicates.html")
+
     @app.route("/cor-unum/db/events")
     def cor_unum_db_events():
         return render_template("cor_unum_db.html", table="events", title="Events")
@@ -2115,6 +2153,14 @@ def create_app() -> Flask:
     def api_cu_refresh_all():
         from ..ingestion.service import refresh_all_sources
         result = refresh_all_sources()
+        return jsonify({"success": True, "result": result})
+
+    @app.route("/api/cor-unum/sources/run-all/<scanner_class>", methods=["POST"])
+    def api_cu_refresh_by_class(scanner_class):
+        from ..ingestion.service import refresh_sources_by_class
+        if scanner_class not in {"event", "fingerprint", "internal"}:
+            return jsonify({"success": False, "error": "Invalid scanner class"}), 400
+        result = refresh_sources_by_class(scanner_class)
         return jsonify({"success": True, "result": result})
 
     @app.route("/api/cor-unum/sources/<source_key>/enabled", methods=["PATCH"])
@@ -2182,6 +2228,61 @@ def create_app() -> Flask:
         per_page = request.args.get("per_page", 50, type=int)
         return jsonify({"success": True, **get_source_registry_page(page, per_page)})
 
+    @app.route("/api/cor-unum/duplicates")
+    def api_cu_duplicates():
+        from ..ingestion.service import get_duplicate_candidates
+        return jsonify({"success": True, **get_duplicate_candidates()})
+
+    @app.route("/api/cor-unum/duplicates/rescan", methods=["POST"])
+    def api_cu_duplicates_rescan():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.service import rescan_duplicate_candidates
+        data = request.get_json(silent=True) or {}
+        kind = (data.get("kind") or request.args.get("kind") or "all").strip().lower()
+        return jsonify({"success": True, "result": rescan_duplicate_candidates(kind)})
+
+    @app.route("/api/cor-unum/duplicates/ignore", methods=["POST"])
+    def api_cu_duplicates_ignore():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.service import ignore_duplicate_candidate
+        data = request.get_json(silent=True) or {}
+        entity_type = (data.get("entity_type") or "").strip().lower()
+        source_key = (data.get("source_key") or "").strip()
+        left_id = data.get("left_id")
+        right_id = data.get("right_id")
+        if not entity_type or not source_key or left_id is None or right_id is None:
+            return jsonify({"success": False, "error": "entity_type, source_key, left_id, right_id required"}), 400
+        result = ignore_duplicate_candidate(entity_type, source_key, int(left_id), int(right_id))
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/cor-unum/duplicates/merge", methods=["POST"])
+    def api_cu_duplicates_merge():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.service import merge_artists, merge_events
+        data = request.get_json(silent=True) or {}
+        entity_type = (data.get("entity_type") or "").strip().lower()
+        duplicate_id = data.get("duplicate_id")
+        canonical_id = data.get("canonical_id")
+        if entity_type not in {"artist", "event"}:
+            return jsonify({"success": False, "error": "entity_type must be artist or event"}), 400
+        if duplicate_id is None or canonical_id is None:
+            return jsonify({"success": False, "error": "duplicate_id and canonical_id required"}), 400
+        if entity_type == "artist":
+            result = merge_artists(int(duplicate_id), int(canonical_id))
+        else:
+            result = merge_events(int(duplicate_id), int(canonical_id))
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
     # --- Cor Unum: browse pages ---
 
     @app.route("/cor-unum/add-event")
@@ -2191,6 +2292,10 @@ def create_app() -> Flask:
 
     @app.route("/api/cor-unum/events/create", methods=["POST"])
     def api_cu_create_event():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.city_tags import LOCAL_CITY_TAG
         from ..ingestion.models import FALLBACK_VENUE_NAME
         data = request.get_json(silent=True) or {}
         title = (data.get("title") or "").strip()
@@ -2250,12 +2355,16 @@ def create_app() -> Flask:
                     if row:
                         art_id = row["alias_of"] or row["id"]
                     else:
-                        is_local = 1 if art.get("is_local") else None
                         cur2 = conn.execute(
-                            "INSERT INTO cu_artists (name, is_local, last_seen) VALUES (?, ?, ?)",
-                            (art_name, is_local, datetime.utcnow().isoformat()),
+                            "INSERT INTO cu_artists (name, last_seen) VALUES (?, ?)",
+                            (art_name, datetime.utcnow().isoformat()),
                         )
                         art_id = cur2.lastrowid
+                        if art.get("is_local"):
+                            conn.execute(
+                                "INSERT OR IGNORE INTO cu_artist_tags (artist_id, tag) VALUES (?, ?)",
+                                (art_id, LOCAL_CITY_TAG),
+                            )
                 conn.execute(
                     "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
                     (event_id, art_id),
@@ -2317,6 +2426,9 @@ def create_app() -> Flask:
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/merge-into", methods=["POST"])
     def api_cu_merge_artist(artist_id):
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
         from ..ingestion.service import merge_artists
         data = request.get_json(silent=True) or {}
         canonical_id = data.get("canonical_id")
@@ -2329,6 +2441,9 @@ def create_app() -> Flask:
 
     @app.route("/api/cor-unum/venues/<int:venue_id>/merge-into", methods=["POST"])
     def api_cu_merge_venue(venue_id):
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
         from ..ingestion.service import merge_venues
         data = request.get_json(silent=True) or {}
         canonical_id = data.get("canonical_id")
@@ -2355,7 +2470,7 @@ def create_app() -> Flask:
             return jsonify({"success": True, "results": []})
         return jsonify({"success": True, "results": search_venues_for_merge(q, exclude)})
 
-    # --- Cor Unum: settings + SoundCloud locality ---
+    # --- Cor Unum: settings + artist fingerprint checks ---
 
     @app.route("/cor-unum/settings")
     def cor_unum_settings():
@@ -2378,45 +2493,83 @@ def create_app() -> Flask:
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/update", methods=["POST"])
     def api_cu_update_artist(artist_id):
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.city_tags import set_local_yvr
         data = request.get_json(silent=True) or {}
         updates = []
         params = []
         if "is_local" in data:
-            val = data["is_local"]
-            updates.append("is_local = ?")
-            params.append(1 if val else (0 if val is not None else None))
+            pass
         if "soundcloud_url" in data:
             updates.append("soundcloud_url = ?")
             params.append(data["soundcloud_url"].strip() or None)
         if "instagram_url" in data:
             updates.append("instagram_url = ?")
             params.append(data["instagram_url"].strip() or None)
+        if "spotify_url" in data:
+            updates.append("spotify_url = ?")
+            params.append(data["spotify_url"].strip() or None)
+        if "is_canadian" in data:
+            updates.append("is_canadian = ?")
+            val = data["is_canadian"]
+            params.append(1 if bool(val) else 0)
         if not updates:
-            return jsonify({"success": False, "error": "No fields to update"}), 400
+            if "is_local" not in data:
+                return jsonify({"success": False, "error": "No fields to update"}), 400
         params.append(artist_id)
         with get_db() as conn:
-            conn.execute(
-                f"UPDATE cu_artists SET {', '.join(updates)} WHERE id = ?",
-                params,
-            )
+            if updates:
+                conn.execute(
+                    f"UPDATE cu_artists SET {', '.join(updates)} WHERE id = ?",
+                    params,
+                )
+            if "is_local" in data:
+                set_local_yvr(conn, artist_id, bool(data["is_local"]))
         return jsonify({"success": True})
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/check-locality", methods=["POST"])
     def api_cu_check_artist_locality(artist_id):
-        from ..ingestion.soundcloud import check_artist_locality
+        from ..ingestion.service import check_artist_fingerprint
         force = request.args.get("force", "0") == "1"
-        result = check_artist_locality(artist_id, force=force)
+        result = check_artist_fingerprint("soundcloud", artist_id, force=force)
         if result.get("error"):
             return jsonify({"success": False, "error": result["error"]}), 400
         return jsonify({"success": True, **result})
 
     @app.route("/api/cor-unum/artists/check-all-locality", methods=["POST"])
     def api_cu_check_all_locality():
-        from ..ingestion.soundcloud import check_all_unchecked_artists
+        from ..ingestion.service import check_all_artist_fingerprints
         limit = max(1, min(request.args.get("limit", 50, type=int), 200))
         mode = (request.args.get("mode") or "unchecked").strip()
-        result = check_all_unchecked_artists(limit=limit, recheck_all=(mode == "all"))
+        result = check_all_artist_fingerprints("soundcloud", limit=limit, mode=mode)
         return jsonify({"success": True, "result": result})
+
+    @app.route("/api/cor-unum/fingerprints")
+    def api_cu_fingerprint_sources():
+        from ..ingestion.service import get_fingerprint_sources
+        return jsonify({"success": True, "sources": get_fingerprint_sources()})
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>/check-fingerprint/<source_key>", methods=["POST"])
+    def api_cu_check_artist_fingerprint(artist_id, source_key):
+        from ..ingestion.service import check_artist_fingerprint
+        force = request.args.get("force", "0") == "1"
+        result = check_artist_fingerprint(source_key, artist_id, force=force)
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, **result})
+
+    @app.route("/api/cor-unum/artists/check-all-fingerprint/<source_key>", methods=["POST"])
+    def api_cu_check_all_artist_fingerprints(source_key):
+        from ..ingestion.service import check_all_artist_fingerprints
+        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
+        mode = (request.args.get("mode") or "unchecked").strip()
+        result = check_all_artist_fingerprints(source_key, limit=limit, mode=mode)
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
+        return jsonify({"success": True, "result": result})
+
 
     return app
 

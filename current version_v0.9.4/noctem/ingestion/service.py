@@ -3,12 +3,21 @@
 All functions are safe to call from Flask route handlers.
 """
 from __future__ import annotations
+import json
 
 import math
 from datetime import datetime
 
 from ..db import get_db
-from .engine import is_social_source, run_ingestion, run_social_ingestion
+from .artist_fingerprints import (
+    check_all_fingerprints as _check_all_fingerprints,
+)
+from .artist_fingerprints import (
+    check_artist_fingerprint as _check_artist_fingerprint,
+)
+from .artist_fingerprints import list_fingerprint_sources as _list_fingerprint_sources
+from .city_tags import LOCAL_CITY_TAG
+from .engine import run_full_pipeline, run_ingestion, run_sources_by_class
 
 
 # --------------------------------------------------------------------------
@@ -17,27 +26,17 @@ from .engine import is_social_source, run_ingestion, run_social_ingestion
 
 def refresh_source(source_key: str) -> dict:
     """Run the ingestion pipeline for a single source. Returns summary."""
-    if is_social_source(source_key):
-        return run_social_ingestion(source_key)
     return run_ingestion(source_key)
 
 
 def refresh_all_sources() -> dict:
-    """Run ingestion for all enabled sources. Returns aggregate summary."""
-    sources = get_source_registry()
-    results = []
-    for src in sources:
-        if not src.get("enabled"):
-            continue
-        result = refresh_source(src["source_key"])
-        results.append(result)
-    return {
-        "sources_run": len(results),
-        "results": results,
-        "total_events_ingested": sum(r.get("events_ingested", 0) for r in results),
-        "total_duplicates_skipped": sum(r.get("duplicates_skipped", 0) for r in results),
-        "errors": [r for r in results if r.get("status") == "error"],
-    }
+    """Run full ordered pipeline: events -> fingerprint -> internal."""
+    return run_full_pipeline()
+
+
+def refresh_sources_by_class(scanner_class: str) -> dict:
+    """Run all enabled sources in one scanner class."""
+    return run_sources_by_class(scanner_class)
 
 
 def get_source_registry() -> list[dict]:
@@ -47,6 +46,18 @@ def get_source_registry() -> list[dict]:
             "SELECT * FROM cu_source_registry ORDER BY source_key"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_fingerprint_sources() -> list[dict]:
+    return _list_fingerprint_sources()
+
+
+def check_artist_fingerprint(source_key: str, artist_id: int, force: bool = False) -> dict:
+    return _check_artist_fingerprint(source_key, artist_id, force=force)
+
+
+def check_all_artist_fingerprints(source_key: str, limit: int = 50, mode: str = "unchecked") -> dict:
+    return _check_all_fingerprints(source_key, limit=limit, mode=mode)
 
 
 def get_source_status(source_key: str) -> dict | None:
@@ -164,11 +175,23 @@ def get_artists(page: int = 1, per_page: int = 50, search: str = "",
         conditions.append("name LIKE ?")
         params.append(f"%{search}%")
     if local == "local":
-        conditions.append("is_local = 1")
+        conditions.append(
+            "EXISTS (SELECT 1 FROM cu_artist_tags t WHERE t.artist_id = cu_artists.id AND t.tag = ?)"
+        )
+        params.append(LOCAL_CITY_TAG)
     elif local == "not_local":
-        conditions.append("is_local = 0")
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM cu_artist_tags t WHERE t.artist_id = cu_artists.id AND t.tag = ?)"
+        )
+        params.append(LOCAL_CITY_TAG)
     elif local == "unchecked":
-        conditions.append("is_local IS NULL")
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM cu_artist_tags t WHERE t.artist_id = cu_artists.id AND t.tag = ?)"
+        )
+        conditions.append("(soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')")
+        conditions.append("(instagram_url IS NULL OR TRIM(instagram_url) = '')")
+        conditions.append("(spotify_url IS NULL OR TRIM(spotify_url) = '')")
+        params.append(LOCAL_CITY_TAG)
     where = " AND ".join(conditions)
     with get_db() as conn:
         return _paginate(
@@ -248,10 +271,15 @@ def get_upcoming_events(limit: int = 200) -> list[dict]:
             ev["performers"] = [
                 dict(a)
                 for a in conn.execute(
-                    """SELECT a.id, a.name FROM cu_artists a
+                    """SELECT a.id, a.name,
+                              EXISTS (
+                                  SELECT 1 FROM cu_artist_tags t
+                                  WHERE t.artist_id = a.id AND t.tag = ?
+                              ) AS is_yvr_local
+                       FROM cu_artists a
                        JOIN cu_event_performers ep ON a.id = ep.artist_id
                        WHERE ep.event_id = ?""",
-                    (eid,),
+                    (LOCAL_CITY_TAG, eid),
                 ).fetchall()
             ]
             ev["sources"] = [
@@ -261,6 +289,9 @@ def get_upcoming_events(limit: int = 200) -> list[dict]:
                     (eid,),
                 ).fetchall()
             ]
+            total_artists = len(ev["performers"])
+            local_artists = len([p for p in ev["performers"] if p.get("is_yvr_local")])
+            ev["local_density_pct"] = round((local_artists / total_artists) * 100, 2) if total_artists else 0.0
             events.append(ev)
         return events
 
@@ -282,10 +313,15 @@ def get_event_detail(event_id: int) -> dict | None:
         ev["performers"] = [
             dict(a)
             for a in conn.execute(
-                """SELECT a.id, a.name, a.bio_link FROM cu_artists a
+                """SELECT a.id, a.name, a.bio_link,
+                          EXISTS (
+                              SELECT 1 FROM cu_artist_tags t
+                              WHERE t.artist_id = a.id AND t.tag = ?
+                          ) AS is_yvr_local
+                   FROM cu_artists a
                    JOIN cu_event_performers ep ON a.id = ep.artist_id
                    WHERE ep.event_id = ?""",
-                (event_id,),
+                (LOCAL_CITY_TAG, event_id),
             ).fetchall()
         ]
         ev["sources"] = [
@@ -295,6 +331,9 @@ def get_event_detail(event_id: int) -> dict | None:
                 (event_id,),
             ).fetchall()
         ]
+        total_artists = len(ev["performers"])
+        local_artists = len([p for p in ev["performers"] if p.get("is_yvr_local")])
+        ev["local_density_pct"] = round((local_artists / total_artists) * 100, 2) if total_artists else 0.0
         return ev
 
 
@@ -311,6 +350,14 @@ def get_artist_detail(artist_id: int) -> dict | None:
         if artist.get("alias_of"):
             artist["redirect_to"] = artist["alias_of"]
             return artist
+        artist["city_tags"] = [
+            r["tag"]
+            for r in conn.execute(
+                "SELECT tag FROM cu_artist_tags WHERE artist_id = ? ORDER BY tag",
+                (artist_id,),
+            ).fetchall()
+        ]
+        artist["is_yvr_local"] = LOCAL_CITY_TAG in set(artist["city_tags"])
         artist["events"] = [
             dict(r)
             for r in conn.execute(
@@ -458,3 +505,156 @@ def search_venues_for_merge(query: str, exclude_id: int | None = None) -> list[d
             (like, exclude_id or -1),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def merge_events(duplicate_id: int, canonical_id: int) -> dict:
+    """Merge a duplicate event into a canonical one."""
+    if duplicate_id == canonical_id:
+        return {"error": "Cannot merge an event into itself"}
+    with get_db() as conn:
+        dup = conn.execute(
+            "SELECT id, title, date FROM cu_events WHERE id = ?",
+            (duplicate_id,),
+        ).fetchone()
+        canon = conn.execute(
+            "SELECT id, title, date FROM cu_events WHERE id = ?",
+            (canonical_id,),
+        ).fetchone()
+        if not dup or not canon:
+            return {"error": "Event not found"}
+        conn.execute(
+            """INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id)
+               SELECT ?, artist_id FROM cu_event_performers WHERE event_id = ?""",
+            (canonical_id, duplicate_id),
+        )
+        conn.execute("DELETE FROM cu_event_performers WHERE event_id = ?", (duplicate_id,))
+        conn.execute("UPDATE cu_event_sources SET event_id = ? WHERE event_id = ?", (canonical_id, duplicate_id))
+        conn.execute("DELETE FROM cu_events WHERE id = ?", (duplicate_id,))
+        return {
+            "merged": True,
+            "duplicate": {"id": dup["id"], "title": dup["title"], "date": dup["date"]},
+            "canonical": {"id": canon["id"], "title": canon["title"], "date": canon["date"]},
+        }
+
+
+def _normalize_pair(left_id: int, right_id: int) -> tuple[int, int]:
+    left = int(left_id)
+    right = int(right_id)
+    return (left, right) if left < right else (right, left)
+
+
+def ignore_duplicate_candidate(entity_type: str, source_key: str, left_id: int, right_id: int) -> dict:
+    if entity_type not in {"artist", "event"}:
+        return {"error": "Invalid entity_type"}
+    a, b = _normalize_pair(left_id, right_id)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO cu_duplicate_ignores
+               (entity_type, source_key, left_id, right_id)
+               VALUES (?, ?, ?, ?)""",
+            (entity_type, source_key, a, b),
+        )
+    return {"ok": True, "entity_type": entity_type, "source_key": source_key, "left_id": a, "right_id": b}
+
+
+def _load_ignored_pairs(entity_type: str, source_key: str) -> set[tuple[int, int]]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT left_id, right_id
+               FROM cu_duplicate_ignores
+               WHERE entity_type = ? AND source_key = ?""",
+            (entity_type, source_key),
+        ).fetchall()
+    return {(int(r["left_id"]), int(r["right_id"])) for r in rows}
+
+
+def _latest_run_summary(source_key: str) -> dict:
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT raw_summary_json
+               FROM cu_ingestion_runs
+               WHERE source_key = ?
+               ORDER BY started_at DESC
+               LIMIT 1""",
+            (source_key,),
+        ).fetchone()
+    if not row:
+        return {}
+    raw = row["raw_summary_json"]
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def get_duplicate_candidates() -> dict:
+    artist_source = "artist_dedupe_janitor"
+    event_source = "event_dedupe_janitor"
+    artist_ignored = _load_ignored_pairs("artist", artist_source)
+    event_ignored = _load_ignored_pairs("event", event_source)
+
+    artist_rows = (_latest_run_summary(artist_source).get("potential_matches") or [])
+    event_rows = (_latest_run_summary(event_source).get("potential_matches") or [])
+
+    artists: list[dict] = []
+    for row in artist_rows:
+        left_id = int(row.get("left_artist_id") or 0)
+        right_id = int(row.get("right_artist_id") or 0)
+        if left_id <= 0 or right_id <= 0:
+            continue
+        if _normalize_pair(left_id, right_id) in artist_ignored:
+            continue
+        artists.append(
+            {
+                "left_id": left_id,
+                "left_name": row.get("left_artist_name") or "",
+                "right_id": right_id,
+                "right_name": row.get("right_artist_name") or "",
+                "title_match_pct": float(row.get("title_match_pct") or 0.0),
+            }
+        )
+
+    events: list[dict] = []
+    for row in event_rows:
+        left_id = int(row.get("left_event_id") or 0)
+        right_id = int(row.get("right_event_id") or 0)
+        if left_id <= 0 or right_id <= 0:
+            continue
+        if _normalize_pair(left_id, right_id) in event_ignored:
+            continue
+        events.append(
+            {
+                "left_id": left_id,
+                "left_title": row.get("left_title") or "",
+                "right_id": right_id,
+                "right_title": row.get("right_title") or "",
+                "date": row.get("date"),
+                "venue_name": row.get("venue_name") or "",
+                "title_match_pct": float(row.get("title_match_pct") or 0.0),
+            }
+        )
+
+    artists.sort(key=lambda r: r["title_match_pct"], reverse=True)
+    events.sort(key=lambda r: r["title_match_pct"], reverse=True)
+    return {
+        "artists": artists,
+        "events": events,
+        "artists_count": len(artists),
+        "events_count": len(events),
+    }
+
+
+def rescan_duplicate_candidates(kind: str = "all") -> dict:
+    kind_norm = (kind or "all").strip().lower()
+    if kind_norm == "artists":
+        keys = ["artist_dedupe_janitor"]
+    elif kind_norm == "events":
+        keys = ["event_dedupe_janitor"]
+    else:
+        keys = ["artist_dedupe_janitor", "event_dedupe_janitor"]
+    results = [refresh_source(k) for k in keys]
+    return {"kind": kind_norm, "sources_run": len(results), "results": results}

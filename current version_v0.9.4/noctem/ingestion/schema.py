@@ -17,12 +17,23 @@ CREATE TABLE IF NOT EXISTS cu_venues (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Cor Unum: Favorites stub
+CREATE TABLE IF NOT EXISTS cu_favorites (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL REFERENCES cu_events(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, event_id)
+);
+
 -- Cor Unum: Artists
 CREATE TABLE IF NOT EXISTS cu_artists (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     bio_link TEXT,
+    spotify_url TEXT,
     last_seen TIMESTAMP,
+    is_canadian INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,6 +52,15 @@ CREATE TABLE IF NOT EXISTS cu_event_performers (
     event_id INTEGER NOT NULL REFERENCES cu_events(id),
     artist_id INTEGER NOT NULL REFERENCES cu_artists(id),
     UNIQUE(event_id, artist_id)
+);
+
+-- Cor Unum: Artist tags (city tags, e.g., YVR)
+CREATE TABLE IF NOT EXISTS cu_artist_tags (
+    id INTEGER PRIMARY KEY,
+    artist_id INTEGER NOT NULL REFERENCES cu_artists(id),
+    tag TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(artist_id, tag)
 );
 
 -- Cor Unum: Event provenance / source evidence
@@ -86,6 +106,30 @@ CREATE TABLE IF NOT EXISTS cu_ingestion_runs (
     raw_summary_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Cor Unum: ignored duplicate candidates (suppresses resurfacing on rescan)
+CREATE TABLE IF NOT EXISTS cu_duplicate_ignores (
+    id INTEGER PRIMARY KEY,
+    entity_type TEXT NOT NULL, -- artist | event
+    source_key TEXT NOT NULL,  -- artist_dedupe_janitor | event_dedupe_janitor
+    left_id INTEGER NOT NULL,
+    right_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, source_key, left_id, right_id)
+);
+-- Cor Unum: auto-discovered artist social link candidates (manual review queue)
+CREATE TABLE IF NOT EXISTS cu_artist_link_candidates (
+    id INTEGER PRIMARY KEY,
+    artist_id INTEGER NOT NULL REFERENCES cu_artists(id),
+    source_key TEXT NOT NULL, -- instagram | spotify
+    candidate_url TEXT NOT NULL,
+    confidence_score REAL DEFAULT 0,
+    evidence_json TEXT,
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected
+    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP,
+    reviewed_action TEXT,
+    UNIQUE(artist_id, source_key, candidate_url)
+);
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_cu_events_date ON cu_events(date);
@@ -94,6 +138,12 @@ CREATE INDEX IF NOT EXISTS idx_cu_event_sources_event ON cu_event_sources(event_
 CREATE INDEX IF NOT EXISTS idx_cu_event_sources_fingerprint ON cu_event_sources(source_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_cu_source_registry_key ON cu_source_registry(source_key);
 CREATE INDEX IF NOT EXISTS idx_cu_ingestion_runs_source ON cu_ingestion_runs(source_key, started_at);
+CREATE INDEX IF NOT EXISTS idx_cu_artist_tags_artist ON cu_artist_tags(artist_id);
+CREATE INDEX IF NOT EXISTS idx_cu_artist_tags_tag ON cu_artist_tags(tag);
+CREATE INDEX IF NOT EXISTS idx_cu_duplicate_ignores_lookup
+    ON cu_duplicate_ignores(entity_type, source_key, left_id, right_id);
+CREATE INDEX IF NOT EXISTS idx_cu_artist_link_candidates_lookup
+    ON cu_artist_link_candidates(artist_id, source_key, status, confidence_score DESC);
 """
 
 
@@ -115,6 +165,14 @@ def _migrate_cu_columns(conn) -> None:
         ("cu_artists", "soundcloud_url", "TEXT"),
         ("cu_artists", "sc_followers", "INTEGER"),  # follower count from SoundCloud
         ("cu_artists", "instagram_url", "TEXT"),
+        ("cu_artists", "spotify_url", "TEXT"),
+        ("cu_artists", "is_canadian", "INTEGER"),
+        ("cu_artists", "instagram_checked_at", "TIMESTAMP"),
+        ("cu_artists", "spotify_checked_at", "TIMESTAMP"),
+        ("cu_artists", "instagram_last_discovery_attempt_at", "TIMESTAMP"),
+        ("cu_artists", "spotify_last_discovery_attempt_at", "TIMESTAMP"),
+        ("cu_artists", "instagram_discovery_error", "TEXT"),
+        ("cu_artists", "spotify_discovery_error", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -123,6 +181,20 @@ def _migrate_cu_columns(conn) -> None:
                 conn.execute(f'ALTER TABLE "{table}" ADD COLUMN {column} {col_type}')
         except Exception:
             pass
+    _migrate_local_flag_to_city_tags(conn)
+
+
+def _migrate_local_flag_to_city_tags(conn) -> None:
+    """Migrate legacy is_local=1 values to city tag YVR."""
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO cu_artist_tags (artist_id, tag)
+               SELECT id, 'YVR'
+               FROM cu_artists
+               WHERE is_local = 1"""
+        )
+    except Exception:
+        pass
 
 
 def seed_cu_data(conn) -> None:

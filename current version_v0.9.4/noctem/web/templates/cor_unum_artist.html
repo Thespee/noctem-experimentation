@@ -38,6 +38,8 @@
 .cu-sc-link:hover { text-decoration: underline; }
 .cu-ig-link { font-size: 0.78rem; color: #e1306c; text-decoration: none; margin-left: 0.5rem; }
 .cu-ig-link:hover { text-decoration: underline; }
+.cu-sp-link { font-size: 0.78rem; color: #1db954; text-decoration: none; margin-left: 0.5rem; }
+.cu-sp-link:hover { text-decoration: underline; }
 .cu-edit-section { margin-top: 1.5rem; padding: 0.75rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; }
 .cu-edit-section .cu-section-label { margin-top: 0; }
 .cu-edit-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-size: 0.82rem; }
@@ -73,20 +75,25 @@ async function loadArtist() {
             window.location.href = '/cor-unum/artist/' + a.redirect_to;
             return;
         }
+        const isYvrLocal = !!a.is_yvr_local || a.is_local === 1;
         // Locality badge
         let localBadge = '';
-        if (a.is_local === 1) localBadge = '<span class="cu-local-badge yes">Local</span>';
-        else if (a.is_local === 0) localBadge = '<span class="cu-local-badge no">Not Local</span>';
+        if (isYvrLocal) localBadge = '<span class="cu-local-badge yes">YVR Local</span>';
+        else if (a.is_local === 0) localBadge = '<span class="cu-local-badge no">Not Vancouver</span>';
         else localBadge = '<span class="cu-local-badge unknown">Unchecked</span><button class="cu-check-btn" onclick="checkLocality()">Check via SoundCloud</button>';
 
         let scLink = a.soundcloud_url ? `<a href="${a.soundcloud_url}" target="_blank" rel="noopener" class="cu-sc-link">SoundCloud ↗</a>` : '';
         let igLink = a.instagram_url ? `<a href="${a.instagram_url}" target="_blank" rel="noopener" class="cu-ig-link">Instagram ↗</a>` : '';
+        let spLink = a.spotify_url ? `<a href="${a.spotify_url}" target="_blank" rel="noopener" class="cu-sp-link">Spotify ↗</a>` : '';
+        const canadianBadge = a.is_canadian ? '<span class="cu-local-badge yes">Canadian</span>' : '';
+        const cityTags = (a.city_tags || []).join(', ');
 
         let html = `<div class="cu-art-header">
             <h1 class="cu-art-name">${escapeHtml(a.name)}${localBadge}</h1>
             <div class="cu-art-meta">
                 ${a.bio_link ? `<a href="${a.bio_link}" target="_blank" rel="noopener">${escapeHtml(a.bio_link)}</a>` : ''}
-                ${scLink}${igLink}
+                ${scLink}${igLink}${spLink}${canadianBadge}
+                ${cityTags ? `<span>Tags: ${escapeHtml(cityTags)}</span>` : ''}
                 ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
             </div>
         </div>`;
@@ -124,8 +131,8 @@ async function loadArtist() {
         html += `<div class="cu-edit-section">
             <div class="cu-section-label">Edit Artist</div>
             <div class="cu-edit-row">
-                <label>Local Artist</label>
-                <input type="checkbox" id="editLocal" ${a.is_local === 1 ? 'checked' : ''}>
+                <label>Vancouver Artist</label>
+                <input type="checkbox" id="editLocal" ${isYvrLocal ? 'checked' : ''}>
             </div>
             <div class="cu-edit-row">
                 <label>SoundCloud URL</label>
@@ -135,9 +142,19 @@ async function loadArtist() {
                 <label>Instagram URL</label>
                 <input type="text" id="editInstagram" value="${escapeHtml(a.instagram_url || '')}" placeholder="https://instagram.com/...">
             </div>
+            <div class="cu-edit-row">
+                <label>Spotify URL</label>
+                <input type="text" id="editSpotify" value="${escapeHtml(a.spotify_url || '')}" placeholder="https://open.spotify.com/...">
+            </div>
+            <div class="cu-edit-row">
+                <label>Canadian</label>
+                <input type="checkbox" id="editCanadian" ${a.is_canadian ? 'checked' : ''}>
+            </div>
             <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
                 <button class="cu-save-btn" onclick="saveArtist()">Save</button>
                 <button class="cu-check-btn" onclick="checkLocality()">Recheck SoundCloud</button>
+                <button class="cu-check-btn" onclick="recheckFingerprint('instagram')">Recheck Instagram</button>
+                <button class="cu-check-btn" onclick="recheckFingerprint('spotify')">Recheck Spotify</button>
             </div>
         </div>`;
 
@@ -180,6 +197,8 @@ async function saveArtist() {
             is_local: document.getElementById('editLocal').checked,
             soundcloud_url: document.getElementById('editSoundcloud').value.trim(),
             instagram_url: document.getElementById('editInstagram').value.trim(),
+            spotify_url: document.getElementById('editSpotify').value.trim(),
+            is_canadian: document.getElementById('editCanadian').checked,
         }),
     });
     const d = await r.json();
@@ -189,8 +208,19 @@ async function saveArtist() {
 async function checkLocality() {
     const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-locality?force=1', {method:'POST'});
     const d = await r.json();
+    if (!d.success) alert(d.error || 'SoundCloud recheck failed');
     loadArtist();
 }
+
+async function recheckFingerprint(sourceKey) {
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-fingerprint/' + encodeURIComponent(sourceKey) + '?force=1', {method:'POST'});
+    const d = await r.json();
+    if (!d.success) {
+        alert(d.error || (sourceKey + ' recheck failed'));
+    }
+    loadArtist();
+}
+
 
 loadArtist();
 {% endblock %}

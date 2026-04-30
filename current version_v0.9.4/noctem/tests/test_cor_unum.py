@@ -44,10 +44,10 @@ class TestSchema:
         assert len(indexes) >= 5
 
     def test_seed_sources(self):
-        """5 source registry rows seeded on init (4 event + 1 social)."""
+        """Cor Unum V2 seeds 9 sources across event/fingerprint/internal classes."""
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 5
+        assert count == 9
 
     def test_seed_fallback_venue(self):
         """'Out in the Wild' venue exists."""
@@ -63,7 +63,7 @@ class TestSchema:
         db.init_db()
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 5  # no duplicates
+        assert count == 9  # no duplicates
 
 
 # =========================================================================
@@ -145,8 +145,8 @@ class TestEngine:
         assert count_after_first == 3
         assert count_after_second == 3
 
-    def test_same_event_different_source_links(self):
-        """Same event from two sources creates one event + two event_sources."""
+    def test_same_event_different_source_kept_separate(self):
+        """Cor Unum V2 dedupe is source-scoped, so cross-source events remain separate."""
         raw1 = self._make_raw(title="Big Concert at The Roxy Venue", source_url="https://tm.com/1")
         raw2 = RawEvent(
             title="Big Concert at The Roxy",  # fuzzy-similar (score ~88) but different fingerprint
@@ -161,8 +161,8 @@ class TestEngine:
             event_count = conn.execute("SELECT COUNT(*) FROM cu_events").fetchone()[0]
             source_count = conn.execute("SELECT COUNT(*) FROM cu_event_sources").fetchone()[0]
 
-        # "Big Concert" and "Big Concert!" should fuzzy-match → 1 event, 2 sources
-        assert event_count == 1
+        # Source-scoped dedupe means these remain two independent events.
+        assert event_count == 2
         assert source_count == 2
 
     def test_fallback_venue_used_when_empty(self):
@@ -201,10 +201,14 @@ class TestService:
     def test_get_source_registry(self):
         from ..ingestion.service import get_source_registry
         sources = get_source_registry()
-        assert len(sources) == 5
+        assert len(sources) == 9
         keys = {s["source_key"] for s in sources}
         assert "ticketmaster_vancouver" in keys
         assert "soundcloud" in keys
+        assert "spotify" in keys
+        assert "instagram" in keys
+        assert "artist_dedupe_janitor" in keys
+        assert "event_dedupe_janitor" in keys
 
     def test_set_source_enabled(self):
         from ..ingestion.service import set_source_enabled, get_source_status
@@ -274,7 +278,13 @@ class TestAPI:
         assert r.status_code == 200
         data = r.get_json()
         assert data["success"]
-        assert len(data["sources"]) == 5
+        assert len(data["sources"]) == 9
+
+    def test_api_run_all_by_class(self, client):
+        r = client.post("/api/cor-unum/sources/run-all/event")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["success"]
 
     def test_api_runs(self, client):
         r = client.get("/api/cor-unum/runs")
@@ -362,3 +372,196 @@ class TestRunSummary:
         latest = runs[0]
         assert latest["source_key"] == "test_source"
         assert latest["events_ingested"] == 5
+
+
+# =========================================================================
+# Instagram/Spotify checker behavior
+# =========================================================================
+
+class TestFingerprintCheckers:
+    def test_instagram_recheck_all_mode(self, monkeypatch):
+        from ..ingestion.instagram import check_instagram_fingerprints
+
+        class _Resp:
+            text = "vancouver canada"
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("noctem.ingestion.instagram.requests.get", lambda *a, **k: _Resp())
+
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, ?, NULL)""",
+                ("IG Unchecked", "https://instagram.com/unchecked"),
+            )
+            conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, ?, ?)""",
+                ("IG Checked", "https://instagram.com/checked", "2026-01-01T00:00:00"),
+            )
+
+        unchecked_only = check_instagram_fingerprints(limit=20, recheck_all=False)
+        assert unchecked_only["checked"] == 1
+
+        full = check_instagram_fingerprints(limit=20, recheck_all=True)
+        assert full["checked"] >= 2
+
+    def test_spotify_recheck_all_mode_and_per_artist_skip(self, monkeypatch):
+        from ..ingestion.spotify import (
+            check_artist_spotify_fingerprint,
+            check_spotify_fingerprints,
+        )
+
+        class _Resp:
+            text = "yvr british columbia"
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("noctem.ingestion.spotify.requests.get", lambda *a, **k: _Resp())
+
+        with db.get_db() as conn:
+            cur = conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, ?, NULL)""",
+                ("SP Unchecked", "https://open.spotify.com/artist/unchecked"),
+            )
+            artist_id = cur.lastrowid
+            conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, ?, ?)""",
+                ("SP Checked", "https://open.spotify.com/artist/checked", "2026-01-01T00:00:00"),
+            )
+
+        first = check_artist_spotify_fingerprint(artist_id, force=False)
+        assert not first.get("skipped", False)
+        second = check_artist_spotify_fingerprint(artist_id, force=False)
+        assert second.get("skipped", False)
+
+        unchecked_only = check_spotify_fingerprints(limit=20, recheck_all=False)
+        assert unchecked_only["checked"] <= 1
+
+        full = check_spotify_fingerprints(limit=20, recheck_all=True)
+        assert full["checked"] >= 2
+
+    def test_instagram_discovery_batch_and_single_persists_url(self, monkeypatch):
+        from ..ingestion.instagram import (
+            check_artist_instagram_fingerprint,
+            check_instagram_fingerprints,
+        )
+
+        class _Resp:
+            text = "vancouver canada"
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("noctem.ingestion.instagram.requests.get", lambda *a, **k: _Resp())
+        monkeypatch.setattr(
+            "noctem.ingestion.instagram.discover_best_profile_url",
+            lambda name, source: {
+                "candidate_url": f"https://instagram.com/{name.lower().replace(' ', '')}/",
+                "confidence_score": 93.0,
+                "query": "mock",
+            },
+        )
+
+        with db.get_db() as conn:
+            cur1 = conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, '', NULL)""",
+                ("IG Discover Batch",),
+            )
+            batch_artist_id = cur1.lastrowid
+
+        batch = check_instagram_fingerprints(limit=20, recheck_all=False)
+        assert batch["urls_discovered"] >= 1
+        assert batch["checked"] >= 1
+
+        with db.get_db() as conn:
+            batch_row = conn.execute(
+                "SELECT instagram_url, instagram_checked_at FROM cu_artists WHERE id = ?",
+                (batch_artist_id,),
+            ).fetchone()
+        assert batch_row["instagram_url"]
+        assert batch_row["instagram_checked_at"]
+        with db.get_db() as conn:
+            cur2 = conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("IG Discover Single",),
+            )
+            single_artist_id = cur2.lastrowid
+
+        single = check_artist_instagram_fingerprint(single_artist_id, force=True)
+        assert single.get("error") is None
+        assert single["discovered_url"] is True
+        assert single["instagram_url"].startswith("https://instagram.com/")
+
+        with db.get_db() as conn:
+            single_row = conn.execute(
+                "SELECT instagram_url, instagram_checked_at FROM cu_artists WHERE id = ?",
+                (single_artist_id,),
+            ).fetchone()
+        assert single_row["instagram_url"]
+        assert single_row["instagram_checked_at"]
+
+    def test_spotify_discovery_batch_and_single_persists_url(self, monkeypatch):
+        from ..ingestion.spotify import (
+            check_artist_spotify_fingerprint,
+            check_spotify_fingerprints,
+        )
+
+        class _Resp:
+            text = "vancouver british columbia canada"
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("noctem.ingestion.spotify.requests.get", lambda *a, **k: _Resp())
+        monkeypatch.setattr(
+            "noctem.ingestion.spotify.discover_best_profile_url",
+            lambda name, source: {
+                "candidate_url": "https://open.spotify.com/artist/mock123",
+                "confidence_score": 95.0,
+                "query": "mock",
+            },
+        )
+
+        with db.get_db() as conn:
+            cur1 = conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, '', NULL)""",
+                ("SP Discover Batch",),
+            )
+            batch_artist_id = cur1.lastrowid
+
+        batch = check_spotify_fingerprints(limit=20, recheck_all=False)
+        assert batch["urls_discovered"] >= 1
+        assert batch["checked"] >= 1
+
+        with db.get_db() as conn:
+            batch_row = conn.execute(
+                "SELECT spotify_url, spotify_checked_at FROM cu_artists WHERE id = ?",
+                (batch_artist_id,),
+            ).fetchone()
+        assert batch_row["spotify_url"]
+        assert batch_row["spotify_checked_at"]
+        with db.get_db() as conn:
+            cur2 = conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("SP Discover Single",),
+            )
+            single_artist_id = cur2.lastrowid
+
+        single = check_artist_spotify_fingerprint(single_artist_id, force=True)
+        assert single.get("error") is None
+        assert single["discovered_url"] is True
+        assert single["spotify_url"].startswith("https://open.spotify.com/artist/")
+
+        with db.get_db() as conn:
+            single_row = conn.execute(
+                "SELECT spotify_url, spotify_checked_at FROM cu_artists WHERE id = ?",
+                (single_artist_id,),
+            ).fetchone()
+        assert single_row["spotify_url"]
+        assert single_row["spotify_checked_at"]

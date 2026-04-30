@@ -19,6 +19,7 @@ import requests
 
 from ..config import Config
 from ..db import get_db
+from .city_tags import is_local_yvr, set_local_yvr
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ _SC_CONFIG_PREFIX = "cu_soundcloud_"
 _public_client_id: str | None = None
 _public_client_id_expires: datetime | None = None
 _CLIENT_ID_TTL = timedelta(hours=6)
+def _invalidate_public_client_id_cache() -> None:
+    global _public_client_id, _public_client_id_expires
+    _public_client_id = None
+    _public_client_id_expires = None
 
 
 # --------------------------------------------------------------------------
@@ -123,29 +128,55 @@ def _get_public_client_id() -> str | None:
 # --------------------------------------------------------------------------
 
 def _search_users(query: str, limit: int = 5,
-                  filter_place: str | None = None) -> list[dict]:
+                  filter_place: str | None = None) -> list[dict] | None:
     """Search SoundCloud api-v2 for user profiles."""
-    client_id = _get_public_client_id()
-    if not client_id:
-        return []
-
-    params: dict = {"q": query, "limit": limit, "client_id": client_id}
-    if filter_place:
-        params["filter.place"] = filter_place
-
-    try:
-        resp = requests.get(
-            "https://api-v2.soundcloud.com/search/users",
-            params=params,
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("collection", [])
-    except Exception as exc:
-        logger.error("SoundCloud api-v2 search failed for '%s': %s", query, exc)
-        return []
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        client_id = _get_public_client_id()
+        if not client_id:
+            return None
+        params: dict = {"q": query, "limit": limit, "client_id": client_id}
+        if filter_place:
+            params["filter.place"] = filter_place
+        try:
+            resp = requests.get(
+                "https://api-v2.soundcloud.com/search/users",
+                params=params,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://soundcloud.com/",
+                    "Origin": "https://soundcloud.com",
+                },
+                timeout=10,
+            )
+            if resp.status_code in (401, 403):
+                if attempt < max_attempts - 1:
+                    _invalidate_public_client_id_cache()
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+                return None
+            if resp.status_code in (429, 500, 502, 503, 504):
+                if attempt < max_attempts - 1:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                logger.error(
+                    "SoundCloud api-v2 search failed for '%s': HTTP %s",
+                    query,
+                    resp.status_code,
+                )
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("collection", [])
+        except Exception as exc:
+            if attempt < max_attempts - 1:
+                _invalidate_public_client_id_cache()
+                time.sleep(0.4 * (attempt + 1))
+                continue
+            logger.error("SoundCloud api-v2 search failed for '%s': %s", query, exc)
+            return None
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -179,22 +210,24 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
       2. Location-filtered (filter.place=vancouver) — catches profiles that
          the unfiltered search may have ranked lower
 
-    force=True bypasses the is_local==1 skip (for manual rechecks).
+    force=True bypasses existing fingerprint skip checks (for manual rechecks).
 
     Returns: {"is_local": bool, "soundcloud_url": str|None, ...}
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, alias_of, is_local FROM cu_artists WHERE id = ?",
+            """SELECT id, name, alias_of, soundcloud_url, is_canadian
+               FROM cu_artists WHERE id = ?""",
             (artist_id,),
         ).fetchone()
         if not row:
             return {"error": "Artist not found"}
         if row["alias_of"]:
             return check_artist_locality(row["alias_of"], force=force)
-        if not force and row["is_local"] is not None:
+        if not force and row["soundcloud_url"]:
+            cached_local = is_local_yvr(conn, artist_id)
             return {"artist_id": artist_id, "artist_name": row["name"],
-                    "is_local": bool(row["is_local"]), "skipped": True}
+                    "is_local": cached_local, "skipped": True}
         artist_name = row["name"]
 
     cfg = get_sc_config()
@@ -203,12 +236,16 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
 
     # Collect all name-matched candidates across both passes, deduped by URL
     candidates: dict[str, dict] = {}  # permalink_url -> user info
+    api_failed = False
 
     # Pass 1: unfiltered search
     # Pass 2: location-filtered search
     for filter_place in [None, "vancouver"]:
         users = _search_users(artist_name, limit=search_limit,
                               filter_place=filter_place)
+        if users is None:
+            api_failed = True
+            continue
 
         for user in users:
             user_name = (user.get("username") or "").strip()
@@ -234,6 +271,8 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
                     "followers": followers,
                     "is_vancouver": "vancouver" in user_city.lower(),
                 }
+    if not candidates and api_failed:
+        return {"error": "SoundCloud API unavailable"}
 
     # Pick best match: prefer Vancouver locals, then highest followers
     local_matches = [c for c in candidates.values() if c["is_vancouver"]]
@@ -250,13 +289,21 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
     sc_url = best["permalink_url"] if best else None
     city_found = best["city"] if best else None
     followers_found = best["followers"] if best else None
+    city_l = (city_found or "").lower()
+    is_canadian = bool(
+        is_local
+        or ("canada" in city_l)
+        or ("bc" in city_l)
+        or ("british columbia" in city_l)
+    )
 
     # Store result
     with get_db() as conn:
+        set_local_yvr(conn, artist_id, is_local)
         conn.execute(
-            """UPDATE cu_artists SET is_local = ?, soundcloud_url = ?, sc_followers = ?
+            """UPDATE cu_artists SET soundcloud_url = ?, sc_followers = ?, is_canadian = ?
                WHERE id = ?""",
-            (1 if is_local else 0, sc_url, followers_found, artist_id),
+            (sc_url, followers_found, 1 if is_canadian else 0, artist_id),
         )
 
     return {
@@ -266,6 +313,7 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
         "soundcloud_url": sc_url,
         "city": city_found,
         "followers": followers_found,
+        "is_canadian": is_canadian,
     }
 
 
@@ -277,14 +325,14 @@ def check_all_unchecked_artists(limit: int = 50,
                                 recheck_all: bool = False) -> dict:
     """Batch-check artists via SoundCloud api-v2.
 
-    recheck_all=False: only artists where is_local IS NULL.
-    recheck_all=True: unchecked + not-local (skips confirmed local).
+    recheck_all=False: artists not yet checked by SoundCloud (no stored URL).
+    recheck_all=True: recheck all canonical artists.
     """
     with get_db() as conn:
         if recheck_all:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
-                   WHERE alias_of IS NULL AND (is_local IS NULL OR is_local = 0)
+                   WHERE alias_of IS NULL
                    ORDER BY last_seen DESC NULLS LAST
                    LIMIT ?""",
                 (limit,),
@@ -292,13 +340,13 @@ def check_all_unchecked_artists(limit: int = 50,
         else:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
-                   WHERE is_local IS NULL AND alias_of IS NULL
+                   WHERE alias_of IS NULL
+                     AND (soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')
                    ORDER BY last_seen DESC NULLS LAST
                    LIMIT ?""",
                 (limit,),
             ).fetchall()
-
-    results = {"checked": 0, "local": 0, "not_local": 0, "errors": 0}
+    results = {"checked": 0, "local": 0, "not_local": 0, "canadian": 0, "errors": 0}
     for row in rows:
         time.sleep(0.3)
         result = check_artist_locality(row["id"])
@@ -309,5 +357,7 @@ def check_all_unchecked_artists(limit: int = 50,
             results["local"] += 1
         else:
             results["not_local"] += 1
+        if result.get("is_canadian"):
+            results["canadian"] += 1
 
     return results

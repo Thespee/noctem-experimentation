@@ -22,6 +22,7 @@
 .cu-btn:hover { background: #5f6368; }
 .cu-btn.primary { background: #1a73e8; border-color: #1a73e8; }
 .cu-btn.primary:hover { background: #1565c0; }
+.cu-run-groups { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .cu-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 .cu-links a { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; padding: 0.3rem 0.7rem; background: #2d2d2d; border-radius: 4px; border: 1px solid #3c3c3c; }
 .cu-links a:hover { background: #3c4043; }
@@ -29,6 +30,7 @@
 .cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 .cu-toast.show { opacity: 1; }
 .cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+.cu-group-row td { background: #252525; color: #9aa0a6; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
 {% endblock %}
 
 {% block cu_content %}
@@ -36,7 +38,12 @@
 <div class="cu-wrap">
     <div class="cu-header">
         <h1>🎵 Cor Unum</h1>
-        <button class="cu-btn primary" onclick="refreshAll()">Refresh All Sources</button>
+        <div class="cu-run-groups">
+            <button class="cu-btn" onclick="refreshByClass('event')">Run Events</button>
+            <button class="cu-btn" onclick="refreshByClass('fingerprint')">Run Fingerprint</button>
+            <button class="cu-btn" onclick="refreshByClass('internal')">Run Internal</button>
+            <button class="cu-btn primary" onclick="refreshAll()">Run Full Pipeline</button>
+        </div>
     </div>
 
     <div class="cu-tabs">
@@ -72,6 +79,7 @@
     <div class="cu-links" style="margin-top:1.5rem;">
         <a href="/cor-unum/upcoming" style="background:#1a73e8;border-color:#1a73e8;color:#fff;font-weight:500;">Upcoming Events</a>
         <a href="/cor-unum/add-event" style="background:#1b5e20;border-color:#1b5e20;color:#fff;font-weight:500;">+ Add Event</a>
+        <a href="/cor-unum/duplicates" style="background:#5e35b1;border-color:#5e35b1;color:#fff;font-weight:500;">Review Duplicates</a>
     </div>
     <div class="cu-links" style="margin-top:0.5rem;">
         <strong style="color:#9aa0a6;font-size:0.82rem;padding:0.3rem 0;">DB Views:</strong>
@@ -103,7 +111,26 @@ async function loadSources() {
             fixBody.innerHTML = '<tr><td colspan="4" class="cu-empty">Nothing needs fixing.</td></tr>';
             return;
         }
-        body.innerHTML = d.sources.map(s => `<tr>
+        const groupOrder = ['event', 'fingerprint', 'internal'];
+        const grouped = {};
+        for (const s of d.sources) {
+            const kind = (s.source_kind || 'other').toLowerCase();
+            if (!grouped[kind]) grouped[kind] = [];
+            grouped[kind].push(s);
+        }
+        const kindLabel = {
+            event: 'Event Scanners',
+            fingerprint: 'Fingerprint Scanners',
+            internal: 'Internal Janitors',
+            other: 'Other',
+        };
+        const orderedKinds = [...groupOrder, ...Object.keys(grouped).filter(k => !groupOrder.includes(k))];
+        const rows = [];
+        for (const kind of orderedKinds) {
+            const items = grouped[kind] || [];
+            if (!items.length) continue;
+            rows.push(`<tr class="cu-group-row"><td colspan="5">${escapeHtml(kindLabel[kind] || kind)}</td></tr>`);
+            for (const s of items) rows.push(`<tr>
             <td><strong>${escapeHtml(s.source_label || s.source_key)}</strong><br><span style="color:#9aa0a6;font-size:0.72rem">${escapeHtml(s.source_key)}</span></td>
             <td>${s.enabled ? (s.needs_fixing ? '<span class="cu-badge fix">Needs Fix</span>' : (s.last_status === 'success' ? '<span class="cu-badge ok">Healthy</span>' : (s.last_status === 'error' ? '<span class="cu-badge err">Error</span>' : '<span class="cu-badge off">Idle</span>'))) : '<span class="cu-badge off">Disabled</span>'}</td>
             <td style="font-size:0.75rem">${s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '—'}</td>
@@ -113,7 +140,9 @@ async function loadSources() {
                 <button class="cu-btn" onclick="toggleEnabled('${s.source_key}', ${s.enabled ? 'false' : 'true'})">${s.enabled ? 'Disable' : 'Enable'}</button>
                 ${s.needs_fixing ? `<button class="cu-btn" onclick="clearError('${s.source_key}')">Clear Error</button>` : ''}
             </td>
-        </tr>`).join('');
+        </tr>`);
+        }
+        body.innerHTML = rows.join('');
         const broken = d.sources.filter(s => s.needs_fixing);
         fixBody.innerHTML = broken.length ? broken.map(s => `<tr>
             <td>${escapeHtml(s.source_label || s.source_key)}</td>
@@ -132,8 +161,8 @@ function formatReport(run) {
     const skip = new Set(['source_key','started_at','status','report_type','error_message']);
     const labels = {
         events_ingested: 'Events', artists_added: 'Artists', venues_added: 'Venues',
-        duplicates_skipped: 'Dupes', checked: 'Checked', local: 'Local',
-        not_local: 'Not Local', errors: 'Errors'
+        duplicates_skipped: 'Dupes', checked: 'Checked', local: 'Vancouver',
+        not_local: 'Not Vancouver', errors: 'Errors'
     };
     const parts = [];
     for (const [k, v] of Object.entries(summary)) {
@@ -176,8 +205,8 @@ async function refreshSource(key) {
     const d = await r.json();
     if (d.success) {
         const res = d.result;
-        if (res.report_type === 'social') {
-            showToast(`Done: ${res.checked||0} checked, ${res.local||0} local`);
+        if (res.report_type === 'fingerprint') {
+            showToast(`Done: ${res.checked||0} checked, ${res.local_yvr||0} Vancouver`);
         } else {
             showToast('Done: ' + (res.events_ingested||0) + ' events ingested');
         }
@@ -188,10 +217,22 @@ async function refreshSource(key) {
 }
 
 async function refreshAll() {
-    showToast('Refreshing all sources...');
+    showToast('Running full pipeline...');
     const r = await fetch('/api/cor-unum/sources/refresh-all', {method:'POST'});
     const d = await r.json();
-    showToast('Done: ' + (d.result.total_events_ingested||0) + ' events ingested');
+    showToast('Pipeline complete');
+    loadSources(); loadRuns();
+}
+
+async function refreshByClass(scannerClass) {
+    showToast('Running ' + scannerClass + ' scanners...');
+    const r = await fetch('/api/cor-unum/sources/run-all/' + scannerClass, {method:'POST'});
+    const d = await r.json();
+    if (!d.success) {
+        showToast('Error: ' + (d.error || 'unknown'), true);
+    } else {
+        showToast(scannerClass + ' scanners complete');
+    }
     loadSources(); loadRuns();
 }
 

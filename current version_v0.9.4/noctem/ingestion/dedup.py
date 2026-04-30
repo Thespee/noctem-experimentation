@@ -59,12 +59,14 @@ def fuzzy_match_title(candidate: str, existing: str) -> float:
     Uses rapidfuzz token_sort_ratio which is insensitive to word order.
     Returns 0.0 if rapidfuzz is unavailable.
     """
+    cand = _normalize(candidate)
+    exist = _normalize(existing)
     try:
         from rapidfuzz.fuzz import token_sort_ratio
+        return token_sort_ratio(cand, exist)
     except ImportError:
-        return 0.0
-
-    return token_sort_ratio(_normalize(candidate), _normalize(existing))
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, cand, exist).ratio() * 100.0
 
 
 def is_fuzzy_duplicate(candidate_title: str, existing_title: str) -> bool:

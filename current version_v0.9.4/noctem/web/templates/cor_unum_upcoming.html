@@ -16,6 +16,9 @@
 /* Event card */
 .cu-event { display: flex; gap: 0.9rem; padding: 0.75rem 0; border-bottom: 1px solid #2d2d2d; transition: background 0.12s; cursor: pointer; text-decoration: none; color: inherit; }
 .cu-event:hover { background: #262626; }
+.cu-event-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cu-density-strip { height: 4px; border-radius: 4px; margin-top: 0.35rem; background: #3c3c3c; }
+.cu-density-label { font-size: 0.7rem; color: #9aa0a6; margin-top: 0.2rem; }
 .cu-event-date { flex-shrink: 0; width: 48px; text-align: center; padding-top: 0.1rem; }
 .cu-event-day { font-size: 1.3rem; font-weight: 600; color: #e8eaed; line-height: 1.1; }
 .cu-event-dow { font-size: 0.68rem; color: #9aa0a6; text-transform: uppercase; }
@@ -101,15 +104,21 @@ function renderEvents(events) {
             const sources = (ev.sources || []).map(s =>
                 `<span class="cu-source-dot ${sourceColor(s.source_type)}" title="${escapeHtml(s.source_type || '')}"></span>`
             ).join('');
+            const density = Math.max(0, Math.min(100, Number(ev.local_density_pct || 0)));
+            const hue = Math.round((density / 100) * 120);
             html += `<a href="/cor-unum/event/${ev.id}" class="cu-event">
                 <div class="cu-event-date">
                     <div class="cu-event-day">${fd2.day}</div>
                     <div class="cu-event-dow">${fd2.dow}</div>
                 </div>
-                <div class="cu-event-info">
-                    <div class="cu-event-title">${escapeHtml(ev.title)}</div>
-                    <div class="cu-event-venue">${escapeHtml(ev.venue_name || 'TBA')}</div>
-                    ${artists ? `<div class="cu-event-artists">${artists}</div>` : ''}
+                <div class="cu-event-main">
+                    <div class="cu-event-info">
+                        <div class="cu-event-title">${escapeHtml(ev.title)}</div>
+                        <div class="cu-event-venue">${escapeHtml(ev.venue_name || 'TBA')}</div>
+                        ${artists ? `<div class="cu-event-artists">${artists}</div>` : ''}
+                    </div>
+                    <div class="cu-density-strip" style="background:hsl(${hue}, 75%, 45%);"></div>
+                    <div class="cu-density-label">Local Density: ${density.toFixed(0)}%</div>
                 </div>
                 <div class="cu-event-sources">${sources}</div>
             </a>`;

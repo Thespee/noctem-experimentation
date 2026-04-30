@@ -1,130 +1,171 @@
-"""Ingestion engine: scrape → parse → dedupe → store.
-
-Orchestrates the full pipeline for a single source.
-All DB writes happen in a single transaction per source for atomicity.
-"""
+"""Ingestion engine: scanner dispatch + event processing."""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 
 from ..db import get_db
 from .dedup import compute_fingerprint, is_fuzzy_duplicate
-from .models import FALLBACK_VENUE_NAME, RawEvent
+from .models import FALLBACK_VENUE_NAME
+from .scanner_impl import (
+    ArtistDedupeJanitorScanner,
+    ArtistFingerprintScanner,
+    EventDedupeJanitorScanner,
+    EventScraperScanner,
+)
+from .scanners import record_run as _record_run_impl
+from .scanners import update_source_status as _update_source_status_impl
 
 logger = logging.getLogger(__name__)
 
-# Scraper registry: source_key → scraper class
-_SCRAPER_MAP: dict[str, type] | None = None
+SCANNER_CLASS_EVENTS = "event"
+SCANNER_CLASS_FINGERPRINT = "fingerprint"
+SCANNER_CLASS_INTERNAL = "internal"
+PIPELINE_ORDER = [
+    SCANNER_CLASS_EVENTS,
+    SCANNER_CLASS_FINGERPRINT,
+    SCANNER_CLASS_INTERNAL,
+]
 
-# Social source keys — handled by run_social_ingestion instead of run_ingestion
-SOCIAL_SOURCE_KEYS = {"soundcloud"}
-
-
-def _get_scraper_map():
-    global _SCRAPER_MAP
-    if _SCRAPER_MAP is None:
-        from .sources.ticketmaster import TicketmasterScraper
-        from .sources.ra import RAScraper
-        from .sources.admitone import AdmitOneScraper
-        from .sources.eventbrite import EventbriteScraper
-
-        _SCRAPER_MAP = {
-            "ticketmaster_vancouver": TicketmasterScraper,
-            "ra_vancouver": RAScraper,
-            "admitone_vancouver": AdmitOneScraper,
-            "eventbrite_vancouver": EventbriteScraper,
-        }
-    return _SCRAPER_MAP
+_SCANNER_FACTORIES: dict[str, callable] | None = None
 
 
-def is_social_source(source_key: str) -> bool:
-    """Return True if the source key is a social/enrichment scraper."""
-    return source_key in SOCIAL_SOURCE_KEYS
+def _build_scanner_factories() -> dict[str, callable]:
+    from .instagram import check_instagram_fingerprints
+    from .soundcloud import check_all_unchecked_artists
+    from .sources.admitone import AdmitOneScraper
+    from .sources.eventbrite import EventbriteScraper
+    from .sources.ra import RAScraper
+    from .sources.ticketmaster import TicketmasterScraper
+    from .spotify import check_spotify_fingerprints
+
+    return {
+        "ticketmaster_vancouver": lambda: EventScraperScanner(
+            "ticketmaster_vancouver",
+            TicketmasterScraper,
+            _process_one_event,
+        ),
+        "ra_vancouver": lambda: EventScraperScanner(
+            "ra_vancouver",
+            RAScraper,
+            _process_one_event,
+        ),
+        "admitone_vancouver": lambda: EventScraperScanner(
+            "admitone_vancouver",
+            AdmitOneScraper,
+            _process_one_event,
+        ),
+        "eventbrite_vancouver": lambda: EventScraperScanner(
+            "eventbrite_vancouver",
+            EventbriteScraper,
+            _process_one_event,
+        ),
+        "soundcloud": lambda: ArtistFingerprintScanner(
+            "soundcloud",
+            lambda: check_all_unchecked_artists(limit=120, recheck_all=False),
+        ),
+        "spotify": lambda: ArtistFingerprintScanner(
+            "spotify",
+            lambda: check_spotify_fingerprints(limit=20),
+        ),
+        "instagram": lambda: ArtistFingerprintScanner(
+            "instagram",
+            lambda: check_instagram_fingerprints(limit=20),
+        ),
+        "artist_dedupe_janitor": lambda: ArtistDedupeJanitorScanner(),
+        "event_dedupe_janitor": lambda: EventDedupeJanitorScanner(),
+    }
 
 
-def get_scraper(source_key: str):
-    """Return an instantiated scraper for the given source_key."""
-    scraper_map = _get_scraper_map()
-    cls = scraper_map.get(source_key)
-    if cls is None:
+def _get_scanner_factories() -> dict[str, callable]:
+    global _SCANNER_FACTORIES
+    if _SCANNER_FACTORIES is None:
+        _SCANNER_FACTORIES = _build_scanner_factories()
+    return _SCANNER_FACTORIES
+
+
+def get_scanner(source_key: str):
+    factory = _get_scanner_factories().get(source_key)
+    if factory is None:
         raise ValueError(f"Unknown source_key: {source_key}")
-    return cls()
+    return factory()
 
 
 def run_ingestion(source_key: str) -> dict:
-    """Run the full ingestion pipeline for a single source.
+    scanner = get_scanner(source_key)
+    return scanner.execute()
 
-    Returns a summary dict with counts and status.
-    """
-    started_at = datetime.utcnow()
-    summary = {
-        "source_key": source_key,
-        "started_at": started_at.isoformat(),
-        "status": "running",
-        "report_type": "events",
-        "events_ingested": 0,
-        "artists_added": 0,
-        "venues_added": 0,
-        "duplicates_skipped": 0,
-        "error_message": None,
+
+def run_social_ingestion(source_key: str) -> dict:
+    """Backward-compat shim; social scanners are now fingerprint scanners."""
+    return run_ingestion(source_key)
+
+
+def is_social_source(source_key: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT source_kind FROM cu_source_registry WHERE source_key = ?",
+            (source_key,),
+        ).fetchone()
+    return bool(row and row["source_kind"] == SCANNER_CLASS_FINGERPRINT)
+
+
+def run_sources_by_class(scanner_class: str) -> dict:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT source_key
+               FROM cu_source_registry
+               WHERE enabled = 1 AND source_kind = ?
+               ORDER BY source_key""",
+            (scanner_class,),
+        ).fetchall()
+    results = [run_ingestion(r["source_key"]) for r in rows]
+    return {
+        "scanner_class": scanner_class,
+        "sources_run": len(results),
+        "results": results,
+        "total_events_ingested": sum(r.get("events_ingested", 0) for r in results),
+        "total_duplicates_skipped": sum(r.get("duplicates_skipped", 0) for r in results),
+        "errors": [r for r in results if r.get("status") == "error"],
     }
 
-    try:
-        scraper = get_scraper(source_key)
-        raw_events = scraper.run()
-        logger.info("Source %s returned %d raw events", source_key, len(raw_events))
-    except Exception as exc:
-        summary["status"] = "error"
-        summary["error_message"] = str(exc)[:1000]
-        _record_run(summary, started_at)
-        _update_source_status(source_key, "error", str(exc)[:500])
-        return summary
 
-    # Process raw events in a single transaction
-    try:
-        with get_db() as conn:
-            for raw in raw_events:
-                result = _process_one_event(conn, raw, source_key)
-                summary["events_ingested"] += result.get("event_created", 0)
-                summary["artists_added"] += result.get("artists_created", 0)
-                summary["venues_added"] += result.get("venue_created", 0)
-                summary["duplicates_skipped"] += result.get("duplicate", 0)
-    except Exception as exc:
-        summary["status"] = "error"
-        summary["error_message"] = str(exc)[:1000]
-        _record_run(summary, started_at)
-        _update_source_status(source_key, "error", str(exc)[:500])
-        return summary
-
-    summary["status"] = "success"
-    _record_run(summary, started_at)
-    _update_source_status(source_key, "success", None)
-    return summary
+def run_full_pipeline() -> dict:
+    class_results = [run_sources_by_class(scanner_class) for scanner_class in PIPELINE_ORDER]
+    all_results = []
+    for cls in class_results:
+        all_results.extend(cls.get("results", []))
+    return {
+        "pipeline_order": PIPELINE_ORDER,
+        "class_results": class_results,
+        "sources_run": sum(c.get("sources_run", 0) for c in class_results),
+        "results": all_results,
+        "total_events_ingested": sum(r.get("events_ingested", 0) for r in all_results),
+        "total_duplicates_skipped": sum(r.get("duplicates_skipped", 0) for r in all_results),
+        "errors": [r for r in all_results if r.get("status") == "error"],
+    }
 
 
-# --------------------------------------------------------------------------
-# Internal helpers
-# --------------------------------------------------------------------------
-
-def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
-    """Process a single raw event: dedupe, store, link performers.
-
-    Returns a dict of what was created/skipped.
-    """
-    result = {"event_created": 0, "artists_created": 0, "venue_created": 0,
-              "duplicate": 0, "updated": 0}
+def _process_one_event(conn, raw, source_key: str) -> dict:
+    """Process a single raw event with source-scoped dedupe."""
+    result = {
+        "event_created": 0,
+        "artists_created": 0,
+        "venue_created": 0,
+        "duplicate": 0,
+        "updated": 0,
+    }
 
     fingerprint = compute_fingerprint(raw.title, raw.date)
 
-    # Check exact fingerprint duplicate — but still update the event
+    # Source-scoped exact fingerprint duplicate
     existing_fp = conn.execute(
-        "SELECT id, event_id FROM cu_event_sources WHERE source_fingerprint = ?",
-        (fingerprint,),
+        """SELECT id, event_id
+           FROM cu_event_sources
+           WHERE source_fingerprint = ? AND source_type = ?""",
+        (fingerprint, source_key),
     ).fetchone()
     if existing_fp:
-        # Still update description + performers on the existing event
         event_id = existing_fp["event_id"]
         _update_event_if_better(conn, event_id, raw)
         _link_performers(conn, event_id, raw.artists)
@@ -132,7 +173,6 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
         result["updated"] = 1
         return result
 
-    # Get-or-create venue
     venue_name = raw.venue_name.strip() if raw.venue_name else ""
     if not venue_name:
         venue_name = FALLBACK_VENUE_NAME
@@ -145,11 +185,15 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
         if not existing_venue:
             result["venue_created"] = 1
 
-    # Fuzzy match against existing events on same date
+    # Source-scoped fuzzy duplicate candidates (same date among this source only)
     date_str = raw.date.isoformat()
     same_date_events = conn.execute(
-        "SELECT id, title FROM cu_events WHERE date = ?",
-        (date_str,),
+        """SELECT e.id, e.title
+           FROM cu_events e
+           JOIN cu_event_sources es ON es.event_id = e.id
+           WHERE e.date = ? AND es.source_type = ?
+           GROUP BY e.id, e.title""",
+        (date_str, source_key),
     ).fetchall()
 
     matched_event_id = None
@@ -159,49 +203,58 @@ def _process_one_event(conn, raw: RawEvent, source_key: str) -> dict:
             break
 
     if matched_event_id:
-        # Link as additional source on existing event
         conn.execute(
             """INSERT INTO cu_event_sources
                (event_id, source_type, source_url, source_fingerprint, captured_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (matched_event_id, source_key, raw.source_url, fingerprint,
-             datetime.utcnow().isoformat()),
+            (
+                matched_event_id,
+                source_key,
+                raw.source_url,
+                fingerprint,
+                datetime.utcnow().isoformat(),
+            ),
         )
         _update_event_if_better(conn, matched_event_id, raw)
+        result["duplicate"] = 1
     else:
-        # Create new event
         cursor = conn.execute(
             "INSERT INTO cu_events (title, date, venue_id, description) VALUES (?, ?, ?, ?)",
-            (raw.title, date_str, venue_id, raw.description[:2000] if raw.description else ""),
+            (
+                raw.title,
+                date_str,
+                venue_id,
+                raw.description[:2000] if raw.description else "",
+            ),
         )
         new_event_id = cursor.lastrowid
         result["event_created"] = 1
-
-        # Link source
         conn.execute(
             """INSERT INTO cu_event_sources
                (event_id, source_type, source_url, source_fingerprint, captured_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (new_event_id, source_key, raw.source_url, fingerprint,
-             datetime.utcnow().isoformat()),
+            (
+                new_event_id,
+                source_key,
+                raw.source_url,
+                fingerprint,
+                datetime.utcnow().isoformat(),
+            ),
         )
         matched_event_id = new_event_id
 
-    # Link performers
     result["artists_created"] = _link_performers(conn, matched_event_id, raw.artists)
-
     return result
 
 
-def _update_event_if_better(conn, event_id: int, raw: RawEvent) -> None:
-    """Update an existing event's description if the new one is longer/better."""
+def _update_event_if_better(conn, event_id: int, raw) -> None:
     if not raw.description:
         return
     existing = conn.execute(
-        "SELECT description FROM cu_events WHERE id = ?", (event_id,)
+        "SELECT description FROM cu_events WHERE id = ?",
+        (event_id,),
     ).fetchone()
     old_desc = (existing["description"] or "") if existing else ""
-    # Update if we have a description and the existing one is shorter or empty
     if len(raw.description.strip()) > len(old_desc.strip()):
         conn.execute(
             "UPDATE cu_events SET description = ? WHERE id = ?",
@@ -210,7 +263,6 @@ def _update_event_if_better(conn, event_id: int, raw: RawEvent) -> None:
 
 
 def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
-    """Get-or-create artists and link as performers. Returns count linked."""
     count = 0
     for artist_name in artist_names:
         artist_name = artist_name.strip()
@@ -226,18 +278,21 @@ def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
 
 
 def _get_or_create_venue(conn, name: str) -> int:
-    """Return canonical venue ID, creating if necessary. Follows alias_of."""
-    row = conn.execute("SELECT id, alias_of FROM cu_venues WHERE name = ?", (name,)).fetchone()
+    row = conn.execute(
+        "SELECT id, alias_of FROM cu_venues WHERE name = ?",
+        (name,),
+    ).fetchone()
     if row:
-        # Follow alias chain to canonical
         return row["alias_of"] or row["id"]
     cursor = conn.execute("INSERT INTO cu_venues (name) VALUES (?)", (name,))
     return cursor.lastrowid
 
 
 def _get_or_create_artist(conn, name: str) -> int:
-    """Return canonical artist ID, creating if necessary. Follows alias_of."""
-    row = conn.execute("SELECT id, alias_of FROM cu_artists WHERE name = ?", (name,)).fetchone()
+    row = conn.execute(
+        "SELECT id, alias_of FROM cu_artists WHERE name = ?",
+        (name,),
+    ).fetchone()
     if row:
         canonical_id = row["alias_of"] or row["id"]
         conn.execute(
@@ -253,103 +308,10 @@ def _get_or_create_artist(conn, name: str) -> int:
 
 
 def _record_run(summary: dict, started_at: datetime) -> None:
-    """Write a cu_ingestion_runs record."""
-    try:
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO cu_ingestion_runs
-                   (source_key, started_at, finished_at, status,
-                    events_ingested, artists_added, venues_added,
-                    duplicates_skipped, error_message, raw_summary_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    summary["source_key"],
-                    started_at.isoformat(),
-                    datetime.utcnow().isoformat(),
-                    summary["status"],
-                    summary["events_ingested"],
-                    summary["artists_added"],
-                    summary["venues_added"],
-                    summary["duplicates_skipped"],
-                    summary.get("error_message"),
-                    json.dumps(summary),
-                ),
-            )
-    except Exception as exc:
-        logger.error("Failed to record ingestion run: %s", exc)
+    """Backward-compatible wrapper for tests."""
+    _record_run_impl(summary, started_at)
 
 
 def _update_source_status(source_key: str, status: str, error: str | None) -> None:
-    """Update cu_source_registry with latest run status."""
-    try:
-        with get_db() as conn:
-            conn.execute(
-                """UPDATE cu_source_registry
-                   SET last_run_at = ?, last_status = ?, last_error = ?,
-                       needs_fixing = ?
-                   WHERE source_key = ?""",
-                (
-                    datetime.utcnow().isoformat(),
-                    status,
-                    error,
-                    1 if status == "error" else 0,
-                    source_key,
-                ),
-            )
-    except Exception as exc:
-        logger.error("Failed to update source status for %s: %s", source_key, exc)
-
-
-# --------------------------------------------------------------------------
-# Social / enrichment scraper runner
-# --------------------------------------------------------------------------
-
-def run_social_ingestion(source_key: str) -> dict:
-    """Run a social/enrichment scraper (e.g. SoundCloud locality check).
-
-    These don't produce events — they enrich artist records.
-    Results are recorded in cu_ingestion_runs via raw_summary_json.
-    """
-    started_at = datetime.utcnow()
-    summary = {
-        "source_key": source_key,
-        "started_at": started_at.isoformat(),
-        "status": "running",
-        "report_type": "social",
-        "checked": 0,
-        "local": 0,
-        "not_local": 0,
-        "errors": 0,
-        "error_message": None,
-    }
-
-    try:
-        if source_key == "soundcloud":
-            from .soundcloud import check_all_unchecked_artists
-            result = check_all_unchecked_artists(limit=100)
-        else:
-            raise ValueError(f"Unknown social source_key: {source_key}")
-
-        summary["checked"] = result.get("checked", 0)
-        summary["local"] = result.get("local", 0)
-        summary["not_local"] = result.get("not_local", 0)
-        summary["errors"] = result.get("errors", 0)
-        summary["status"] = "success"
-    except Exception as exc:
-        summary["status"] = "error"
-        summary["error_message"] = str(exc)[:1000]
-
-    # Record run — use 0 for event-oriented columns, real data in raw_summary_json
-    _record_run({
-        **summary,
-        "events_ingested": 0,
-        "artists_added": 0,
-        "venues_added": 0,
-        "duplicates_skipped": 0,
-    }, started_at)
-    _update_source_status(
-        source_key,
-        summary["status"],
-        summary.get("error_message"),
-    )
-    return summary
+    """Backward-compatible wrapper."""
+    _update_source_status_impl(source_key, status, error)
