@@ -1,0 +1,139 @@
+You are implementing a Cor Unum upgrade inside Noctem.
+Work in the existing architecture (Flask app + shared SQLite + queue/review-gated runtime), and treat current code behavior as source of truth.
+
+Objective
+Ship a reliable Cor Unum update that improves ingestion coverage, run transparency, artist locality classification, role-based access, public suggestions, and full modification history tracking for Cor Unum entities.
+
+Product context
+- Cor Unum is a Vancouver-focused music events/artists ingestion subsystem.
+- Current ingestion order is Web scanners → Fingerprint scanners → Internal janitors.
+- Runs are manually triggered from the web UI.
+- Current dedupe is source-scoped, with manual duplicate handling.
+- Cor Unum currently has broad admin-like access behavior that needs structured role-based expansion.
+
+Required scope
+
+1) Run history visibility + pipeline status correctness
+Implement run history so scanner executions appear immediately when they start, then update to completed or error.
+
+Requirements:
+- Show one run-history entry per scanner step (e.g., Ticketmaster, RA, SoundCloud, internal duplicate janitor).
+- Persist status, started_at, finished_at, error (if any), and summary payload.
+- Ensure “Full pipeline” visibly executes and records all three stages: Web → Fingerprint → Internal.
+- Investigate/fix SoundCloud classification so it is treated and displayed as a fingerprint scanner consistently in backend metadata and homepage/UI grouping.
+
+2) Ticketmaster reliability verification
+Investigate why Ticketmaster may miss Vancouver events, even when repro cases are historical.
+
+Requirements:
+- Add diagnostics/logging and a validation harness for Ticketmaster ingestion quality.
+- Confirm scanner query/filter logic includes Vancouver events properly.
+- Add robust tests using fixtures/mocks for expected Vancouver event ingestion.
+- Document likely failure modes (source HTML/API shape drift, date filtering, pagination, venue filtering, etc.) and add guardrails.
+
+3) Add new web scanners (promoter/ticket sites)
+Add event scanners (same class as existing web scanners) for:
+- https://www.denizensyvr.com/events?utm_content=link_in_bio
+- https://digitalmotionbc.ca/events/
+- https://orangetickets.ca/?utm_source=ig&utm_medium=social&utm_content=link_in_bio
+- https://www.ticketleader.ca/events/category/concerts
+- https://www.ticketweb.ca/
+
+Requirements:
+- Integrate into web scanner stage of full pipeline.
+- Register in source registry/control plane with enable/disable + error surfaces.
+- Record provenance in event source tables same as existing scanners.
+- Add tests per scanner with network mocked/fixtures.
+
+4) Canadian artist dimension + UI filters + event composition bar
+Add a boolean artist data column canadian.
+
+Rules:
+- canadian = true if artist is Vancouver-local OR has locality in any Canadian city/province.
+- false otherwise.
+- No nullable/unknown flag column for canadian.
+
+Fingerprint behavior:
+- Existing fingerprint scanners should attempt to fill missing links for their source and enrich locality/canadian fields where possible.
+
+UI/filter requirements:
+- Keep Vancouver filter.
+- Add Canadian filter as a superset view (does not replace Vancouver filter).
+- Add a single stacked composition bar on event surfaces:
+  - Green = % Vancouver
+  - Red = % Canadian but not Vancouver
+  - Grey/black = % Unknown/non-Canadian
+  - Example: 45% Vancouver, 60% Canadian total => [Green 45][Red 15][Grey 40]
+
+5) Cor Unum access model expansion
+Implement role model:
+
+- Admin
+  - Full control.
+  - Default web admin session should remain seamless for owner workflow.
+  - Mutations are attributed to admin identity.
+
+- Cor Unum Members
+  - A member is a system user linked to an artist entry.
+  - Not every artist must be a member.
+  - Support:
+    - Expand existing artist into member user
+    - Create member for a person not yet in artist table (and link/create artist record)
+  - Permissions: can edit all events and artists (trusted collaborators).
+  - Mutations attributed to acting member identity.
+
+- Public
+  - Very limited read-only view for upcoming events.
+  - Artist links from events may be visible.
+  - No direct edit rights.
+
+6) Public “detail suggestion” workflow
+Add suggestion forms on each public event and artist page for correction suggestions.
+
+Requirements:
+- Persist suggestions in a moderation queue.
+- Display these alongside duplicate scanner reports in admin moderation surface.
+- Admin/member moderation actions: accept / reject.
+- Store audit fields: submitted_at, submitted_by (if available), resolved_at, resolved_by, decision notes.
+- Accepted suggestions should generate traceable mutations, not silent edits.
+
+7) Full data integrity + modification history tracking for Cor Unum items
+Track Cor Unum entities inside Noctem’s broader tracking/version history model.
+
+Required coverage:
+- cu_events, cu_artists, cu_venues, key relationship changes (performers/source evidence), and moderation-driven edits.
+- Track create/update/delete-style operations as durable history entries.
+- Include actor attribution (created_by, modified_by, or equivalent event metadata).
+- Ensure item-level modification history is queryable for audit/review.
+- Do not claim success for risky mutations until post-write verification/readback.
+
+Implementation constraints
+- Keep queue/review-gated principles and auditability.
+- Preserve source-scoped dedupe behavior unless explicitly changed; don’t introduce risky auto-merge behavior.
+- Keep Cor Unum runs manually triggered via web UI (no scheduler requirement in this scope).
+- Prefer additive migrations with safe backfills.
+- Maintain compatibility with existing Cor Unum pages and API consumers where possible.
+
+Expected deliverables
+1. Code changes across schema, ingestion engine/scanners, services/APIs, UI templates, and tests.
+2. DB migration(s) + backfill logic for new fields/tables/history links.
+3. Updated test coverage (unit + integration-style where present).
+4. Short operator notes for:
+   - new scanners,
+   - run-history semantics,
+   - canadian filter/composition bar,
+   - member/public suggestion workflows,
+   - history tracking behavior.
+
+Validation checklist (must pass)
+- Full pipeline run shows all stages and per-scanner statuses in real time and completion/error updates.
+- SoundCloud appears and behaves as fingerprint scanner consistently.
+- New five web scanners ingest events and write provenance.
+- Canadian boolean populated by rules above; Canadian filter works with Vancouver filter preserved.
+- Event composition bar segments compute correctly (green/red/grey logic).
+- Member creation/linking workflow works from artist context and standalone creation.
+- Public suggestions can be submitted, reviewed with duplicates, and accepted/rejected with audit trail.
+- Cor Unum entities show attributable modification history.
+- Existing Cor Unum core tests remain green; new tests added for new behavior.
+
+If anything is ambiguous during implementation, propose a concrete default and proceed unless blocked.
