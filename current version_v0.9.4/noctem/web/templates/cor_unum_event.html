@@ -8,6 +8,12 @@
 .cu-ev-title { font-size: 1.5rem; font-weight: 600; margin: 0 0 0.3rem; }
 .cu-ev-meta { font-size: 0.85rem; color: #9aa0a6; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-bottom: 1rem; }
 .cu-ev-meta .venue { color: #8ab4f8; }
+.cu-composition { margin: 0.8rem 0 1rem; }
+.cu-composition-bar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; background: #3c3c3c; }
+.cu-composition-van { background: #2e7d32; }
+.cu-composition-can { background: #c62828; }
+.cu-composition-other { background: #616161; }
+.cu-composition-labels { margin-top: 0.35rem; display: flex; gap: 0.8rem; flex-wrap: wrap; font-size: 0.72rem; color: #9aa0a6; }
 
 .cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
 
@@ -30,13 +36,25 @@
 .cu-source-dot.admitone_vancouver { background: #4caf50; }
 .cu-source-label { color: #9aa0a6; font-size: 0.75rem; }
 .cu-source-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.cu-card { margin-top: 1rem; padding: 0.75rem; background: #262626; border: 1px solid #3c3c3c; border-radius: 6px; }
+.cu-input, .cu-textarea, .cu-select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 4px; padding: 0.35rem 0.55rem; font-size: 0.8rem; }
+.cu-textarea { min-height: 80px; resize: vertical; }
+.cu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+.cu-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+.cu-btn.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+.cu-history-list, .cu-suggestion-list { margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.cu-history-item, .cu-suggestion-item { padding: 0.45rem 0.55rem; border: 1px solid #3c3c3c; border-radius: 4px; background: #202124; margin-bottom: 0.45rem; font-size: 0.76rem; }
+.cu-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; margin-right: 0.4rem; }
+.cu-pill.pending { background: #4e342e; color: #ffccbc; }
+.cu-pill.accepted { background: #1b5e20; color: #a5d6a7; }
+.cu-pill.rejected { background: #b71c1c; color: #ef9a9a; }
 
 .cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
 {% endblock %}
 
 {% block cu_content %}
 <div class="cu-wrap">
-    <div id="eventDetail">
+    <div id="eventDetail"></div>
 </div>
 {% endblock %}
 
@@ -49,9 +67,81 @@ const SOURCE_NAMES = {
     'eventbrite_vancouver': 'Eventbrite',
     'admitone_vancouver': 'AdmitOne',
 };
+function statusPill(status) {
+    const safe = escapeHtml(String(status || 'pending'));
+    return `<span class="cu-pill ${safe}">${safe}</span>`;
+}
+
+function buildComposition(ev) {
+    const vancouver = Math.max(0, Math.min(100, Number(ev.vancouver_pct || 0)));
+    const canadian = Math.max(0, Math.min(100, Number(ev.canadian_non_vancouver_pct || 0)));
+    const other = Math.max(0, Math.min(100, Number(ev.unknown_or_non_canadian_pct || 0)));
+    return `<div class="cu-composition">
+        <div class="cu-section-label">Lineup Composition</div>
+        <div class="cu-composition-bar">
+            <span class="cu-composition-van" style="width:${vancouver}%"></span>
+            <span class="cu-composition-can" style="width:${canadian}%"></span>
+            <span class="cu-composition-other" style="width:${other}%"></span>
+        </div>
+        <div class="cu-composition-labels">
+            <span>Vancouver ${vancouver.toFixed(0)}%</span>
+            <span>Canadian ${canadian.toFixed(0)}%</span>
+            <span>Other/Unknown ${other.toFixed(0)}%</span>
+        </div>
+    </div>`;
+}
+
+function buildSuggestionForm(session) {
+    return `<div class="cu-card">
+        <div class="cu-section-label" style="margin-top:0">Suggest Event Correction</div>
+        <div class="cu-row">
+            <label>Title<input class="cu-input" id="suggestTitle" placeholder="Optional corrected title"></label>
+            <label>Date<input class="cu-input" id="suggestDate" placeholder="YYYY-MM-DD"></label>
+        </div>
+        <label>Description<textarea class="cu-textarea" id="suggestDescription" placeholder="Optional corrected description"></textarea></label>
+        <div style="margin-top:0.55rem;display:flex;gap:0.4rem;">
+            <button class="cu-btn primary" onclick="submitEventSuggestion()">Submit Suggestion</button>
+        </div>
+    </div>`;
+}
+
+function renderSuggestionPayload(payload) {
+    if (!payload || typeof payload !== 'object') return '—';
+    const parts = Object.entries(payload).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`);
+    return parts.length ? parts.join(' · ') : '—';
+}
+
+function buildSuggestionList(suggestions, session) {
+    if (!suggestions || !suggestions.length) {
+        return '<div class="cu-empty" style="padding:0.5rem 0">No suggestions yet.</div>';
+    }
+    const canModerate = !!(session && session.is_admin);
+    return `<ul class="cu-suggestion-list">${suggestions.map(s => `<li class="cu-suggestion-item">
+        <div>${statusPill(s.status)}<strong>${escapeHtml(s.submitted_by || 'unknown')}</strong> · ${escapeHtml(s.submitted_role || 'public')}</div>
+        <div style="margin-top:0.25rem">${renderSuggestionPayload(s.payload)}</div>
+        <div class="cu-muted" style="margin-top:0.25rem;color:#9aa0a6;">${escapeHtml(s.submitted_at || '')}${s.decision_notes ? ` · ${escapeHtml(s.decision_notes)}` : ''}</div>
+        ${canModerate && s.status === 'pending' ? `<div style="margin-top:0.35rem;display:flex;gap:0.35rem;">
+            <button class="cu-btn" onclick="resolveSuggestion(${s.id}, 'accept')">Accept</button>
+            <button class="cu-btn" onclick="resolveSuggestion(${s.id}, 'reject')">Reject</button>
+        </div>` : ''}
+    </li>`).join('')}</ul>`;
+}
+
+function buildHistoryList(history) {
+    if (!history || !history.length) return '<div class="cu-empty" style="padding:0.5rem 0">No history yet.</div>';
+    return `<ul class="cu-history-list">${history.map(h => `<li class="cu-history-item">
+        <div><strong>${escapeHtml(h.operation || 'event')}</strong> · ${escapeHtml(h.actor || 'system')}</div>
+        <div style="margin-top:0.2rem">${escapeHtml(h.summary || '')}</div>
+        <div style="margin-top:0.2rem;color:#9aa0a6;">${escapeHtml(h.created_at || '')}</div>
+    </li>`).join('')}</ul>`;
+}
 
 async function loadEvent() {
     try {
+        if (typeof window.refreshCorUnumSession === 'function') {
+            await window.refreshCorUnumSession();
+        }
+        const session = window.corUnumSession || null;
         const r = await fetch('/api/cor-unum/events/' + EVENT_ID);
         const d = await r.json();
         if (!d.success) {
@@ -70,6 +160,7 @@ async function loadEvent() {
                 ${ev.venue_address ? `<span>${escapeHtml(ev.venue_address)}</span>` : ''}
             </div>
         </div>`;
+        html += buildComposition(ev);
 
         // Artists
         const performers = ev.performers || [];
@@ -81,6 +172,12 @@ async function loadEvent() {
             }
             html += `</div>`;
         }
+
+        html += `<div class="cu-section-label">Suggestions</div>`;
+        html += buildSuggestionForm(session);
+        html += buildSuggestionList(d.suggestions || [], session);
+        html += `<div class="cu-section-label">History</div>`;
+        html += buildHistoryList(d.history || []);
 
         // Description
         if (ev.description && ev.description.trim()) {
@@ -109,6 +206,31 @@ async function loadEvent() {
 
         document.getElementById('eventDetail').innerHTML = html;
     } catch(e) { console.error('loadEvent', e); }
+}
+async function submitEventSuggestion() {
+    const payload = {};
+    const title = (document.getElementById('suggestTitle')?.value || '').trim();
+    const date = (document.getElementById('suggestDate')?.value || '').trim();
+    const description = (document.getElementById('suggestDescription')?.value || '').trim();
+    if (title) payload.title = title;
+    if (date) payload.date = date;
+    if (description) payload.description = description;
+    if (!Object.keys(payload).length) return;
+    await fetch('/api/cor-unum/suggestions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entity_type: 'event', entity_id: EVENT_ID, payload}),
+    });
+    await loadEvent();
+}
+
+async function resolveSuggestion(suggestionId, decision) {
+    await fetch('/api/cor-unum/suggestions/' + suggestionId + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({decision}),
+    });
+    await loadEvent();
 }
 
 loadEvent();

@@ -8,6 +8,11 @@
 .cu-nav a.active { background: #3c4043; color: #8ab4f8; }
 .cu-nav .cu-nav-brand { font-weight: 600; color: #e8eaed; margin-right: 0.5rem; }
 .cu-nav .cu-nav-spacer { flex: 1; }
+.cu-session { display: flex; align-items: center; gap: 0.35rem; margin-left: 0.5rem; }
+.cu-session-label { color: #9aa0a6; font-size: 0.74rem; }
+.cu-session-badge { background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 999px; padding: 0.15rem 0.55rem; color: #8ab4f8; font-size: 0.72rem; }
+.cu-session select, .cu-session button { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 4px; font-size: 0.72rem; padding: 0.2rem 0.45rem; }
+.cu-session button { cursor: pointer; }
 {% block cu_extra_style %}{% endblock %}
 {% endblock %}
 
@@ -19,7 +24,87 @@
     <a href="/cor-unum/db/artists" class="{% if request.path == '/cor-unum/db/artists' %}active{% endif %}">Artists</a>
     <a href="/cor-unum/db/venues" class="{% if request.path == '/cor-unum/db/venues' %}active{% endif %}">Venues</a>
     <span class="cu-nav-spacer"></span>
+    <div class="cu-session" id="cuSessionControls">
+        <span class="cu-session-label">Session</span>
+        <span class="cu-session-badge" id="cuSessionBadge">loading…</span>
+        <select id="cuRoleSelect" onchange="window.applyCorUnumSessionRole()">
+            <option value="public">Public</option>
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+        </select>
+        <select id="cuMemberSelect" style="display:none;"></select>
+        <button type="button" onclick="window.refreshCorUnumSession()">↻</button>
+    </div>
     <a href="/cor-unum/settings" class="{% if request.path == '/cor-unum/settings' %}active{% endif %}">Settings</a>
 </div>
 {% block cu_content %}{% endblock %}
+<script>
+window.corUnumSession = null;
+window.corUnumMembers = [];
+window.refreshCorUnumSession = async function refreshCorUnumSession() {
+    try {
+        const r = await fetch('/api/cor-unum/session');
+        const data = await r.json();
+        window.corUnumSession = data.session || null;
+    } catch (e) {
+        window.corUnumSession = null;
+    }
+    const badge = document.getElementById('cuSessionBadge');
+    const roleSelect = document.getElementById('cuRoleSelect');
+    const memberSelect = document.getElementById('cuMemberSelect');
+    if (!window.corUnumSession) {
+        badge.textContent = 'unavailable';
+        roleSelect.disabled = true;
+        memberSelect.style.display = 'none';
+        return;
+    }
+    const s = window.corUnumSession;
+    const label = s.role === 'member' ? `${s.role}:${s.username}` : s.role;
+    badge.textContent = label;
+    roleSelect.disabled = false;
+    roleSelect.value = s.role || 'public';
+    if (s.role === 'member' || roleSelect.value === 'member') {
+        memberSelect.style.display = '';
+    } else {
+        memberSelect.style.display = 'none';
+    }
+    if (s.is_admin) {
+        try {
+            const mr = await fetch('/api/cor-unum/members');
+            const md = await mr.json();
+            window.corUnumMembers = md.members || [];
+        } catch (e) {
+            window.corUnumMembers = [];
+        }
+        memberSelect.innerHTML = (window.corUnumMembers || []).map(m => `<option value="${m.id}">${escapeHtml(m.username)}</option>`).join('');
+        if (s.member_id) memberSelect.value = String(s.member_id);
+    } else {
+        memberSelect.innerHTML = '';
+    }
+};
+window.applyCorUnumSessionRole = async function applyCorUnumSessionRole() {
+    const roleSelect = document.getElementById('cuRoleSelect');
+    const memberSelect = document.getElementById('cuMemberSelect');
+    const role = roleSelect.value;
+    const body = { role };
+    if (role === 'member' && memberSelect.value) body.member_id = Number(memberSelect.value);
+    const r = await fetch('/api/cor-unum/session/assume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+        await window.refreshCorUnumSession();
+        return;
+    }
+    await window.refreshCorUnumSession();
+    if (typeof window.loadCandidates === 'function') window.loadCandidates();
+    if (typeof window.loadEvent === 'function') window.loadEvent();
+    if (typeof window.loadArtist === 'function') window.loadArtist();
+    if (typeof window.loadVenue === 'function') window.loadVenue();
+};
+document.addEventListener('DOMContentLoaded', () => {
+    window.refreshCorUnumSession();
+});
+</script>
 {% endblock %}

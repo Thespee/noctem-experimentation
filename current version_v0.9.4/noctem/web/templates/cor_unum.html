@@ -16,6 +16,7 @@
 .cu-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 500; }
 .cu-badge.ok { background: #1b5e20; color: #a5d6a7; }
 .cu-badge.err { background: #b71c1c; color: #ef9a9a; }
+.cu-badge.run { background: #0d47a1; color: #90caf9; }
 .cu-badge.off { background: #3c3c3c; color: #9aa0a6; }
 .cu-badge.fix { background: #e65100; color: #ffcc80; }
 .cu-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
@@ -71,8 +72,8 @@
     <!-- Run History -->
     <div id="tab-runs" class="cu-section">
         <table class="cu-table">
-            <thead><tr><th>Source</th><th>Status</th><th>Report</th><th>Started</th></tr></thead>
-            <tbody id="runs-body"><tr><td colspan="4" class="cu-empty">Loading...</td></tr></tbody>
+            <thead><tr><th>Source</th><th>Stage</th><th>Status</th><th>Report</th><th>Started</th><th>Finished</th></tr></thead>
+            <tbody id="runs-body"><tr><td colspan="6" class="cu-empty">Loading...</td></tr></tbody>
         </table>
     </div>
 
@@ -96,7 +97,8 @@
 function switchTab(name) {
     document.querySelectorAll('.cu-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.cu-section').forEach(s => s.classList.remove('active'));
-    event.target.classList.add('active');
+    const tabEl = document.querySelector(`.cu-tab[onclick="switchTab('${name}')"]`);
+    if (tabEl) tabEl.classList.add('active');
     document.getElementById('tab-' + name).classList.add('active');
 }
 
@@ -156,7 +158,7 @@ async function loadSources() {
 function formatReport(run) {
     let summary = {};
     try { summary = typeof run.raw_summary_json === 'string' ? JSON.parse(run.raw_summary_json) : (run.raw_summary_json || {}); } catch(e) { summary = {}; }
-    const type = summary.report_type || 'events';
+    const stage = summary.report_type || run.scanner_class || run.source_kind || 'events';
     // Keys to skip in the report display
     const skip = new Set(['source_key','started_at','status','report_type','error_message']);
     const labels = {
@@ -173,7 +175,7 @@ function formatReport(run) {
         }
     }
     if (run.error_message) parts.push(`<span style="color:#ef9a9a">${escapeHtml(run.error_message.substring(0,80))}</span>`);
-    return parts.join(' &middot; ') || '—';
+    return { stage: String(stage), text: parts.join(' &middot; ') || '—' };
 }
 
 async function loadRuns() {
@@ -181,13 +183,24 @@ async function loadRuns() {
         const r = await fetch('/api/cor-unum/runs?limit=30');
         const d = await r.json();
         const body = document.getElementById('runs-body');
-        if (!d.runs || !d.runs.length) { body.innerHTML = '<tr><td colspan="4" class="cu-empty">No runs yet.</td></tr>'; return; }
-        body.innerHTML = d.runs.map(r => `<tr>
+        if (!d.runs || !d.runs.length) { body.innerHTML = '<tr><td colspan="6" class="cu-empty">No runs yet.</td></tr>'; return; }
+        body.innerHTML = d.runs.map(r => {
+            const status = String(r.status || '').toLowerCase();
+            const statusBadge = status === 'running'
+                ? '<span class="cu-badge run">Running</span>'
+                : (status === 'success'
+                    ? '<span class="cu-badge ok">OK</span>'
+                    : '<span class="cu-badge err">Error</span>');
+            const report = formatReport(r);
+            return `<tr>
             <td>${escapeHtml(r.source_key)}</td>
-            <td>${r.status === 'success' ? '<span class="cu-badge ok">OK</span>' : '<span class="cu-badge err">Error</span>'}</td>
-            <td style="font-size:0.75rem">${formatReport(r)}</td>
+            <td style="font-size:0.72rem;color:#9aa0a6">${escapeHtml(report.stage)}</td>
+            <td>${statusBadge}</td>
+            <td style="font-size:0.75rem">${report.text}</td>
             <td style="font-size:0.75rem">${new Date(r.started_at).toLocaleString()}</td>
-        </tr>`).join('');
+            <td style="font-size:0.75rem">${r.finished_at ? new Date(r.finished_at).toLocaleString() : '—'}</td>
+        </tr>`;
+        }).join('');
     } catch(e) { console.error('loadRuns', e); }
 }
 
@@ -248,4 +261,8 @@ async function clearError(key) {
 
 loadSources();
 loadRuns();
+setInterval(() => {
+    loadSources();
+    loadRuns();
+}, 5000);
 {% endblock %}

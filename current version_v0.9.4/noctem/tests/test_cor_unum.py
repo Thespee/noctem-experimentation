@@ -9,8 +9,9 @@ import pytest
 
 from .. import db
 from ..ingestion.dedup import compute_fingerprint, fuzzy_match_title, is_fuzzy_duplicate
-from ..ingestion.models import FALLBACK_VENUE_NAME, RawEvent
+from ..ingestion.models import FALLBACK_VENUE_NAME, RawEvent, SOURCE_REGISTRY_SEEDS
 from ..ingestion.engine import _process_one_event, _get_or_create_venue, _get_or_create_artist
+EXPECTED_SOURCE_COUNT = len(SOURCE_REGISTRY_SEEDS)
 
 
 # =========================================================================
@@ -44,10 +45,10 @@ class TestSchema:
         assert len(indexes) >= 5
 
     def test_seed_sources(self):
-        """Cor Unum V2 seeds 9 sources across event/fingerprint/internal classes."""
+        """Cor Unum seeds all configured sources across event/fingerprint/internal classes."""
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 9
+        assert count == EXPECTED_SOURCE_COUNT
 
     def test_seed_fallback_venue(self):
         """'Out in the Wild' venue exists."""
@@ -63,7 +64,7 @@ class TestSchema:
         db.init_db()
         with db.get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM cu_source_registry").fetchone()[0]
-        assert count == 9  # no duplicates
+        assert count == EXPECTED_SOURCE_COUNT  # no duplicates
 
 
 # =========================================================================
@@ -201,7 +202,7 @@ class TestService:
     def test_get_source_registry(self):
         from ..ingestion.service import get_source_registry
         sources = get_source_registry()
-        assert len(sources) == 9
+        assert len(sources) == EXPECTED_SOURCE_COUNT
         keys = {s["source_key"] for s in sources}
         assert "ticketmaster_vancouver" in keys
         assert "soundcloud" in keys
@@ -278,9 +279,20 @@ class TestAPI:
         assert r.status_code == 200
         data = r.get_json()
         assert data["success"]
-        assert len(data["sources"]) == 9
+        assert len(data["sources"]) == EXPECTED_SOURCE_COUNT
 
-    def test_api_run_all_by_class(self, client):
+    def test_api_run_all_by_class(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "noctem.ingestion.service.refresh_sources_by_class",
+            lambda scanner_class: {
+                "scanner_class": scanner_class,
+                "sources_run": 2,
+                "results": [],
+                "total_events_ingested": 0,
+                "total_duplicates_skipped": 0,
+                "errors": [],
+            },
+        )
         r = client.post("/api/cor-unum/sources/run-all/event")
         assert r.status_code == 200
         data = r.get_json()
@@ -344,6 +356,152 @@ class TestAPI:
         ]:
             r = client.get(path)
             assert r.status_code == 200, f"{path} returned {r.status_code}"
+
+    def test_session_assume_public_and_member(self, client):
+        create_member = client.post(
+            "/api/cor-unum/members",
+            json={"username": "member_one", "display_name": "Member One"},
+        )
+        assert create_member.status_code == 200
+        member = create_member.get_json()["member"]
+
+        public_resp = client.post("/api/cor-unum/session/assume", json={"role": "public"})
+        assert public_resp.status_code == 200
+        public_session = public_resp.get_json()["session"]
+        assert public_session["role"] == "public"
+        assert public_session["is_member"] is False
+
+        member_resp = client.post(
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "member_id": member["id"]},
+        )
+        assert member_resp.status_code == 200
+        member_session = member_resp.get_json()["session"]
+        assert member_session["role"] == "member"
+        assert member_session["member_id"] == member["id"]
+        assert member_session["is_member"] is True
+
+    def test_public_suggestion_accept_updates_event_and_history(self, client):
+        with db.get_db() as conn:
+            venue_id = conn.execute(
+                "INSERT INTO cu_venues (name, is_verified) VALUES ('Test Venue', 1)"
+            ).lastrowid
+            event_id = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id, description) VALUES (?, ?, ?, ?)",
+                ("Original Title", date.today().isoformat(), venue_id, "Original"),
+            ).lastrowid
+
+        client.post("/api/cor-unum/session/assume", json={"role": "public"})
+        submit = client.post(
+            "/api/cor-unum/suggestions",
+            json={
+                "entity_type": "event",
+                "entity_id": event_id,
+                "payload": {"title": "Updated From Suggestion"},
+            },
+        )
+        assert submit.status_code == 200
+        suggestion = submit.get_json()["suggestion"]
+        assert suggestion["status"] == "pending"
+        assert suggestion["submitted_role"] == "public"
+
+        client.post("/api/cor-unum/session/assume", json={"role": "admin"})
+        resolve = client.post(
+            f"/api/cor-unum/suggestions/{suggestion['id']}/resolve",
+            json={"decision": "accept", "notes": "looks good"},
+        )
+        assert resolve.status_code == 200
+        resolved = resolve.get_json()["suggestion"]
+        assert resolved["status"] == "accepted"
+
+        with db.get_db() as conn:
+            title = conn.execute(
+                "SELECT title FROM cu_events WHERE id = ?",
+                (event_id,),
+            ).fetchone()["title"]
+        assert title == "Updated From Suggestion"
+
+        detail = client.get(f"/api/cor-unum/events/{event_id}")
+        assert detail.status_code == 200
+        detail_payload = detail.get_json()
+        assert detail_payload["success"] is True
+        assert any(h["operation"] == "cor_unum.suggestion.accepted" for h in detail_payload["history"])
+        assert any(s["id"] == suggestion["id"] for s in detail_payload["suggestions"])
+
+        history = client.get(f"/api/cor-unum/history/event/{event_id}")
+        assert history.status_code == 200
+        history_items = history.get_json()["history"]
+        assert any(item["operation"] == "cor_unum.suggestion.accepted" for item in history_items)
+
+    def test_upcoming_locality_filters(self, client):
+        today = date.today()
+        with db.get_db() as conn:
+            venue_id = conn.execute(
+                "INSERT INTO cu_venues (name, is_verified) VALUES ('Filter Venue', 1)"
+            ).lastrowid
+            yvr_artist_id = conn.execute(
+                "INSERT INTO cu_artists (name, is_canadian, canadian) VALUES ('YVR Artist', 0, 0)"
+            ).lastrowid
+            canadian_artist_id = conn.execute(
+                "INSERT INTO cu_artists (name, is_canadian, canadian) VALUES ('Canadian Artist', 1, 1)"
+            ).lastrowid
+            foreign_artist_id = conn.execute(
+                "INSERT INTO cu_artists (name, is_canadian, canadian) VALUES ('Foreign Artist', 0, 0)"
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO cu_artist_tags (artist_id, tag) VALUES (?, 'YVR')",
+                (yvr_artist_id,),
+            )
+
+            event_yvr = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id) VALUES (?, ?, ?)",
+                ("YVR Event", today.isoformat(), venue_id),
+            ).lastrowid
+            event_canadian = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id) VALUES (?, ?, ?)",
+                ("Canadian Event", today.isoformat(), venue_id),
+            ).lastrowid
+            event_foreign = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id) VALUES (?, ?, ?)",
+                ("Foreign Event", today.isoformat(), venue_id),
+            ).lastrowid
+
+            conn.execute(
+                "INSERT INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                (event_yvr, yvr_artist_id),
+            )
+            conn.execute(
+                "INSERT INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                (event_canadian, canadian_artist_id),
+            )
+            conn.execute(
+                "INSERT INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                (event_foreign, foreign_artist_id),
+            )
+
+        all_events = client.get("/api/cor-unum/upcoming?locality=all").get_json()["events"]
+        yvr_events = client.get("/api/cor-unum/upcoming?locality=vancouver").get_json()["events"]
+        ca_events = client.get("/api/cor-unum/upcoming?locality=canadian").get_json()["events"]
+
+        assert {e["title"] for e in all_events} == {"YVR Event", "Canadian Event", "Foreign Event"}
+        assert {e["title"] for e in yvr_events} == {"YVR Event"}
+        assert {e["title"] for e in ca_events} == {"YVR Event", "Canadian Event"}
+
+    def test_expand_member_from_artist(self, client):
+        with db.get_db() as conn:
+            artist_id = conn.execute(
+                "INSERT INTO cu_artists (name) VALUES ('Artist For Member')"
+            ).lastrowid
+
+        resp = client.post(
+            f"/api/cor-unum/artists/{artist_id}/expand-member",
+            json={"username": "artist_member", "display_name": "Artist Member"},
+        )
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["success"] is True
+        assert payload["member"]["artist_id"] == artist_id
+        assert payload["member"]["username"] == "artist_member"
 
 
 # =========================================================================

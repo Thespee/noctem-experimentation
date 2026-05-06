@@ -9,6 +9,7 @@ import requests
 from ..db import get_db
 from .city_tags import is_local_yvr, set_local_yvr
 from .link_discovery import DiscoveryProviderUnavailable, discover_best_profile_url
+from .locality import derive_locality_flags
 
 logger = logging.getLogger(__name__)
 DISCOVERY_RETRY_BACKOFF_HOURS = 24
@@ -48,9 +49,7 @@ def _profile_signals(url: str) -> tuple[bool, bool]:
         text = resp.text.lower()
     except Exception:
         return False, False
-    is_local = "vancouver" in text or "yvr" in text
-    is_canadian = is_local or "canada" in text or "bc" in text
-    return is_local, is_canadian
+    return derive_locality_flags(text, url)
 
 
 def check_artist_instagram_fingerprint(artist_id: int, force: bool = False) -> dict:
@@ -59,7 +58,7 @@ def check_artist_instagram_fingerprint(artist_id: int, force: bool = False) -> d
         _ensure_discovery_columns(conn)
         has_discovery_cols = _has_discovery_columns(conn)
         row = conn.execute(
-            """SELECT id, name, alias_of, instagram_url, is_canadian, instagram_checked_at
+            """SELECT id, name, alias_of, instagram_url, is_canadian, canadian, instagram_checked_at
                FROM cu_artists WHERE id = ?""",
             (artist_id,),
         ).fetchone()
@@ -112,7 +111,7 @@ def check_artist_instagram_fingerprint(artist_id: int, force: bool = False) -> d
                 "artist_id": artist_id,
                 "artist_name": row["name"],
                 "is_local": cached_local,
-                "is_canadian": row["is_canadian"],
+                "is_canadian": row["canadian"] if row["canadian"] is not None else row["is_canadian"],
                 "checked_at": checked_at,
                 "instagram_url": instagram_url,
                 "skipped": True,
@@ -127,17 +126,17 @@ def check_artist_instagram_fingerprint(artist_id: int, force: bool = False) -> d
         if has_discovery_cols:
             conn.execute(
                 """UPDATE cu_artists
-                   SET is_canadian = ?,
+                       SET is_canadian = ?, canadian = ?,
                        instagram_checked_at = ?,
                        instagram_last_discovery_attempt_at = ?,
                        instagram_discovery_error = NULL
                    WHERE id = ?""",
-                (1 if is_canadian else 0, datetime.utcnow().isoformat(), attempt_at, artist_id),
+                (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), attempt_at, artist_id),
             )
         else:
             conn.execute(
-                "UPDATE cu_artists SET is_canadian = ?, instagram_checked_at = ? WHERE id = ?",
-                (1 if is_canadian else 0, datetime.utcnow().isoformat(), artist_id),
+                "UPDATE cu_artists SET is_canadian = ?, canadian = ?, instagram_checked_at = ? WHERE id = ?",
+                (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), artist_id),
             )
     return {
         "artist_id": artist_id,
@@ -240,16 +239,16 @@ def check_instagram_fingerprints(limit: int = 150, recheck_all: bool = False) ->
             if has_discovery_cols:
                 conn.execute(
                     """UPDATE cu_artists
-                       SET is_canadian = ?,
+                       SET is_canadian = ?, canadian = ?,
                            instagram_checked_at = ?,
                            instagram_discovery_error = NULL
                        WHERE id = ?""",
-                    (1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
+                    (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
                 )
             else:
                 conn.execute(
-                    "UPDATE cu_artists SET is_canadian = ?, instagram_checked_at = ? WHERE id = ?",
-                    (1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
+                    "UPDATE cu_artists SET is_canadian = ?, canadian = ?, instagram_checked_at = ? WHERE id = ?",
+                    (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
                 )
             if is_local:
                 result["local"] += 1

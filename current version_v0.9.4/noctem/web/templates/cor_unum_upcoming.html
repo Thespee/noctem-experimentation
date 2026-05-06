@@ -7,6 +7,7 @@
 .cu-top h1 { font-size: 1.4rem; margin: 0; flex: 1; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
 .cu-search { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.45rem 0.8rem; border-radius: 6px; font-size: 0.85rem; width: 200px; }
+.cu-filter { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.45rem 0.75rem; border-radius: 6px; font-size: 0.82rem; }
 
 /* Date group header */
 .cu-date-group { margin-bottom: 0.25rem; }
@@ -17,8 +18,11 @@
 .cu-event { display: flex; gap: 0.9rem; padding: 0.75rem 0; border-bottom: 1px solid #2d2d2d; transition: background 0.12s; cursor: pointer; text-decoration: none; color: inherit; }
 .cu-event:hover { background: #262626; }
 .cu-event-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.cu-density-strip { height: 4px; border-radius: 4px; margin-top: 0.35rem; background: #3c3c3c; }
-.cu-density-label { font-size: 0.7rem; color: #9aa0a6; margin-top: 0.2rem; }
+.cu-density-strip { height: 6px; border-radius: 4px; margin-top: 0.35rem; background: #3c3c3c; overflow: hidden; display: flex; }
+.cu-density-van { background: #2e7d32; }
+.cu-density-can { background: #c62828; }
+.cu-density-other { background: #616161; }
+.cu-density-label { font-size: 0.7rem; color: #9aa0a6; margin-top: 0.2rem; display: flex; gap: 0.65rem; flex-wrap: wrap; }
 .cu-event-date { flex-shrink: 0; width: 48px; text-align: center; padding-top: 0.1rem; }
 .cu-event-day { font-size: 1.3rem; font-weight: 600; color: #e8eaed; line-height: 1.1; }
 .cu-event-dow { font-size: 0.68rem; color: #9aa0a6; text-transform: uppercase; }
@@ -41,6 +45,11 @@
 <div class="cu-wrap">
     <div class="cu-top">
         <h1>Upcoming Events</h1>
+        <select id="localityFilter" class="cu-filter" onchange="loadUpcoming()">
+            <option value="all">All Events</option>
+            <option value="vancouver">Vancouver Acts</option>
+            <option value="canadian">Canadian Acts</option>
+        </select>
         <input class="cu-search" id="searchInput" placeholder="Filter events..." oninput="filterEvents()">
     </div>
     <div class="cu-count" id="eventCount"></div>
@@ -50,6 +59,7 @@
 
 {% block extra_script %}
 let allEvents = [];
+let activeLocality = 'all';
 
 function sourceColor(type) {
     if (!type) return '';
@@ -83,7 +93,8 @@ function renderEvents(events) {
         countEl.textContent = '';
         return;
     }
-    countEl.textContent = events.length + ' upcoming events';
+    const localityLabel = activeLocality === 'vancouver' ? ' · Vancouver only' : (activeLocality === 'canadian' ? ' · Canadian only' : '');
+    countEl.textContent = events.length + ' upcoming events' + localityLabel;
 
     // Group by date
     const groups = {};
@@ -104,8 +115,9 @@ function renderEvents(events) {
             const sources = (ev.sources || []).map(s =>
                 `<span class="cu-source-dot ${sourceColor(s.source_type)}" title="${escapeHtml(s.source_type || '')}"></span>`
             ).join('');
-            const density = Math.max(0, Math.min(100, Number(ev.local_density_pct || 0)));
-            const hue = Math.round((density / 100) * 120);
+            const vancouverPct = Math.max(0, Math.min(100, Number(ev.vancouver_pct || 0)));
+            const canadianNonVancouverPct = Math.max(0, Math.min(100, Number(ev.canadian_non_vancouver_pct || 0)));
+            const otherPct = Math.max(0, Math.min(100, Number(ev.unknown_or_non_canadian_pct || 0)));
             html += `<a href="/cor-unum/event/${ev.id}" class="cu-event">
                 <div class="cu-event-date">
                     <div class="cu-event-day">${fd2.day}</div>
@@ -117,8 +129,16 @@ function renderEvents(events) {
                         <div class="cu-event-venue">${escapeHtml(ev.venue_name || 'TBA')}</div>
                         ${artists ? `<div class="cu-event-artists">${artists}</div>` : ''}
                     </div>
-                    <div class="cu-density-strip" style="background:hsl(${hue}, 75%, 45%);"></div>
-                    <div class="cu-density-label">Local Density: ${density.toFixed(0)}%</div>
+                    <div class="cu-density-strip">
+                        <span class="cu-density-van" style="width:${vancouverPct}%"></span>
+                        <span class="cu-density-can" style="width:${canadianNonVancouverPct}%"></span>
+                        <span class="cu-density-other" style="width:${otherPct}%"></span>
+                    </div>
+                    <div class="cu-density-label">
+                        <span>Vancouver: ${vancouverPct.toFixed(0)}%</span>
+                        <span>Canadian: ${canadianNonVancouverPct.toFixed(0)}%</span>
+                        <span>Other/Unknown: ${otherPct.toFixed(0)}%</span>
+                    </div>
                 </div>
                 <div class="cu-event-sources">${sources}</div>
             </a>`;
@@ -141,7 +161,8 @@ function filterEvents() {
 
 async function loadUpcoming() {
     try {
-        const r = await fetch('/api/cor-unum/upcoming?limit=300');
+        activeLocality = (document.getElementById('localityFilter').value || 'all').trim();
+        const r = await fetch('/api/cor-unum/upcoming?limit=300&locality=' + encodeURIComponent(activeLocality));
         const d = await r.json();
         allEvents = d.events || [];
         renderEvents(allEvents);

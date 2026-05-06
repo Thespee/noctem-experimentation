@@ -2,67 +2,122 @@
 {% block title %}Cor Unum — Artist{% endblock %}
 
 {% block cu_extra_style %}
-.cu-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem; }
-.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-wrap { max-width: 860px; margin: 0 auto; padding: 1.5rem; }
 .cu-art-header { margin: 1.2rem 0 0.3rem; }
 .cu-art-name { font-size: 1.5rem; font-weight: 600; margin: 0; }
-.cu-art-meta { font-size: 0.82rem; color: #9aa0a6; margin-bottom: 1rem; }
-.cu-art-meta a { color: #8ab4f8; text-decoration: none; }
+.cu-art-meta { font-size: 0.82rem; color: #9aa0a6; margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.45rem 0.7rem; }
+.cu-art-meta a { text-decoration: none; }
 .cu-art-meta a:hover { text-decoration: underline; }
-
-.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
-
-/* Event list on artist page */
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.4rem 0 0.45rem; }
 .cu-art-event { display: flex; gap: 0.9rem; padding: 0.6rem 0; border-bottom: 1px solid #2d2d2d; text-decoration: none; color: inherit; transition: background 0.12s; }
 .cu-art-event:hover { background: #262626; }
-.cu-art-ev-date { flex-shrink: 0; width: 90px; font-size: 0.82rem; color: #9aa0a6; }
+.cu-art-ev-date { flex-shrink: 0; width: 92px; font-size: 0.82rem; color: #9aa0a6; }
 .cu-art-ev-title { flex: 1; font-size: 0.9rem; color: #e8eaed; }
 .cu-art-ev-venue { font-size: 0.78rem; color: #8ab4f8; flex-shrink: 0; }
-
-.cu-empty { color: #9aa0a6; font-style: italic; padding: 2rem 0; text-align: center; }
-.cu-aliases { font-size: 0.78rem; color: #9aa0a6; margin-bottom: 0.5rem; }
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 1rem 0; text-align: center; }
+.cu-aliases { font-size: 0.78rem; color: #9aa0a6; margin-bottom: 0.45rem; }
 .cu-aliases span { background: #2d2d2d; padding: 0.15rem 0.5rem; border-radius: 4px; margin-right: 0.3rem; }
-.cu-merge-bar { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; padding: 0.6rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; font-size: 0.82rem; }
-.cu-merge-bar input { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
-.cu-merge-bar button { background: #b71c1c; border: none; color: #fff; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
-.cu-merge-results { list-style: none; padding: 0; margin: 0.3rem 0 0; font-size: 0.82rem; }
-.cu-merge-results li { padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 4px; }
-.cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
 .cu-local-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 500; margin-left: 0.5rem; vertical-align: middle; }
 .cu-local-badge.yes { background: #1b5e20; color: #a5d6a7; }
 .cu-local-badge.no { background: #3c3c3c; color: #9aa0a6; }
 .cu-local-badge.unknown { background: #2d2d2d; color: #5f6368; border: 1px solid #3c3c3c; }
-.cu-check-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; margin-left: 0.5rem; }
-.cu-check-btn:hover { background: #5f6368; }
-.cu-sc-link { font-size: 0.78rem; color: #f50; text-decoration: none; margin-left: 0.5rem; }
-.cu-sc-link:hover { text-decoration: underline; }
-.cu-ig-link { font-size: 0.78rem; color: #e1306c; text-decoration: none; margin-left: 0.5rem; }
-.cu-ig-link:hover { text-decoration: underline; }
-.cu-sp-link { font-size: 0.78rem; color: #1db954; text-decoration: none; margin-left: 0.5rem; }
-.cu-sp-link:hover { text-decoration: underline; }
-.cu-edit-section { margin-top: 1.5rem; padding: 0.75rem; background: #262626; border-radius: 6px; border: 1px solid #3c3c3c; }
-.cu-edit-section .cu-section-label { margin-top: 0; }
-.cu-edit-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-size: 0.82rem; }
-.cu-edit-row label { color: #9aa0a6; min-width: 110px; flex-shrink: 0; }
-.cu-edit-row input[type="text"] { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
-.cu-edit-row input[type="checkbox"] { accent-color: #1b5e20; width: 16px; height: 16px; }
-.cu-save-btn { background: #1a73e8; border: none; color: #fff; padding: 0.35rem 0.9rem; border-radius: 4px; cursor: pointer; font-size: 0.82rem; margin-top: 0.25rem; }
-.cu-save-btn:hover { background: #1565c0; }
+.cu-link.sc { color: #f50; }
+.cu-link.ig { color: #e1306c; }
+.cu-link.sp { color: #1db954; }
+.cu-card { margin-top: 0.8rem; padding: 0.75rem; background: #262626; border: 1px solid #3c3c3c; border-radius: 6px; }
+.cu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+.cu-row.single { grid-template-columns: 1fr; }
+.cu-input, .cu-select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 4px; padding: 0.35rem 0.55rem; font-size: 0.8rem; }
+.cu-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+.cu-btn.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+.cu-btn.warn { background: #b71c1c; border-color: #b71c1c; color: #fff; }
+.cu-merge-results { list-style: none; padding: 0; margin: 0.3rem 0 0; font-size: 0.82rem; max-height: 180px; overflow-y: auto; }
+.cu-merge-results li { padding: 0.28rem 0.45rem; cursor: pointer; border-radius: 4px; }
+.cu-merge-results li:hover { background: #3c4043; color: #8ab4f8; }
+.cu-history-list, .cu-suggestion-list { margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.cu-history-item, .cu-suggestion-item { padding: 0.45rem 0.55rem; border: 1px solid #3c3c3c; border-radius: 4px; background: #202124; margin-bottom: 0.45rem; font-size: 0.76rem; }
+.cu-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; margin-right: 0.4rem; }
+.cu-pill.pending { background: #4e342e; color: #ffccbc; }
+.cu-pill.accepted { background: #1b5e20; color: #a5d6a7; }
+.cu-pill.rejected { background: #b71c1c; color: #ef9a9a; }
 {% endblock %}
 
 {% block cu_content %}
 <div class="cu-wrap">
-    <div id="artistDetail">
+    <div id="artistDetail"><div class="cu-empty">Loading…</div></div>
 </div>
 {% endblock %}
 
 {% block extra_script %}
 const ARTIST_ID = {{ artist_id }};
-
 let mergeTimer = null;
+
+function statusPill(status) {
+    const safe = escapeHtml(String(status || 'pending'));
+    return `<span class="cu-pill ${safe}">${safe}</span>`;
+}
+
+function renderSuggestionPayload(payload) {
+    if (!payload || typeof payload !== 'object') return '—';
+    const parts = Object.entries(payload).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`);
+    return parts.length ? parts.join(' · ') : '—';
+}
+
+function buildSuggestionForm() {
+    return `<div class="cu-card">
+        <div class="cu-section-label" style="margin-top:0;">Suggest Artist Correction</div>
+        <div class="cu-row">
+            <label>Name<input id="suggestName" class="cu-input" placeholder="Optional corrected artist name"></label>
+            <label>Canadian
+                <select id="suggestCanadian" class="cu-select">
+                    <option value="">No change</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                </select>
+            </label>
+        </div>
+        <div class="cu-row">
+            <label>SoundCloud URL<input id="suggestSoundcloud" class="cu-input" placeholder="https://soundcloud.com/..."></label>
+            <label>Instagram URL<input id="suggestInstagram" class="cu-input" placeholder="https://instagram.com/..."></label>
+        </div>
+        <div class="cu-row single">
+            <label>Spotify URL<input id="suggestSpotify" class="cu-input" placeholder="https://open.spotify.com/..."></label>
+        </div>
+        <div style="margin-top:0.55rem;"><button class="cu-btn primary" onclick="submitArtistSuggestion()">Submit Suggestion</button></div>
+    </div>`;
+}
+
+function buildSuggestionList(suggestions, session) {
+    if (!suggestions || !suggestions.length) {
+        return '<div class="cu-empty" style="padding:0.5rem 0;">No suggestions yet.</div>';
+    }
+    const canModerate = !!(session && session.is_admin);
+    return `<ul class="cu-suggestion-list">${suggestions.map(s => `<li class="cu-suggestion-item">
+        <div>${statusPill(s.status)}<strong>${escapeHtml(s.submitted_by || 'unknown')}</strong> · ${escapeHtml(s.submitted_role || 'public')}</div>
+        <div style="margin-top:0.25rem;">${renderSuggestionPayload(s.payload)}</div>
+        <div style="margin-top:0.25rem;color:#9aa0a6;">${escapeHtml(s.submitted_at || '')}${s.decision_notes ? ` · ${escapeHtml(s.decision_notes)}` : ''}</div>
+        ${canModerate && s.status === 'pending' ? `<div style="margin-top:0.35rem;display:flex;gap:0.35rem;">
+            <button class="cu-btn" onclick="resolveSuggestion(${s.id}, 'accept')">Accept</button>
+            <button class="cu-btn warn" onclick="resolveSuggestion(${s.id}, 'reject')">Reject</button>
+        </div>` : ''}
+    </li>`).join('')}</ul>`;
+}
+
+function buildHistoryList(history) {
+    if (!history || !history.length) return '<div class="cu-empty" style="padding:0.5rem 0;">No history yet.</div>';
+    return `<ul class="cu-history-list">${history.map(h => `<li class="cu-history-item">
+        <div><strong>${escapeHtml(h.operation || 'event')}</strong> · ${escapeHtml(h.actor || 'system')}</div>
+        <div style="margin-top:0.2rem;">${escapeHtml(h.summary || '')}</div>
+        <div style="margin-top:0.2rem;color:#9aa0a6;">${escapeHtml(h.created_at || '')}</div>
+    </li>`).join('')}</ul>`;
+}
 
 async function loadArtist() {
     try {
+        if (typeof window.refreshCorUnumSession === 'function') {
+            await window.refreshCorUnumSession();
+        }
+        const session = window.corUnumSession || null;
         const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID);
         const d = await r.json();
         if (!d.success) {
@@ -70,24 +125,20 @@ async function loadArtist() {
             return;
         }
         const a = d.artist;
-        // Redirect if alias
         if (a.redirect_to) {
             window.location.href = '/cor-unum/artist/' + a.redirect_to;
             return;
         }
         const isYvrLocal = !!a.is_yvr_local || a.is_local === 1;
-        // Locality badge
         let localBadge = '';
         if (isYvrLocal) localBadge = '<span class="cu-local-badge yes">YVR Local</span>';
         else if (a.is_local === 0) localBadge = '<span class="cu-local-badge no">Not Vancouver</span>';
-        else localBadge = '<span class="cu-local-badge unknown">Unchecked</span><button class="cu-check-btn" onclick="checkLocality()">Check via SoundCloud</button>';
-
-        let scLink = a.soundcloud_url ? `<a href="${a.soundcloud_url}" target="_blank" rel="noopener" class="cu-sc-link">SoundCloud ↗</a>` : '';
-        let igLink = a.instagram_url ? `<a href="${a.instagram_url}" target="_blank" rel="noopener" class="cu-ig-link">Instagram ↗</a>` : '';
-        let spLink = a.spotify_url ? `<a href="${a.spotify_url}" target="_blank" rel="noopener" class="cu-sp-link">Spotify ↗</a>` : '';
+        else localBadge = '<span class="cu-local-badge unknown">Unchecked</span>';
+        const scLink = a.soundcloud_url ? `<a href="${a.soundcloud_url}" target="_blank" rel="noopener" class="cu-link sc">SoundCloud ↗</a>` : '';
+        const igLink = a.instagram_url ? `<a href="${a.instagram_url}" target="_blank" rel="noopener" class="cu-link ig">Instagram ↗</a>` : '';
+        const spLink = a.spotify_url ? `<a href="${a.spotify_url}" target="_blank" rel="noopener" class="cu-link sp">Spotify ↗</a>` : '';
         const canadianBadge = a.is_canadian ? '<span class="cu-local-badge yes">Canadian</span>' : '';
         const cityTags = (a.city_tags || []).join(', ');
-
         let html = `<div class="cu-art-header">
             <h1 class="cu-art-name">${escapeHtml(a.name)}${localBadge}</h1>
             <div class="cu-art-meta">
@@ -97,13 +148,10 @@ async function loadArtist() {
                 ${a.last_seen ? `<span>Last seen: ${new Date(a.last_seen).toLocaleDateString()}</span>` : ''}
             </div>
         </div>`;
-
-        // Aliases
         const aliases = a.aliases || [];
         if (aliases.length) {
             html += `<div class="cu-aliases">Also known as: ${aliases.map(al => `<span>${escapeHtml(al.name)}</span>`).join('')}</div>`;
         }
-
         const events = a.events || [];
         html += `<div class="cu-section-label">Events (${events.length})</div>`;
         if (events.length) {
@@ -119,65 +167,113 @@ async function loadArtist() {
         } else {
             html += `<div class="cu-empty">No events found for this artist.</div>`;
         }
-
-        // Merge bar
-        html += `<div class="cu-merge-bar">
-            <span style="color:#9aa0a6;white-space:nowrap">Merge into:</span>
-            <input id="mergeSearch" placeholder="Search artist..." oninput="searchMerge()">
-            <ul class="cu-merge-results" id="mergeResults"></ul>
-        </div>`;
-
-        // Edit section
-        html += `<div class="cu-edit-section">
-            <div class="cu-section-label">Edit Artist</div>
-            <div class="cu-edit-row">
-                <label>Vancouver Artist</label>
-                <input type="checkbox" id="editLocal" ${isYvrLocal ? 'checked' : ''}>
-            </div>
-            <div class="cu-edit-row">
-                <label>SoundCloud URL</label>
-                <input type="text" id="editSoundcloud" value="${escapeHtml(a.soundcloud_url || '')}" placeholder="https://soundcloud.com/...">
-            </div>
-            <div class="cu-edit-row">
-                <label>Instagram URL</label>
-                <input type="text" id="editInstagram" value="${escapeHtml(a.instagram_url || '')}" placeholder="https://instagram.com/...">
-            </div>
-            <div class="cu-edit-row">
-                <label>Spotify URL</label>
-                <input type="text" id="editSpotify" value="${escapeHtml(a.spotify_url || '')}" placeholder="https://open.spotify.com/...">
-            </div>
-            <div class="cu-edit-row">
-                <label>Canadian</label>
-                <input type="checkbox" id="editCanadian" ${a.is_canadian ? 'checked' : ''}>
-            </div>
-            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-                <button class="cu-save-btn" onclick="saveArtist()">Save</button>
-                <button class="cu-check-btn" onclick="checkLocality()">Recheck SoundCloud</button>
-                <button class="cu-check-btn" onclick="recheckFingerprint('instagram')">Recheck Instagram</button>
-                <button class="cu-check-btn" onclick="recheckFingerprint('spotify')">Recheck Spotify</button>
-            </div>
-        </div>`;
-
+        html += `<div class="cu-section-label">Suggestions</div>`;
+        html += buildSuggestionForm();
+        html += buildSuggestionList(d.suggestions || [], session);
+        html += `<div class="cu-section-label">History</div>`;
+        html += buildHistoryList(d.history || []);
+        if (session && session.is_admin) {
+            html += `<div class="cu-card">
+                <div class="cu-section-label" style="margin-top:0;">Admin: Merge Artist</div>
+                <label>Search canonical artist<input id="mergeSearch" class="cu-input" placeholder="Search artist..." oninput="searchMerge()"></label>
+                <ul class="cu-merge-results" id="mergeResults"></ul>
+            </div>`;
+            html += `<div class="cu-card">
+                <div class="cu-section-label" style="margin-top:0;">Admin: Edit Artist</div>
+                <div class="cu-row">
+                    <label>Vancouver Artist
+                        <select id="editLocal" class="cu-select">
+                            <option value="true" ${isYvrLocal ? 'selected' : ''}>Yes</option>
+                            <option value="false" ${!isYvrLocal ? 'selected' : ''}>No</option>
+                        </select>
+                    </label>
+                    <label>Canadian
+                        <select id="editCanadian" class="cu-select">
+                            <option value="true" ${a.is_canadian ? 'selected' : ''}>Yes</option>
+                            <option value="false" ${!a.is_canadian ? 'selected' : ''}>No</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="cu-row">
+                    <label>SoundCloud URL<input type="text" id="editSoundcloud" class="cu-input" value="${escapeHtml(a.soundcloud_url || '')}" placeholder="https://soundcloud.com/..."></label>
+                    <label>Instagram URL<input type="text" id="editInstagram" class="cu-input" value="${escapeHtml(a.instagram_url || '')}" placeholder="https://instagram.com/..."></label>
+                </div>
+                <div class="cu-row single">
+                    <label>Spotify URL<input type="text" id="editSpotify" class="cu-input" value="${escapeHtml(a.spotify_url || '')}" placeholder="https://open.spotify.com/..."></label>
+                </div>
+                <div style="display:flex;gap:0.45rem;margin-top:0.55rem;flex-wrap:wrap;">
+                    <button class="cu-btn primary" onclick="saveArtist()">Save</button>
+                    <button class="cu-btn" onclick="checkLocality()">Recheck SoundCloud</button>
+                    <button class="cu-btn" onclick="recheckFingerprint('instagram')">Recheck Instagram</button>
+                    <button class="cu-btn" onclick="recheckFingerprint('spotify')">Recheck Spotify</button>
+                </div>
+            </div>`;
+            html += `<div class="cu-card">
+                <div class="cu-section-label" style="margin-top:0;">Admin: Link Member Account</div>
+                <div class="cu-row">
+                    <label>Username<input id="memberUsername" class="cu-input" placeholder="member username"></label>
+                    <label>Display Name<input id="memberDisplayName" class="cu-input" placeholder="optional display name"></label>
+                </div>
+                <div style="margin-top:0.55rem;"><button class="cu-btn primary" onclick="expandMemberFromArtist()">Create/Link Member</button></div>
+            </div>`;
+        }
         document.getElementById('artistDetail').innerHTML = html;
-    } catch(e) { console.error('loadArtist', e); }
+    } catch (e) {
+        console.error('loadArtist', e);
+    }
+}
+
+async function submitArtistSuggestion() {
+    const payload = {};
+    const name = (document.getElementById('suggestName')?.value || '').trim();
+    const soundcloudUrl = (document.getElementById('suggestSoundcloud')?.value || '').trim();
+    const instagramUrl = (document.getElementById('suggestInstagram')?.value || '').trim();
+    const spotifyUrl = (document.getElementById('suggestSpotify')?.value || '').trim();
+    const canadianValue = document.getElementById('suggestCanadian')?.value || '';
+    if (name) payload.name = name;
+    if (soundcloudUrl) payload.soundcloud_url = soundcloudUrl;
+    if (instagramUrl) payload.instagram_url = instagramUrl;
+    if (spotifyUrl) payload.spotify_url = spotifyUrl;
+    if (canadianValue === 'true') payload.is_canadian = true;
+    if (canadianValue === 'false') payload.is_canadian = false;
+    if (!Object.keys(payload).length) return;
+    await fetch('/api/cor-unum/suggestions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entity_type: 'artist', entity_id: ARTIST_ID, payload}),
+    });
+    await loadArtist();
+}
+
+async function resolveSuggestion(suggestionId, decision) {
+    const notes = prompt('Optional moderation notes:', '') || '';
+    await fetch('/api/cor-unum/suggestions/' + suggestionId + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({decision, notes}),
+    });
+    await loadArtist();
 }
 
 async function searchMerge() {
+    const input = document.getElementById('mergeSearch');
+    const el = document.getElementById('mergeResults');
+    if (!input || !el) return;
     clearTimeout(mergeTimer);
     mergeTimer = setTimeout(async () => {
-        const q = document.getElementById('mergeSearch').value.trim();
-        const el = document.getElementById('mergeResults');
+        const q = input.value.trim();
         if (q.length < 2) { el.innerHTML = ''; return; }
         const r = await fetch('/api/cor-unum/artists/search?exclude=' + ARTIST_ID + '&q=' + encodeURIComponent(q));
         const d = await r.json();
         el.innerHTML = (d.results || []).map(a =>
-            `<li onclick="doMerge(${a.id}, '${escapeHtml(a.name)}')">` + escapeHtml(a.name) + `</li>`
+            `<li onclick="doMerge(${a.id}, '${encodeURIComponent(a.name || '')}')">${escapeHtml(a.name || '')}</li>`
         ).join('');
     }, 250);
 }
 
-async function doMerge(canonicalId, canonicalName) {
-    if (!confirm('Merge this artist into \"' + canonicalName + '\"? All events will be moved.')) return;
+async function doMerge(canonicalId, canonicalNameEncoded) {
+    const canonicalName = decodeURIComponent(canonicalNameEncoded || '');
+    if (!confirm('Merge this artist into "' + canonicalName + '"? All events will be moved.')) return;
     const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/merge-into', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -190,26 +286,44 @@ async function doMerge(canonicalId, canonicalName) {
 }
 
 async function saveArtist() {
+    const editLocal = document.getElementById('editLocal');
+    const editSoundcloud = document.getElementById('editSoundcloud');
+    const editInstagram = document.getElementById('editInstagram');
+    const editSpotify = document.getElementById('editSpotify');
+    const editCanadian = document.getElementById('editCanadian');
+    if (!editLocal || !editSoundcloud || !editInstagram || !editSpotify || !editCanadian) return;
     const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/update', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            is_local: document.getElementById('editLocal').checked,
-            soundcloud_url: document.getElementById('editSoundcloud').value.trim(),
-            instagram_url: document.getElementById('editInstagram').value.trim(),
-            spotify_url: document.getElementById('editSpotify').value.trim(),
-            is_canadian: document.getElementById('editCanadian').checked,
+            is_local: editLocal.value === 'true',
+            soundcloud_url: editSoundcloud.value.trim(),
+            instagram_url: editInstagram.value.trim(),
+            spotify_url: editSpotify.value.trim(),
+            is_canadian: editCanadian.value === 'true',
         }),
     });
-    const d = await r.json();
-    loadArtist();
+    await r.json();
+    await loadArtist();
+}
+
+async function expandMemberFromArtist() {
+    const username = (document.getElementById('memberUsername')?.value || '').trim();
+    const displayName = (document.getElementById('memberDisplayName')?.value || '').trim();
+    if (!username) return;
+    await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/expand-member', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username, display_name: displayName}),
+    });
+    await loadArtist();
 }
 
 async function checkLocality() {
     const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/check-locality?force=1', {method:'POST'});
     const d = await r.json();
     if (!d.success) alert(d.error || 'SoundCloud recheck failed');
-    loadArtist();
+    await loadArtist();
 }
 
 async function recheckFingerprint(sourceKey) {
@@ -218,9 +332,8 @@ async function recheckFingerprint(sourceKey) {
     if (!d.success) {
         alert(d.error || (sourceKey + ' recheck failed'));
     }
-    loadArtist();
+    await loadArtist();
 }
-
 
 loadArtist();
 {% endblock %}

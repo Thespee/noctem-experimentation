@@ -6,6 +6,7 @@ from datetime import datetime
 
 from ..db import get_db
 from .dedup import compute_fingerprint, is_fuzzy_duplicate
+from .history import record_entity_change
 from .models import FALLBACK_VENUE_NAME
 from .scanner_impl import (
     ArtistDedupeJanitorScanner,
@@ -32,6 +33,13 @@ _SCANNER_FACTORIES: dict[str, callable] | None = None
 
 def _build_scanner_factories() -> dict[str, callable]:
     from .instagram import check_instagram_fingerprints
+    from .sources.generic_sites import (
+        DenizensScraper,
+        DigitalMotionScraper,
+        OrangeTicketsScraper,
+        TicketLeaderConcertsScraper,
+        TicketWebCanadaScraper,
+    )
     from .soundcloud import check_all_unchecked_artists
     from .sources.admitone import AdmitOneScraper
     from .sources.eventbrite import EventbriteScraper
@@ -58,6 +66,31 @@ def _build_scanner_factories() -> dict[str, callable]:
         "eventbrite_vancouver": lambda: EventScraperScanner(
             "eventbrite_vancouver",
             EventbriteScraper,
+            _process_one_event,
+        ),
+        "denizens_yvr": lambda: EventScraperScanner(
+            "denizens_yvr",
+            DenizensScraper,
+            _process_one_event,
+        ),
+        "digital_motion_bc": lambda: EventScraperScanner(
+            "digital_motion_bc",
+            DigitalMotionScraper,
+            _process_one_event,
+        ),
+        "orange_tickets": lambda: EventScraperScanner(
+            "orange_tickets",
+            OrangeTicketsScraper,
+            _process_one_event,
+        ),
+        "ticketleader_concerts": lambda: EventScraperScanner(
+            "ticketleader_concerts",
+            TicketLeaderConcertsScraper,
+            _process_one_event,
+        ),
+        "ticketweb_ca": lambda: EventScraperScanner(
+            "ticketweb_ca",
+            TicketWebCanadaScraper,
             _process_one_event,
         ),
         "soundcloud": lambda: ArtistFingerprintScanner(
@@ -148,6 +181,7 @@ def run_full_pipeline() -> dict:
 
 def _process_one_event(conn, raw, source_key: str) -> dict:
     """Process a single raw event with source-scoped dedupe."""
+    actor = f"scanner:{source_key}"
     result = {
         "event_created": 0,
         "artists_created": 0,
@@ -168,7 +202,7 @@ def _process_one_event(conn, raw, source_key: str) -> dict:
     if existing_fp:
         event_id = existing_fp["event_id"]
         _update_event_if_better(conn, event_id, raw)
-        _link_performers(conn, event_id, raw.artists)
+        _link_performers(conn, event_id, raw.artists, actor=actor)
         result["duplicate"] = 1
         result["updated"] = 1
         return result
@@ -176,7 +210,7 @@ def _process_one_event(conn, raw, source_key: str) -> dict:
     venue_name = raw.venue_name.strip() if raw.venue_name else ""
     if not venue_name:
         venue_name = FALLBACK_VENUE_NAME
-    venue_id = _get_or_create_venue(conn, venue_name)
+    venue_id = _get_or_create_venue(conn, venue_name, actor=actor)
     if venue_name != FALLBACK_VENUE_NAME:
         existing_venue = conn.execute(
             "SELECT id FROM cu_venues WHERE name = ? AND id != ?",
@@ -243,7 +277,25 @@ def _process_one_event(conn, raw, source_key: str) -> dict:
         )
         matched_event_id = new_event_id
 
-    result["artists_created"] = _link_performers(conn, matched_event_id, raw.artists)
+    result["artists_created"] = _link_performers(conn, matched_event_id, raw.artists, actor=actor)
+    try:
+        operation = "cor_unum.event.create" if result["event_created"] else "cor_unum.event.update"
+        record_entity_change(
+            conn,
+            entity_type="event",
+            entity_id=int(matched_event_id),
+            operation=operation,
+            summary=f"Event upsert from {source_key}",
+            actor=actor,
+            details={
+                "source_key": source_key,
+                "source_url": raw.source_url,
+                "duplicate": bool(result["duplicate"]),
+                "artists_linked": int(result["artists_created"]),
+            },
+        )
+    except Exception:
+        pass
     return result
 
 
@@ -262,13 +314,13 @@ def _update_event_if_better(conn, event_id: int, raw) -> None:
         )
 
 
-def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
+def _link_performers(conn, event_id: int, artist_names: list[str], actor: str | None = None) -> int:
     count = 0
     for artist_name in artist_names:
         artist_name = artist_name.strip()
         if not artist_name:
             continue
-        artist_id = _get_or_create_artist(conn, artist_name)
+        artist_id = _get_or_create_artist(conn, artist_name, actor=actor)
         conn.execute(
             "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
             (event_id, artist_id),
@@ -276,8 +328,7 @@ def _link_performers(conn, event_id: int, artist_names: list[str]) -> int:
         count += 1
     return count
 
-
-def _get_or_create_venue(conn, name: str) -> int:
+def _get_or_create_venue(conn, name: str, actor: str | None = None) -> int:
     row = conn.execute(
         "SELECT id, alias_of FROM cu_venues WHERE name = ?",
         (name,),
@@ -285,10 +336,24 @@ def _get_or_create_venue(conn, name: str) -> int:
     if row:
         return row["alias_of"] or row["id"]
     cursor = conn.execute("INSERT INTO cu_venues (name) VALUES (?)", (name,))
-    return cursor.lastrowid
+    venue_id = int(cursor.lastrowid)
+    if actor:
+        try:
+            record_entity_change(
+                conn,
+                entity_type="venue",
+                entity_id=venue_id,
+                operation="cor_unum.venue.create",
+                summary=f"Venue created from ingestion ({name})",
+                actor=actor,
+                details={"name": name},
+            )
+        except Exception:
+            pass
+    return venue_id
 
 
-def _get_or_create_artist(conn, name: str) -> int:
+def _get_or_create_artist(conn, name: str, actor: str | None = None) -> int:
     row = conn.execute(
         "SELECT id, alias_of FROM cu_artists WHERE name = ?",
         (name,),
@@ -304,7 +369,21 @@ def _get_or_create_artist(conn, name: str) -> int:
         "INSERT INTO cu_artists (name, last_seen) VALUES (?, ?)",
         (name, datetime.utcnow().isoformat()),
     )
-    return cursor.lastrowid
+    artist_id = int(cursor.lastrowid)
+    if actor:
+        try:
+            record_entity_change(
+                conn,
+                entity_type="artist",
+                entity_id=artist_id,
+                operation="cor_unum.artist.create",
+                summary=f"Artist created from ingestion ({name})",
+                actor=actor,
+                details={"name": name},
+            )
+        except Exception:
+            pass
+    return artist_id
 
 
 def _record_run(summary: dict, started_at: datetime) -> None:

@@ -27,6 +27,10 @@
 .cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 .cu-toast.show { opacity: 1; }
 .cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+.cu-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; margin-right: 0.35rem; }
+.cu-pill.pending { background: #4e342e; color: #ffccbc; }
+.cu-pill.accepted { background: #1b5e20; color: #a5d6a7; }
+.cu-pill.rejected { background: #b71c1c; color: #ef9a9a; }
 {% endblock %}
 
 {% block cu_content %}
@@ -41,7 +45,6 @@
             <a href="/cor-unum" class="cu-btn" style="text-decoration:none;display:inline-block;">Back to Dashboard</a>
         </div>
     </div>
-
     <div class="cu-grid">
         <section class="cu-panel">
             <div class="cu-panel-head">
@@ -62,7 +65,6 @@
                 </tbody>
             </table>
         </section>
-
         <section class="cu-panel">
             <div class="cu-panel-head">
                 <h2>Event Candidates</h2>
@@ -82,6 +84,25 @@
                 </tbody>
             </table>
         </section>
+        <section class="cu-panel">
+            <div class="cu-panel-head">
+                <h2>Pending Suggestions</h2>
+                <span id="suggestions-count" class="cu-count">0</span>
+            </div>
+            <table class="cu-table">
+                <thead>
+                    <tr>
+                        <th>Entity</th>
+                        <th>Suggestion</th>
+                        <th>Submitted</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="suggestions-body">
+                    <tr><td colspan="4" class="cu-empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
     </div>
 </div>
 {% endblock %}
@@ -89,6 +110,7 @@
 {% block extra_script %}
 const ARTIST_SOURCE_KEY = 'artist_dedupe_janitor';
 const EVENT_SOURCE_KEY = 'event_dedupe_janitor';
+let canAdmin = false;
 
 function showToast(msg, isError) {
     const t = document.getElementById('toast');
@@ -116,9 +138,9 @@ function artistRow(row) {
         </td>
         <td>
             <div class="cu-row-actions">
-                <button class="cu-btn" onclick="mergeCandidate('artist', ${row.left_id}, ${row.right_id})">Merge right → left</button>
+                ${canAdmin ? `<button class="cu-btn" onclick="mergeCandidate('artist', ${row.left_id}, ${row.right_id})">Merge right → left</button>
                 <button class="cu-btn" onclick="mergeCandidate('artist', ${row.right_id}, ${row.left_id})">Merge left → right</button>
-                <button class="cu-btn warn" onclick="ignoreCandidate('artist', '${ARTIST_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>
+                <button class="cu-btn warn" onclick="ignoreCandidate('artist', '${ARTIST_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>` : '<span class="cu-muted">Admin only</span>'}
             </div>
         </td>
     </tr>`;
@@ -137,9 +159,44 @@ function eventRow(row) {
         </td>
         <td>
             <div class="cu-row-actions">
-                <button class="cu-btn" onclick="mergeCandidate('event', ${row.left_id}, ${row.right_id})">Merge right → left</button>
+                ${canAdmin ? `<button class="cu-btn" onclick="mergeCandidate('event', ${row.left_id}, ${row.right_id})">Merge right → left</button>
                 <button class="cu-btn" onclick="mergeCandidate('event', ${row.right_id}, ${row.left_id})">Merge left → right</button>
-                <button class="cu-btn warn" onclick="ignoreCandidate('event', '${EVENT_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>
+                <button class="cu-btn warn" onclick="ignoreCandidate('event', '${EVENT_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>` : '<span class="cu-muted">Admin only</span>'}
+            </div>
+        </td>
+    </tr>`;
+}
+
+function renderSuggestionPayload(payload) {
+    if (!payload || typeof payload !== 'object') return '—';
+    return Object.entries(payload).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`).join(' · ') || '—';
+}
+
+function suggestionEntityLink(row) {
+    if (row.entity_type === 'event') {
+        return `<a href="/cor-unum/event/${row.entity_id}" style="color:#8ab4f8;text-decoration:none">Event #${row.entity_id}</a>`;
+    }
+    if (row.entity_type === 'artist') {
+        return `<a href="/cor-unum/artist/${row.entity_id}" style="color:#8ab4f8;text-decoration:none">Artist #${row.entity_id}</a>`;
+    }
+    return `${escapeHtml(row.entity_type || 'entity')} #${row.entity_id}`;
+}
+
+function suggestionRow(row) {
+    return `<tr>
+        <td>${suggestionEntityLink(row)}</td>
+        <td>
+            <span class="cu-pill ${escapeHtml(row.status || 'pending')}">${escapeHtml(row.status || 'pending')}</span>
+            ${renderSuggestionPayload(row.payload)}
+        </td>
+        <td>
+            <div>${escapeHtml(row.submitted_by || 'unknown')} · ${escapeHtml(row.submitted_role || 'public')}</div>
+            <div class="cu-muted">${escapeHtml(row.submitted_at || '')}</div>
+        </td>
+        <td>
+            <div class="cu-row-actions">
+                ${canAdmin ? `<button class="cu-btn" onclick="resolveSuggestion(${row.id}, 'accept')">Accept</button>
+                <button class="cu-btn warn" onclick="resolveSuggestion(${row.id}, 'reject')">Reject</button>` : '<span class="cu-muted">Admin only</span>'}
             </div>
         </td>
     </tr>`;
@@ -148,18 +205,27 @@ function eventRow(row) {
 function renderCandidates(data) {
     const artists = data.artists || [];
     const events = data.events || [];
+    const suggestions = data.pending_suggestions || [];
     document.getElementById('artists-count').textContent = `${artists.length} potential duplicates`;
     document.getElementById('events-count').textContent = `${events.length} potential duplicates`;
+    document.getElementById('suggestions-count').textContent = `${suggestions.length} pending`;
     document.getElementById('artists-body').innerHTML = artists.length
         ? artists.map(artistRow).join('')
         : '<tr><td colspan="4" class="cu-empty">No artist candidates.</td></tr>';
     document.getElementById('events-body').innerHTML = events.length
         ? events.map(eventRow).join('')
         : '<tr><td colspan="4" class="cu-empty">No event candidates.</td></tr>';
+    document.getElementById('suggestions-body').innerHTML = suggestions.length
+        ? suggestions.map(suggestionRow).join('')
+        : '<tr><td colspan="4" class="cu-empty">No pending suggestions.</td></tr>';
 }
 
 async function loadCandidates() {
     try {
+        if (typeof window.refreshCorUnumSession === 'function') {
+            await window.refreshCorUnumSession();
+        }
+        canAdmin = !!(window.corUnumSession && window.corUnumSession.is_admin);
         const r = await fetch('/api/cor-unum/duplicates');
         const d = await r.json();
         if (!d.success) {
@@ -172,6 +238,10 @@ async function loadCandidates() {
 }
 
 async function rescan(kind) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
     showToast(`Rescanning ${kind}...`);
     const r = await fetch('/api/cor-unum/duplicates/rescan', {
         method: 'POST',
@@ -188,6 +258,10 @@ async function rescan(kind) {
 }
 
 async function ignoreCandidate(entity_type, source_key, left_id, right_id) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
     const r = await fetch('/api/cor-unum/duplicates/ignore', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -203,6 +277,10 @@ async function ignoreCandidate(entity_type, source_key, left_id, right_id) {
 }
 
 async function mergeCandidate(entity_type, duplicate_id, canonical_id) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
     const r = await fetch('/api/cor-unum/duplicates/merge', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -214,6 +292,26 @@ async function mergeCandidate(entity_type, duplicate_id, canonical_id) {
         return;
     }
     showToast('Merge complete');
+    await loadCandidates();
+}
+
+async function resolveSuggestion(suggestionId, decision) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
+    const notes = prompt('Optional moderation notes:', '') || '';
+    const r = await fetch('/api/cor-unum/suggestions/' + suggestionId + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({decision, notes}),
+    });
+    const d = await r.json();
+    if (!d.success) {
+        showToast(d.error || 'Resolution failed', true);
+        return;
+    }
+    showToast('Suggestion resolved');
     await loadCandidates();
 }
 

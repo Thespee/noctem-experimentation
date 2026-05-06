@@ -9,7 +9,7 @@ from .scanners import BaseIngestionScanner
 
 
 class EventScraperScanner(BaseIngestionScanner):
-    scanner_class = "events"
+    scanner_class = "event"
     report_type = "events"
 
     def __init__(self, source_key: str, scraper_cls, process_event_fn):
@@ -27,6 +27,14 @@ class EventScraperScanner(BaseIngestionScanner):
             "venues_added": 0,
             "duplicates_skipped": 0,
         }
+        diagnostics_fn = getattr(scraper, "get_diagnostics", None)
+        if callable(diagnostics_fn):
+            try:
+                diagnostics = diagnostics_fn()
+                if diagnostics:
+                    summary["diagnostics"] = diagnostics
+            except Exception:
+                pass
         with get_db() as conn:
             for raw in raw_events:
                 result = self._process_event_fn(conn, raw, self.source_key)
