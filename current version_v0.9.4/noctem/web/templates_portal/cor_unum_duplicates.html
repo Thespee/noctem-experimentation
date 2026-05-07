@@ -1,0 +1,319 @@
+{% extends "cor_unum_base.html" %}
+{% block title %}Cor Unum — Duplicate Review{% endblock %}
+
+{% block cu_extra_style %}
+.cu-wrap { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+.cu-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.cu-header h1 { font-size: 1.25rem; margin: 0; }
+.cu-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.cu-btn { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
+.cu-btn:hover { background: #5f6368; }
+.cu-btn.primary { background: #1a73e8; border-color: #1a73e8; }
+.cu-btn.primary:hover { background: #1565c0; }
+.cu-btn.warn { background: #e65100; border-color: #e65100; }
+.cu-btn.warn:hover { background: #bf360c; }
+.cu-grid { display: grid; gap: 1rem; }
+.cu-panel { border: 1px solid #3c3c3c; border-radius: 8px; overflow: hidden; background: #202124; }
+.cu-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.8rem; background: #2d2d2d; border-bottom: 1px solid #3c3c3c; }
+.cu-panel-head h2 { margin: 0; font-size: 0.95rem; }
+.cu-count { color: #9aa0a6; font-size: 0.78rem; }
+.cu-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.cu-table th, .cu-table td { padding: 0.45rem 0.55rem; text-align: left; border-bottom: 1px solid #303134; vertical-align: top; }
+.cu-table th { color: #9aa0a6; font-weight: 500; background: #252525; }
+.cu-empty { color: #9aa0a6; font-style: italic; padding: 1rem; }
+.cu-score { font-weight: 600; color: #8ab4f8; }
+.cu-muted { color: #9aa0a6; font-size: 0.75rem; }
+.cu-row-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+.cu-toast.show { opacity: 1; }
+.cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+.cu-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.68rem; margin-right: 0.35rem; }
+.cu-pill.pending { background: #4e342e; color: #ffccbc; }
+.cu-pill.accepted { background: #1b5e20; color: #a5d6a7; }
+.cu-pill.rejected { background: #b71c1c; color: #ef9a9a; }
+{% endblock %}
+
+{% block cu_content %}
+<div id="toast" class="cu-toast"></div>
+<div class="cu-wrap">
+    <div class="cu-header">
+        <h1>Duplicate Review</h1>
+        <div class="cu-actions">
+            <button class="cu-btn" onclick="rescan('artists')">Rescan Artists</button>
+            <button class="cu-btn" onclick="rescan('events')">Rescan Events</button>
+            <button class="cu-btn primary" onclick="rescan('all')">Rescan Both</button>
+            <a href="/cor-unum" class="cu-btn" style="text-decoration:none;display:inline-block;">Back to Dashboard</a>
+        </div>
+    </div>
+    <div class="cu-grid">
+        <section class="cu-panel">
+            <div class="cu-panel-head">
+                <h2>Artist Candidates</h2>
+                <span id="artists-count" class="cu-count">0</span>
+            </div>
+            <table class="cu-table">
+                <thead>
+                    <tr>
+                        <th>Match</th>
+                        <th>Left</th>
+                        <th>Right</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="artists-body">
+                    <tr><td colspan="4" class="cu-empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+        <section class="cu-panel">
+            <div class="cu-panel-head">
+                <h2>Event Candidates</h2>
+                <span id="events-count" class="cu-count">0</span>
+            </div>
+            <table class="cu-table">
+                <thead>
+                    <tr>
+                        <th>Match</th>
+                        <th>Left</th>
+                        <th>Right</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="events-body">
+                    <tr><td colspan="4" class="cu-empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+        <section class="cu-panel">
+            <div class="cu-panel-head">
+                <h2>Pending Suggestions</h2>
+                <span id="suggestions-count" class="cu-count">0</span>
+            </div>
+            <table class="cu-table">
+                <thead>
+                    <tr>
+                        <th>Entity</th>
+                        <th>Suggestion</th>
+                        <th>Submitted</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="suggestions-body">
+                    <tr><td colspan="4" class="cu-empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const ARTIST_SOURCE_KEY = 'artist_dedupe_janitor';
+const EVENT_SOURCE_KEY = 'event_dedupe_janitor';
+let canAdmin = false;
+
+function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'cu-toast show' + (isError ? ' err' : '');
+    clearTimeout(t._tid);
+    t._tid = setTimeout(() => t.className = 'cu-toast', 2500);
+}
+
+function pct(v) {
+    const n = Number(v || 0);
+    return `${n.toFixed(1)}%`;
+}
+
+function artistRow(row) {
+    return `<tr>
+        <td class="cu-score">${pct(row.title_match_pct)}</td>
+        <td>
+            <a href="/cor-unum/artist/${row.left_id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(row.left_name || '—')}</a>
+            <div class="cu-muted">ID ${row.left_id}</div>
+        </td>
+        <td>
+            <a href="/cor-unum/artist/${row.right_id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(row.right_name || '—')}</a>
+            <div class="cu-muted">ID ${row.right_id}</div>
+        </td>
+        <td>
+            <div class="cu-row-actions">
+                ${canAdmin ? `<button class="cu-btn" onclick="mergeCandidate('artist', ${row.left_id}, ${row.right_id})">Merge right → left</button>
+                <button class="cu-btn" onclick="mergeCandidate('artist', ${row.right_id}, ${row.left_id})">Merge left → right</button>
+                <button class="cu-btn warn" onclick="ignoreCandidate('artist', '${ARTIST_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>` : '<span class="cu-muted">Admin only</span>'}
+            </div>
+        </td>
+    </tr>`;
+}
+
+function eventRow(row) {
+    return `<tr>
+        <td class="cu-score">${pct(row.title_match_pct)}</td>
+        <td>
+            <a href="/cor-unum/event/${row.left_id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(row.left_title || '—')}</a>
+            <div class="cu-muted">ID ${row.left_id}${row.date ? ` · ${escapeHtml(row.date)}` : ''}${row.venue_name ? ` · ${escapeHtml(row.venue_name)}` : ''}</div>
+        </td>
+        <td>
+            <a href="/cor-unum/event/${row.right_id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(row.right_title || '—')}</a>
+            <div class="cu-muted">ID ${row.right_id}</div>
+        </td>
+        <td>
+            <div class="cu-row-actions">
+                ${canAdmin ? `<button class="cu-btn" onclick="mergeCandidate('event', ${row.left_id}, ${row.right_id})">Merge right → left</button>
+                <button class="cu-btn" onclick="mergeCandidate('event', ${row.right_id}, ${row.left_id})">Merge left → right</button>
+                <button class="cu-btn warn" onclick="ignoreCandidate('event', '${EVENT_SOURCE_KEY}', ${row.left_id}, ${row.right_id})">Ignore</button>` : '<span class="cu-muted">Admin only</span>'}
+            </div>
+        </td>
+    </tr>`;
+}
+
+function renderSuggestionPayload(payload) {
+    if (!payload || typeof payload !== 'object') return '—';
+    return Object.entries(payload).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`).join(' · ') || '—';
+}
+
+function suggestionEntityLink(row) {
+    if (row.entity_type === 'event') {
+        return `<a href="/cor-unum/event/${row.entity_id}" style="color:#8ab4f8;text-decoration:none">Event #${row.entity_id}</a>`;
+    }
+    if (row.entity_type === 'artist') {
+        return `<a href="/cor-unum/artist/${row.entity_id}" style="color:#8ab4f8;text-decoration:none">Artist #${row.entity_id}</a>`;
+    }
+    return `${escapeHtml(row.entity_type || 'entity')} #${row.entity_id}`;
+}
+
+function suggestionRow(row) {
+    return `<tr>
+        <td>${suggestionEntityLink(row)}</td>
+        <td>
+            <span class="cu-pill ${escapeHtml(row.status || 'pending')}">${escapeHtml(row.status || 'pending')}</span>
+            ${renderSuggestionPayload(row.payload)}
+        </td>
+        <td>
+            <div>${escapeHtml(row.submitted_by || 'unknown')} · ${escapeHtml(row.submitted_role || 'public')}</div>
+            <div class="cu-muted">${escapeHtml(row.submitted_at || '')}</div>
+        </td>
+        <td>
+            <div class="cu-row-actions">
+                ${canAdmin ? `<button class="cu-btn" onclick="resolveSuggestion(${row.id}, 'accept')">Accept</button>
+                <button class="cu-btn warn" onclick="resolveSuggestion(${row.id}, 'reject')">Reject</button>` : '<span class="cu-muted">Admin only</span>'}
+            </div>
+        </td>
+    </tr>`;
+}
+
+function renderCandidates(data) {
+    const artists = data.artists || [];
+    const events = data.events || [];
+    const suggestions = data.pending_suggestions || [];
+    document.getElementById('artists-count').textContent = `${artists.length} potential duplicates`;
+    document.getElementById('events-count').textContent = `${events.length} potential duplicates`;
+    document.getElementById('suggestions-count').textContent = `${suggestions.length} pending`;
+    document.getElementById('artists-body').innerHTML = artists.length
+        ? artists.map(artistRow).join('')
+        : '<tr><td colspan="4" class="cu-empty">No artist candidates.</td></tr>';
+    document.getElementById('events-body').innerHTML = events.length
+        ? events.map(eventRow).join('')
+        : '<tr><td colspan="4" class="cu-empty">No event candidates.</td></tr>';
+    document.getElementById('suggestions-body').innerHTML = suggestions.length
+        ? suggestions.map(suggestionRow).join('')
+        : '<tr><td colspan="4" class="cu-empty">No pending suggestions.</td></tr>';
+}
+
+async function loadCandidates() {
+    try {
+        if (typeof window.refreshCorUnumSession === 'function') {
+            await window.refreshCorUnumSession();
+        }
+        canAdmin = !!(window.corUnumSession && window.corUnumSession.is_admin);
+        const r = await fetch('/api/cor-unum/duplicates');
+        const d = await r.json();
+        if (!d.success) {
+            throw new Error(d.error || 'Unable to load duplicate candidates');
+        }
+        renderCandidates(d);
+    } catch (e) {
+        showToast(e.message || 'Load failed', true);
+    }
+}
+
+async function rescan(kind) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
+    showToast(`Rescanning ${kind}...`);
+    const r = await fetch('/api/cor-unum/duplicates/rescan', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({kind}),
+    });
+    const d = await r.json();
+    if (!d.success) {
+        showToast(d.error || 'Rescan failed', true);
+        return;
+    }
+    showToast('Rescan complete');
+    await loadCandidates();
+}
+
+async function ignoreCandidate(entity_type, source_key, left_id, right_id) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
+    const r = await fetch('/api/cor-unum/duplicates/ignore', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({entity_type, source_key, left_id, right_id}),
+    });
+    const d = await r.json();
+    if (!d.success) {
+        showToast(d.error || 'Ignore failed', true);
+        return;
+    }
+    showToast('Candidate ignored');
+    await loadCandidates();
+}
+
+async function mergeCandidate(entity_type, duplicate_id, canonical_id) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
+    const r = await fetch('/api/cor-unum/duplicates/merge', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({entity_type, duplicate_id, canonical_id}),
+    });
+    const d = await r.json();
+    if (!d.success) {
+        showToast(d.error || 'Merge failed', true);
+        return;
+    }
+    showToast('Merge complete');
+    await loadCandidates();
+}
+
+async function resolveSuggestion(suggestionId, decision) {
+    if (!canAdmin) {
+        showToast('Admin role required', true);
+        return;
+    }
+    const notes = prompt('Optional moderation notes:', '') || '';
+    const r = await fetch('/api/cor-unum/suggestions/' + suggestionId + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({decision, notes}),
+    });
+    const d = await r.json();
+    if (!d.success) {
+        showToast(d.error || 'Resolution failed', true);
+        return;
+    }
+    showToast('Suggestion resolved');
+    await loadCandidates();
+}
+
+loadCandidates();
+{% endblock %}

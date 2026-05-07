@@ -268,9 +268,18 @@ class TestAPI:
         app.config["TESTING"] = True
         with app.test_client() as c:
             yield c
+
+    @pytest.fixture
+    def portal_client(self):
+        from ..web.portal_app import create_portal_app
+        app = create_portal_app()
+        app.config["TESTING"] = True
+        with app.test_client() as c:
+            yield c
+
     def _remote_request(self, client, method, path, **kwargs):
         environ_overrides = dict(kwargs.pop("environ_overrides", {}) or {})
-        environ_overrides.setdefault("REMOTE_ADDR", "203.0.113.77")
+        environ_overrides.setdefault("REMOTE_ADDR", "8.8.8.8")
         return client.open(path, method=method, environ_overrides=environ_overrides, **kwargs)
 
     def test_cor_unum_page_renders(self, client):
@@ -327,8 +336,7 @@ class TestAPI:
     def test_api_runs(self, client):
         r = client.get("/api/cor-unum/runs")
         assert r.status_code == 200
-        data = r.get_json()
-        assert data["success"]
+        assert r.get_json()["success"]
 
     def test_api_events(self, client):
         r = client.get("/api/cor-unum/events")
@@ -373,13 +381,13 @@ class TestAPI:
         assert r.get_json()["success"]
 
     def test_db_subpages_render(self, client):
-        for path in [
+        for path in (
             "/cor-unum/db/events",
             "/cor-unum/db/artists",
             "/cor-unum/db/venues",
             "/cor-unum/db/event-sources",
             "/cor-unum/db/source-registry",
-        ]:
+        ):
             r = client.get(path)
             assert r.status_code == 200, f"{path} returned {r.status_code}"
 
@@ -406,13 +414,24 @@ class TestAPI:
         assert member_session["role"] == "member"
         assert member_session["member_id"] == member["id"]
         assert member_session["is_member"] is True
-    def test_remote_public_scope_limits_non_cor_unum_surfaces(self, client):
+
+    def test_internal_cor_unum_scope_is_private_only(self, client):
+        blocked_page = self._remote_request(client, "GET", "/cor-unum")
+        assert blocked_page.status_code in {301, 302}
+        assert blocked_page.headers["Location"].endswith("/")
+
+        blocked_api = self._remote_request(client, "GET", "/api/cor-unum/events")
+        assert blocked_api.status_code == 403
+        blocked_payload = blocked_api.get_json() or {}
+        assert "private-only" in str(blocked_payload.get("error", "")).lower()
+
+    def test_portal_public_scope_limits_non_portal_surfaces(self, portal_client):
         with db.get_db() as conn:
             artist_id = conn.execute(
-                "INSERT INTO cu_artists (name) VALUES ('Remote Public Artist')"
+                "INSERT INTO cu_artists (name) VALUES ('Portal Public Artist')"
             ).lastrowid
 
-        session_resp = self._remote_request(client, "GET", "/api/cor-unum/session")
+        session_resp = self._remote_request(portal_client, "GET", "/api/cor-unum/session")
         assert session_resp.status_code == 200
         session_payload = session_resp.get_json()["session"]
         assert session_payload["role"] == "public"
@@ -420,25 +439,25 @@ class TestAPI:
         assert session_payload["can_assume_admin"] is False
         assert session_payload["can_assume_member"] is True
 
-        upcoming_page = self._remote_request(client, "GET", "/cor-unum/upcoming")
+        upcoming_page = self._remote_request(portal_client, "GET", "/cor-unum/upcoming")
         assert upcoming_page.status_code == 200
-        artist_page = self._remote_request(client, "GET", f"/cor-unum/artist/{artist_id}")
+        artist_page = self._remote_request(portal_client, "GET", f"/cor-unum/artist/{artist_id}")
         assert artist_page.status_code == 200
 
-        blocked_db_page = self._remote_request(client, "GET", "/cor-unum/db/events")
-        assert blocked_db_page.status_code in {301, 302}
-        assert blocked_db_page.headers["Location"].endswith("/cor-unum/upcoming")
+        blocked_settings = self._remote_request(portal_client, "GET", "/cor-unum/settings")
+        assert blocked_settings.status_code in {301, 302}
+        assert blocked_settings.headers["Location"].endswith("/cor-unum/upcoming")
 
-        blocked_root_page = self._remote_request(client, "GET", "/")
+        blocked_root_page = self._remote_request(portal_client, "GET", "/")
         assert blocked_root_page.status_code in {301, 302}
         assert blocked_root_page.headers["Location"].endswith("/cor-unum/upcoming")
 
-        blocked_cu_api = self._remote_request(client, "GET", "/api/cor-unum/events")
-        assert blocked_cu_api.status_code == 403
-        blocked_non_cu_api = self._remote_request(client, "GET", "/api/butler/status")
+        blocked_admin_api = self._remote_request(portal_client, "GET", "/api/cor-unum/sources")
+        assert blocked_admin_api.status_code == 403
+        blocked_non_cu_api = self._remote_request(portal_client, "GET", "/api/butler/status")
         assert blocked_non_cu_api.status_code == 403
 
-    def test_remote_member_scope_allows_datatables_but_blocks_settings_and_admin_apis(self, client):
+    def test_portal_member_scope_allows_datatables_but_blocks_settings_and_admin_apis(self, portal_client):
         with db.get_db() as conn:
             conn.execute(
                 """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
@@ -447,7 +466,7 @@ class TestAPI:
             )
 
         assume_member = self._remote_request(
-            client,
+            portal_client,
             "POST",
             "/api/cor-unum/session/assume",
             json={"role": "member", "username": "remote_member_scope"},
@@ -464,17 +483,17 @@ class TestAPI:
             "/cor-unum/db/venues",
             "/cor-unum/add-event",
         ):
-            resp = self._remote_request(client, "GET", page)
+            resp = self._remote_request(portal_client, "GET", page)
             assert resp.status_code == 200, f"{page} should be available to remote members"
 
-        blocked_settings = self._remote_request(client, "GET", "/cor-unum/settings")
+        blocked_settings = self._remote_request(portal_client, "GET", "/cor-unum/settings")
         assert blocked_settings.status_code in {301, 302}
         assert blocked_settings.headers["Location"].endswith("/cor-unum/upcoming")
 
-        blocked_sources_api = self._remote_request(client, "GET", "/api/cor-unum/sources")
+        blocked_sources_api = self._remote_request(portal_client, "GET", "/api/cor-unum/sources")
         assert blocked_sources_api.status_code == 403
 
-    def test_remote_member_create_event_records_event_and_artist_history(self, client):
+    def test_portal_member_create_event_records_event_and_artist_history(self, portal_client):
         with db.get_db() as conn:
             conn.execute(
                 """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
@@ -483,7 +502,7 @@ class TestAPI:
             )
 
         assume_member = self._remote_request(
-            client,
+            portal_client,
             "POST",
             "/api/cor-unum/session/assume",
             json={"role": "member", "username": "remote_member_create"},
@@ -491,7 +510,7 @@ class TestAPI:
         assert assume_member.status_code == 200
 
         create_resp = self._remote_request(
-            client,
+            portal_client,
             "POST",
             "/api/cor-unum/events/create",
             json={
@@ -507,7 +526,7 @@ class TestAPI:
         assert create_payload["success"] is True
         event_id = create_payload["event_id"]
 
-        event_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/event/{event_id}")
+        event_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/event/{event_id}")
         assert event_history_resp.status_code == 200
         event_history = event_history_resp.get_json()["history"]
         event_create = next((h for h in event_history if h["operation"] == "cor_unum.event.create"), None)
@@ -522,14 +541,14 @@ class TestAPI:
         assert artist_row is not None
         artist_id = artist_row["id"]
 
-        artist_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
+        artist_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
         assert artist_history_resp.status_code == 200
         artist_history = artist_history_resp.get_json()["history"]
         artist_create = next((h for h in artist_history if h["operation"] == "cor_unum.artist.create"), None)
         assert artist_create is not None
         assert str(artist_create["actor"]).startswith("cu_member:remote_member_create")
 
-    def test_remote_member_event_and_venue_updates_record_history(self, client):
+    def test_portal_member_event_and_venue_updates_record_history(self, portal_client):
         with db.get_db() as conn:
             conn.execute(
                 """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
@@ -545,7 +564,7 @@ class TestAPI:
             ).lastrowid
 
         assume_member = self._remote_request(
-            client,
+            portal_client,
             "POST",
             "/api/cor-unum/session/assume",
             json={"role": "member", "username": "remote_member_updates"},
@@ -553,7 +572,7 @@ class TestAPI:
         assert assume_member.status_code == 200
 
         update_event = self._remote_request(
-            client,
+            portal_client,
             "POST",
             f"/api/cor-unum/events/{event_id}/update",
             json={"title": "Updated Event", "venue_name": "Venue Created Via Event Update"},
@@ -573,14 +592,14 @@ class TestAPI:
         assert updated_event["venue_name"] == "Venue Created Via Event Update"
         new_venue_id = updated_event["venue_id"]
 
-        event_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/event/{event_id}")
+        event_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/event/{event_id}")
         assert event_history_resp.status_code == 200
         event_history = event_history_resp.get_json()["history"]
         event_update = next((h for h in event_history if h["operation"] == "cor_unum.event.update"), None)
         assert event_update is not None
         assert str(event_update["actor"]).startswith("cu_member:remote_member_updates")
 
-        venue_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
+        venue_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
         assert venue_history_resp.status_code == 200
         venue_history = venue_history_resp.get_json()["history"]
         venue_create = next((h for h in venue_history if h["operation"] == "cor_unum.venue.create"), None)
@@ -588,7 +607,7 @@ class TestAPI:
         assert str(venue_create["actor"]).startswith("cu_member:remote_member_updates")
 
         update_venue = self._remote_request(
-            client,
+            portal_client,
             "POST",
             f"/api/cor-unum/venues/{new_venue_id}/update",
             json={"address": "123 Example St", "url": "https://venue.example.com"},
@@ -596,14 +615,14 @@ class TestAPI:
         assert update_venue.status_code == 200
         assert update_venue.get_json()["success"] is True
 
-        venue_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
+        venue_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
         assert venue_history_resp.status_code == 200
         venue_history = venue_history_resp.get_json()["history"]
         venue_update = next((h for h in venue_history if h["operation"] == "cor_unum.venue.update"), None)
         assert venue_update is not None
         assert str(venue_update["actor"]).startswith("cu_member:remote_member_updates")
 
-    def test_remote_member_artist_update_records_update_and_locality_history(self, client):
+    def test_portal_member_artist_update_records_update_and_locality_history(self, portal_client):
         with db.get_db() as conn:
             conn.execute(
                 """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
@@ -616,7 +635,7 @@ class TestAPI:
             ).lastrowid
 
         assume_member = self._remote_request(
-            client,
+            portal_client,
             "POST",
             "/api/cor-unum/session/assume",
             json={"role": "member", "username": "remote_member_artist"},
@@ -624,7 +643,7 @@ class TestAPI:
         assert assume_member.status_code == 200
 
         update_artist = self._remote_request(
-            client,
+            portal_client,
             "POST",
             f"/api/cor-unum/artists/{artist_id}/update",
             json={
@@ -650,7 +669,7 @@ class TestAPI:
         assert artist_row["is_canadian"] == 1
         assert local_tag_row is not None
 
-        history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
+        history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
         assert history_resp.status_code == 200
         history_items = history_resp.get_json()["history"]
         general_update = next((h for h in history_items if h["operation"] == "cor_unum.artist.update"), None)

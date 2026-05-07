@@ -11,8 +11,9 @@
 .cu-session { display: flex; align-items: center; gap: 0.35rem; margin-left: 0.5rem; }
 .cu-session-label { color: #9aa0a6; font-size: 0.74rem; }
 .cu-session-badge { background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 999px; padding: 0.15rem 0.55rem; color: #8ab4f8; font-size: 0.72rem; }
-.cu-session select, .cu-session button { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 4px; font-size: 0.72rem; padding: 0.2rem 0.45rem; }
+.cu-session select, .cu-session button, .cu-session input { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; border-radius: 4px; font-size: 0.72rem; padding: 0.2rem 0.45rem; }
 .cu-session button { cursor: pointer; }
+.cu-session-block { display: flex; align-items: center; gap: 0.35rem; }
 {% block cu_extra_style %}{% endblock %}
 {% endblock %}
 
@@ -20,27 +21,48 @@
 <div class="cu-nav">
     <a href="/cor-unum" class="cu-nav-brand">Cor Unum</a>
     <a href="/cor-unum/upcoming" class="{% if request.path == '/cor-unum/upcoming' %}active{% endif %}">Upcoming</a>
+    {% if cu_is_local_request or cu_session_user.is_member %}
     <a href="/cor-unum/db/events" class="{% if request.path == '/cor-unum/db/events' %}active{% endif %}">Events</a>
     <a href="/cor-unum/db/artists" class="{% if request.path == '/cor-unum/db/artists' %}active{% endif %}">Artists</a>
     <a href="/cor-unum/db/venues" class="{% if request.path == '/cor-unum/db/venues' %}active{% endif %}">Venues</a>
+    <a href="/cor-unum/add-event" class="{% if request.path == '/cor-unum/add-event' %}active{% endif %}">Add Event</a>
+    {% endif %}
     <span class="cu-nav-spacer"></span>
-    <div class="cu-session" id="cuSessionControls">
+    <div class="cu-session" id="cuSessionControls" {% if not cu_show_session_controls %}style="display:none;"{% endif %}>
         <span class="cu-session-label">Session</span>
         <span class="cu-session-badge" id="cuSessionBadge">loading…</span>
-        <select id="cuRoleSelect" onchange="window.applyCorUnumSessionRole()">
-            <option value="public">Public</option>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-        </select>
-        <select id="cuMemberSelect" style="display:none;"></select>
+        <div class="cu-session-block" id="cuLocalRoleControls" style="display:none;">
+            <select id="cuRoleSelect" onchange="window.toggleCorUnumRoleControls()">
+                <option value="public">Public</option>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+            </select>
+            <select id="cuMemberSelect" style="display:none;"></select>
+            <button type="button" onclick="window.applyCorUnumSessionRole()">Apply</button>
+        </div>
+        <div class="cu-session-block" id="cuRemoteSigninControls" style="display:none;">
+            <input id="cuMemberUsernameInput" type="text" placeholder="member username">
+            <button type="button" onclick="window.signInCorUnumMember()">Sign in</button>
+        </div>
+        <div class="cu-session-block" id="cuRemoteMemberControls" style="display:none;">
+            <button type="button" onclick="window.signOutCorUnumMember()">Sign out</button>
+        </div>
         <button type="button" onclick="window.refreshCorUnumSession()">↻</button>
     </div>
+    {% if cu_is_local_request %}
     <a href="/cor-unum/settings" class="{% if request.path == '/cor-unum/settings' %}active{% endif %}">Settings</a>
+    {% endif %}
 </div>
 {% block cu_content %}{% endblock %}
 <script>
 window.corUnumSession = null;
 window.corUnumMembers = [];
+window.toggleCorUnumRoleControls = function toggleCorUnumRoleControls() {
+    const roleSelect = document.getElementById('cuRoleSelect');
+    const memberSelect = document.getElementById('cuMemberSelect');
+    if (!roleSelect || !memberSelect) return;
+    memberSelect.style.display = roleSelect.value === 'member' ? '' : 'none';
+};
 window.refreshCorUnumSession = async function refreshCorUnumSession() {
     try {
         const r = await fetch('/api/cor-unum/session');
@@ -52,34 +74,61 @@ window.refreshCorUnumSession = async function refreshCorUnumSession() {
     const badge = document.getElementById('cuSessionBadge');
     const roleSelect = document.getElementById('cuRoleSelect');
     const memberSelect = document.getElementById('cuMemberSelect');
+    const localControls = document.getElementById('cuLocalRoleControls');
+    const remoteSigninControls = document.getElementById('cuRemoteSigninControls');
+    const remoteMemberControls = document.getElementById('cuRemoteMemberControls');
     if (!window.corUnumSession) {
         badge.textContent = 'unavailable';
         roleSelect.disabled = true;
         memberSelect.style.display = 'none';
+        localControls.style.display = 'none';
+        remoteSigninControls.style.display = 'none';
+        remoteMemberControls.style.display = 'none';
         return;
     }
     const s = window.corUnumSession;
     const label = s.role === 'member' ? `${s.role}:${s.username}` : s.role;
     badge.textContent = label;
-    roleSelect.disabled = false;
-    roleSelect.value = s.role || 'public';
-    if (s.role === 'member' || roleSelect.value === 'member') {
-        memberSelect.style.display = '';
-    } else {
-        memberSelect.style.display = 'none';
-    }
-    if (s.is_admin) {
-        try {
-            const mr = await fetch('/api/cor-unum/members');
-            const md = await mr.json();
-            window.corUnumMembers = md.members || [];
-        } catch (e) {
-            window.corUnumMembers = [];
+    const isLocalRequest = !!s.is_local_request;
+    if (isLocalRequest) {
+        localControls.style.display = '';
+        remoteSigninControls.style.display = 'none';
+        remoteMemberControls.style.display = 'none';
+        roleSelect.disabled = false;
+        roleSelect.value = s.role || 'public';
+        const adminOption = roleSelect.querySelector('option[value="admin"]');
+        if (adminOption) adminOption.disabled = !s.can_assume_admin;
+        if (s.role === 'member' || roleSelect.value === 'member') {
+            memberSelect.style.display = '';
+        } else {
+            memberSelect.style.display = 'none';
         }
-        memberSelect.innerHTML = (window.corUnumMembers || []).map(m => `<option value="${m.id}">${escapeHtml(m.username)}</option>`).join('');
-        if (s.member_id) memberSelect.value = String(s.member_id);
+        if (s.can_assume_admin || s.is_admin) {
+            try {
+                const mr = await fetch('/api/cor-unum/members');
+                const md = await mr.json();
+                window.corUnumMembers = md.members || [];
+            } catch (e) {
+                window.corUnumMembers = [];
+            }
+            memberSelect.innerHTML = (window.corUnumMembers || []).map(m => `<option value="${m.id}">${escapeHtml(m.username)}</option>`).join('');
+            if (s.member_id) memberSelect.value = String(s.member_id);
+        } else {
+            memberSelect.innerHTML = '';
+        }
+        window.toggleCorUnumRoleControls();
     } else {
+        localControls.style.display = 'none';
+        roleSelect.disabled = true;
+        memberSelect.style.display = 'none';
         memberSelect.innerHTML = '';
+        if (s.is_member) {
+            remoteSigninControls.style.display = 'none';
+            remoteMemberControls.style.display = '';
+        } else {
+            remoteSigninControls.style.display = '';
+            remoteMemberControls.style.display = 'none';
+        }
     }
 };
 window.applyCorUnumSessionRole = async function applyCorUnumSessionRole() {
@@ -102,6 +151,31 @@ window.applyCorUnumSessionRole = async function applyCorUnumSessionRole() {
     if (typeof window.loadEvent === 'function') window.loadEvent();
     if (typeof window.loadArtist === 'function') window.loadArtist();
     if (typeof window.loadVenue === 'function') window.loadVenue();
+};
+window.signInCorUnumMember = async function signInCorUnumMember() {
+    const input = document.getElementById('cuMemberUsernameInput');
+    const username = (input.value || '').trim();
+    if (!username) return;
+    const r = await fetch('/api/cor-unum/session/assume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({role: 'member', username}),
+    });
+    if (!r.ok) {
+        return;
+    }
+    window.location.reload();
+};
+window.signOutCorUnumMember = async function signOutCorUnumMember() {
+    const r = await fetch('/api/cor-unum/session/assume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({role: 'public'}),
+    });
+    if (!r.ok) {
+        return;
+    }
+    window.location.reload();
 };
 document.addEventListener('DOMContentLoaded', () => {
     window.refreshCorUnumSession();

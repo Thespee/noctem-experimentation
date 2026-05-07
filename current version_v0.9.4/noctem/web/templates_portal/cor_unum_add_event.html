@@ -1,0 +1,227 @@
+{% extends "cor_unum_base.html" %}
+{% block title %}Cor Unum — Add Event{% endblock %}
+
+{% block cu_extra_style %}
+.cu-wrap { max-width: 650px; margin: 0 auto; padding: 1.5rem; }
+h1 { font-size: 1.3rem; margin: 0 0 1.2rem; }
+.cu-field { margin-bottom: 0.75rem; }
+.cu-field label { display: block; font-size: 0.82rem; color: #9aa0a6; margin-bottom: 0.2rem; }
+.cu-field input, .cu-field textarea { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.7rem; border-radius: 4px; font-size: 0.85rem; width: 100%; box-sizing: border-box; }
+.cu-field textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+.cu-section-label { font-size: 0.72rem; color: #5f6368; text-transform: uppercase; letter-spacing: 0.04em; margin: 1.5rem 0 0.5rem; }
+.cu-btn { background: #1a73e8; border: none; color: #fff; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+.cu-btn:hover { background: #1565c0; }
+.cu-btn.secondary { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; }
+.cu-btn.secondary:hover { background: #5f6368; }
+.cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+.cu-toast.show { opacity: 1; }
+.cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+
+/* Chips */
+.cu-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
+.cu-chip { display: inline-flex; align-items: center; gap: 0.3rem; background: #2d2d2d; border: 1px solid #3c3c3c; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.82rem; }
+.cu-chip .x { cursor: pointer; color: #9aa0a6; font-size: 0.9rem; line-height: 1; }
+.cu-chip .x:hover { color: #ef9a9a; }
+.cu-chip.local { border-color: #1b5e20; }
+
+/* Dropdown */
+.cu-dd-wrap { position: relative; }
+.cu-dd { position: absolute; top: 100%; left: 0; right: 0; background: #2d2d2d; border: 1px solid #3c3c3c; border-top: none; border-radius: 0 0 4px 4px; max-height: 200px; overflow-y: auto; z-index: 10; display: none; }
+.cu-dd.open { display: block; }
+.cu-dd div { padding: 0.35rem 0.7rem; cursor: pointer; font-size: 0.82rem; }
+.cu-dd div:hover { background: #3c4043; color: #8ab4f8; }
+.cu-dd .new-item { color: #8ab4f8; font-style: italic; border-top: 1px solid #3c3c3c; }
+
+/* Inline new-artist form */
+.cu-inline-new { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.4rem; padding: 0.5rem; background: #262626; border-radius: 4px; border: 1px solid #3c3c3c; }
+.cu-inline-new input[type="text"] { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.82rem; flex: 1; }
+.cu-inline-new label { font-size: 0.78rem; color: #9aa0a6; white-space: nowrap; display: flex; align-items: center; gap: 0.25rem; }
+.cu-inline-new input[type="checkbox"] { accent-color: #1b5e20; width: 15px; height: 15px; }
+
+.cu-venue-selected { font-size: 0.78rem; color: #8ab4f8; margin-top: 0.2rem; }
+{% endblock %}
+
+{% block cu_content %}
+<div id="toast" class="cu-toast"></div>
+<div class="cu-wrap">
+    <h1>Add Event</h1>
+
+    <div class="cu-field">
+        <label>Title *</label>
+        <input id="evTitle" type="text" placeholder="Event name">
+    </div>
+    <div class="cu-field">
+        <label>Date *</label>
+        <input id="evDate" type="date">
+    </div>
+
+    <div class="cu-field">
+        <label>Venue</label>
+        <div class="cu-dd-wrap" id="venueWrap">
+            <input id="venueInput" type="text" placeholder="Search existing or type new..." oninput="searchVenue()" onfocus="searchVenue()" autocomplete="off">
+            <div class="cu-dd" id="venueDd"></div>
+        </div>
+        <div class="cu-venue-selected" id="venueStatus"></div>
+    </div>
+
+    <div class="cu-field">
+        <label>Description</label>
+        <textarea id="evDesc" placeholder="Optional"></textarea>
+    </div>
+
+    <div class="cu-section-label">Artists</div>
+    <div class="cu-chips" id="artistChips"></div>
+    <div class="cu-dd-wrap" id="artistWrap">
+        <input id="artistInput" type="text" placeholder="Search existing or create new..." oninput="searchArtist()" onfocus="searchArtist()" autocomplete="off" style="background:#2d2d2d;border:1px solid #3c3c3c;color:#e8eaed;padding:0.4rem 0.7rem;border-radius:4px;font-size:0.85rem;width:100%;box-sizing:border-box;">
+        <div class="cu-dd" id="artistDd"></div>
+    </div>
+    <div id="newArtistRow" style="display:none;">
+        <div class="cu-inline-new">
+            <input type="text" id="newArtistName" placeholder="Artist name">
+            <label><input type="checkbox" id="newArtistLocal"> Local</label>
+            <button class="cu-btn secondary" onclick="confirmNewArtist()" style="padding:0.25rem 0.6rem;font-size:0.78rem;">Add</button>
+            <button class="cu-btn secondary" onclick="cancelNewArtist()" style="padding:0.25rem 0.5rem;font-size:0.78rem;">×</button>
+        </div>
+    </div>
+
+    <div style="margin-top:1.5rem;">
+        <button class="cu-btn" onclick="submitEvent()">Create Event</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+let artists = [];  // [{id:int|null, name, isNew, isLocal}]
+let venueId = null;
+let venueName = '';
+let artTimer = null, venTimer = null;
+
+function showToast(msg, err) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'cu-toast show' + (err ? ' err' : '');
+    clearTimeout(t._tid);
+    t._tid = setTimeout(() => t.className = 'cu-toast', 3000);
+}
+
+// --- Artist chips ---
+function renderChips() {
+    document.getElementById('artistChips').innerHTML = artists.map((a, i) => {
+        const cls = a.isLocal ? 'cu-chip local' : 'cu-chip';
+        const tag = a.isNew ? ' <span style="color:#5f6368;font-size:0.7rem">(new)</span>' : '';
+        return `<span class="${cls}">${escapeHtml(a.name)}${tag}<span class="x" onclick="artists.splice(${i},1);renderChips()">×</span></span>`;
+    }).join('');
+}
+
+function pickArtist(id, name) {
+    if (artists.some(a => a.id === id)) return;
+    artists.push({id, name, isNew: false, isLocal: false});
+    renderChips();
+    document.getElementById('artistInput').value = '';
+    closeDd('artistDd');
+}
+
+function showNewArtist() {
+    const q = document.getElementById('artistInput').value.trim();
+    document.getElementById('newArtistName').value = q;
+    document.getElementById('newArtistLocal').checked = false;
+    document.getElementById('newArtistRow').style.display = 'block';
+    closeDd('artistDd');
+}
+
+function confirmNewArtist() {
+    const name = document.getElementById('newArtistName').value.trim();
+    if (!name) return;
+    if (artists.some(a => a.name.toLowerCase() === name.toLowerCase())) return;
+    artists.push({id: null, name, isNew: true, isLocal: document.getElementById('newArtistLocal').checked});
+    renderChips();
+    cancelNewArtist();
+    document.getElementById('artistInput').value = '';
+}
+
+function cancelNewArtist() {
+    document.getElementById('newArtistRow').style.display = 'none';
+}
+
+function searchArtist() {
+    clearTimeout(artTimer);
+    artTimer = setTimeout(async () => {
+        const q = document.getElementById('artistInput').value.trim();
+        const el = document.getElementById('artistDd');
+        if (q.length < 1) { closeDd('artistDd'); return; }
+        const r = await fetch('/api/cor-unum/artists/search?q=' + encodeURIComponent(q));
+        const d = await r.json();
+        let html = (d.results || []).map(a =>
+            `<div onclick="pickArtist(${a.id},'${escapeHtml(a.name).replace(/'/g, "\\'")}')">${escapeHtml(a.name)}</div>`
+        ).join('');
+        html += `<div class="new-item" onclick="showNewArtist()">+ Create "${escapeHtml(q)}"</div>`;
+        el.innerHTML = html;
+        el.className = 'cu-dd open';
+    }, 200);
+}
+
+// --- Venue ---
+function searchVenue() {
+    clearTimeout(venTimer);
+    venTimer = setTimeout(async () => {
+        const q = document.getElementById('venueInput').value.trim();
+        const el = document.getElementById('venueDd');
+        const st = document.getElementById('venueStatus');
+        if (q.length < 1) { closeDd('venueDd'); venueId = null; st.textContent = ''; return; }
+        const r = await fetch('/api/cor-unum/venues/search?q=' + encodeURIComponent(q));
+        const d = await r.json();
+        let html = (d.results || []).map(v =>
+            `<div onclick="pickVenue(${v.id},'${escapeHtml(v.name).replace(/'/g, "\\'")}')">${escapeHtml(v.name)}</div>`
+        ).join('');
+        if (!html) html = '<div style="color:#5f6368;cursor:default">No matches — will create new venue</div>';
+        el.innerHTML = html;
+        el.className = 'cu-dd open';
+        venueId = null;
+        st.textContent = '';
+    }, 200);
+}
+
+function pickVenue(id, name) {
+    document.getElementById('venueInput').value = name;
+    document.getElementById('venueStatus').textContent = 'Selected: ' + name;
+    closeDd('venueDd');
+    venueId = id;
+    venueName = name;
+}
+
+function closeDd(id) { document.getElementById(id).className = 'cu-dd'; }
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#artistWrap')) closeDd('artistDd');
+    if (!e.target.closest('#venueWrap')) closeDd('venueDd');
+});
+
+// --- Submit ---
+async function submitEvent() {
+    const title = document.getElementById('evTitle').value.trim();
+    const date = document.getElementById('evDate').value;
+    if (!title || !date) { showToast('Title and date are required', true); return; }
+
+    const r = await fetch('/api/cor-unum/events/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title,
+            date,
+            venue_id: venueId,
+            venue_name: document.getElementById('venueInput').value.trim(),
+            description: document.getElementById('evDesc').value.trim(),
+            artists: artists.map(a => ({id: a.id, name: a.name, is_new: a.isNew || false, is_local: a.isLocal || false})),
+        }),
+    });
+    const d = await r.json();
+    if (d.success) {
+        window.location.href = '/cor-unum/event/' + d.event_id;
+    } else {
+        showToast('Error: ' + (d.error || 'unknown'), true);
+    }
+}
+
+// Default date to today
+document.getElementById('evDate').value = new Date().toISOString().split('T')[0];
+{% endblock %}

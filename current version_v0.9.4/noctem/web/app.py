@@ -4,7 +4,9 @@ Read-only view of goals, projects, and tasks.
 """
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import ipaddress
 import json
+import re
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 
@@ -59,12 +61,13 @@ class User:
 class Admin(User):
     role: str = "admin"
 
-
-def create_app() -> Flask:
+def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True) -> Flask:
     """Create and configure the Flask application."""
-    app = Flask(__name__, 
-                template_folder="templates",
-                static_folder="static")
+    app = Flask(
+        __name__,
+        template_folder="templates_portal" if portal_mode else "templates",
+        static_folder="static",
+    )
     app.secret_key = 'noctem-dev-key'  # For flash messages
 
     def _calendar_redirect_response(default_endpoint: str = "calendar_upload"):
@@ -73,17 +76,36 @@ def create_app() -> Flask:
             return redirect(url_for("settings", _anchor="calendar-import"))
         return redirect(url_for(default_endpoint))
 
-    def _is_local_request() -> bool:
-        remote = (
+    def _request_remote_ip() -> str:
+        return (
             (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
             or str(request.remote_addr or "")
         )
-        return remote in {"127.0.0.1", "::1", "localhost"}
+
+    def _is_private_request() -> bool:
+        remote = _request_remote_ip()
+        if remote in {"localhost", ""}:
+            return True
+        try:
+            addr = ipaddress.ip_address(remote)
+        except ValueError:
+            return False
+        if addr.is_loopback or addr.is_private:
+            return True
+        if isinstance(addr, ipaddress.IPv4Address):
+            if addr in ipaddress.ip_network("100.64.0.0/10"):
+                return True
+        return False
 
     def _seed_default_cu_session() -> None:
         if session.get("cu_role"):
             return
-        if _is_local_request():
+        if portal_mode:
+            session["cu_role"] = "public"
+            session["cu_user_id"] = 0
+            session["cu_username"] = "public"
+            session["cu_member_id"] = None
+        elif _is_private_request():
             session["cu_role"] = "admin"
             session["cu_user_id"] = 1
             session["cu_username"] = "cor_unum_admin"
@@ -163,9 +185,107 @@ def create_app() -> Flask:
             return jsonify({"success": False, "error": "Member or admin access required"}), 403
         return None
 
+    def _cu_assume_capabilities(user: User | None = None) -> dict:
+        current = user or _get_current_cu_user()
+        is_local = _is_private_request()
+        return {
+            "is_local_request": is_local,
+            "can_assume_admin": bool(current.is_admin or (is_local and not portal_mode)),
+            "can_assume_member": True,
+        }
+
+    def _is_portal_page_allowed(path: str) -> bool:
+        if path in {
+            "/",
+            "/health",
+            "/favicon.ico",
+            "/cor-unum",
+            "/cor-unum/upcoming",
+            "/cor-unum/add-event",
+            "/cor-unum/db/events",
+            "/cor-unum/db/artists",
+            "/cor-unum/db/venues",
+        }:
+            return True
+        if re.fullmatch(r"/cor-unum/(event|artist|venue)/\d+", path):
+            return True
+        if path.startswith("/static/"):
+            return True
+        return False
+
+    def _is_portal_api_allowed(path: str) -> bool:
+        if path in {
+            "/api/cor-unum/session",
+            "/api/cor-unum/session/assume",
+            "/api/cor-unum/upcoming",
+            "/api/cor-unum/events",
+            "/api/cor-unum/events/create",
+            "/api/cor-unum/artists",
+            "/api/cor-unum/artists/search",
+            "/api/cor-unum/venues",
+            "/api/cor-unum/venues/search",
+            "/api/cor-unum/suggestions",
+        }:
+            return True
+        if re.fullmatch(r"/api/cor-unum/events/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/events/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/artists/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/artists/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/venues/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/venues/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/history/(event|artist|venue|event_source)/\d+", path):
+            return True
+        return False
+
+    def _enforce_portal_scope():
+        path = str(request.path or "")
+        if path in {"/", "/cor-unum"}:
+            return redirect(url_for("cor_unum_upcoming"))
+        if path.startswith("/api/"):
+            if not _is_portal_api_allowed(path):
+                return jsonify({"success": False, "error": "Endpoint not available in portal mode"}), 403
+            return None
+        if _is_portal_page_allowed(path):
+            return None
+        return redirect(url_for("cor_unum_upcoming"))
+
+    def _enforce_cu_scope():
+        if portal_mode:
+            return _enforce_portal_scope()
+        path = str(request.path or "")
+        if path.startswith("/static/") or path in {"/favicon.ico", "/health"}:
+            return None
+        if not cor_unum_private_only:
+            return None
+        if _is_private_request():
+            return None
+        if path.startswith("/cor-unum"):
+            return redirect(url_for("dashboard"))
+        if path.startswith("/api/cor-unum"):
+            return jsonify({"success": False, "error": "Cor Unum dashboard APIs are private-only"}), 403
+        return None
+
+    @app.context_processor
+    def _inject_cu_template_context():
+        current = _get_current_cu_user()
+        return {
+            "cu_session_user": current,
+            "cu_is_local_request": _is_private_request(),
+            "cu_show_session_controls": portal_mode,
+        }
+
     @app.before_request
     def _bootstrap_cu_session():
         _get_current_cu_user()
+        private_scope_response = _enforce_cu_scope()
+        if private_scope_response is not None:
+            return private_scope_response
     
     @app.route("/")
     def dashboard():
@@ -2224,6 +2344,7 @@ def create_app() -> Flask:
         return render_template("cor_unum_db.html", table="source-registry", title="Source Registry")
     def _cu_session_payload(user: User | None = None) -> dict:
         current = user or _get_current_cu_user()
+        capabilities = _cu_assume_capabilities(current)
         return {
             "user_id": current.user_id,
             "username": current.username,
@@ -2233,6 +2354,9 @@ def create_app() -> Flask:
             "is_admin": current.is_admin,
             "is_member": current.is_member,
             "can_mutate": current.is_member,
+            "is_local_request": capabilities["is_local_request"],
+            "can_assume_admin": capabilities["can_assume_admin"],
+            "can_assume_member": capabilities["can_assume_member"],
         }
 
     def _parse_suggestion_payload(raw_payload: str | None) -> dict:
@@ -2309,26 +2433,35 @@ def create_app() -> Flask:
         data = request.get_json(silent=True) or {}
         role = str(data.get("role") or "").strip().lower()
         current = _get_current_cu_user()
+        capabilities = _cu_assume_capabilities(current)
         if role not in {"admin", "member", "public"}:
             return jsonify({"success": False, "error": "role must be admin, member, or public"}), 400
         if role == "admin":
-            if not current.is_admin and not _is_local_request():
+            if not capabilities["can_assume_admin"]:
                 return jsonify({"success": False, "error": "Admin role assumption not allowed"}), 403
             _set_cu_session_role(role="admin", username="cor_unum_admin", user_id=1, member_id=None)
             return jsonify({"success": True, "session": _cu_session_payload()})
         if role == "public":
             _set_cu_session_role(role="public", username="public", user_id=0, member_id=None)
             return jsonify({"success": True, "session": _cu_session_payload()})
+        if not capabilities["can_assume_member"]:
+            return jsonify({"success": False, "error": "Member role assumption not allowed"}), 403
         member_id = data.get("member_id")
-        username = str(data.get("username") or "").strip()
+        username = str(data.get("username") or data.get("member_username") or "").strip()
+        if member_id is None and not username:
+            return jsonify({"success": False, "error": "member_id or username required for member role"}), 400
         with get_db() as conn:
             member = None
             if member_id is not None:
+                try:
+                    lookup_member_id = int(member_id)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "member_id must be an integer"}), 400
                 member = conn.execute(
                     """SELECT id, username, artist_id
                        FROM cu_members
                        WHERE id = ? AND is_active = 1""",
-                    (int(member_id),),
+                    (lookup_member_id,),
                 ).fetchone()
             elif username:
                 member = conn.execute(
@@ -2809,10 +2942,11 @@ def create_app() -> Flask:
 
     @app.route("/api/cor-unum/events/create", methods=["POST"])
     def api_cu_create_event():
-        admin_error = _require_cu_admin()
-        if admin_error:
-            return admin_error
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
         from ..ingestion.city_tags import LOCAL_CITY_TAG
+        from ..ingestion.history import record_entity_change
         from ..ingestion.models import FALLBACK_VENUE_NAME
         data = request.get_json(silent=True) or {}
         title = (data.get("title") or "").strip()
@@ -2824,6 +2958,7 @@ def create_app() -> Flask:
         venue_name = (data.get("venue_name") or "").strip()
         description = (data.get("description") or "").strip()
         artist_list = data.get("artists") or []
+        actor = _cu_actor_label()
 
         with get_db() as conn:
             # Resolve or create venue
@@ -2877,6 +3012,15 @@ def create_app() -> Flask:
                             (art_name, datetime.utcnow().isoformat()),
                         )
                         art_id = cur2.lastrowid
+                        record_entity_change(
+                            conn,
+                            entity_type="artist",
+                            entity_id=int(art_id),
+                            operation="cor_unum.artist.create",
+                            summary=f"Artist created while adding event {title}",
+                            actor=actor,
+                            details={"event_id": int(event_id)},
+                        )
                         if art.get("is_local"):
                             conn.execute(
                                 "INSERT OR IGNORE INTO cu_artist_tags (artist_id, tag) VALUES (?, ?)",
@@ -2886,6 +3030,19 @@ def create_app() -> Flask:
                     "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
                     (event_id, art_id),
                 )
+            record_entity_change(
+                conn,
+                entity_type="event",
+                entity_id=int(event_id),
+                operation="cor_unum.event.create",
+                summary=f"Created event '{title}'",
+                actor=actor,
+                details={
+                    "date": date_str,
+                    "venue_id": int(venue_id) if venue_id else None,
+                    "artist_count": len(artist_list),
+                },
+            )
 
         return jsonify({"success": True, "event_id": event_id})
 
@@ -3054,17 +3211,145 @@ def create_app() -> Flask:
         )
         return jsonify({"success": True})
 
+    @app.route("/api/cor-unum/events/<int:event_id>/update", methods=["POST"])
+    def api_cu_update_event(event_id):
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        assignments: list[str] = []
+        params: list = []
+        title = data.get("title")
+        date_value = data.get("date")
+        description = data.get("description")
+        venue_id = data.get("venue_id")
+        venue_name = str(data.get("venue_name") or "").strip()
+        if title is not None:
+            assignments.append("title = ?")
+            params.append(str(title).strip())
+        if date_value is not None:
+            assignments.append("date = ?")
+            params.append(str(date_value).strip())
+        if description is not None:
+            assignments.append("description = ?")
+            params.append(str(description).strip())
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, title FROM cu_events WHERE id = ?",
+                (event_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Event not found"}), 404
+            if venue_id is not None:
+                resolved_venue_id = int(venue_id) if str(venue_id).strip() else None
+                if resolved_venue_id is not None:
+                    venue_row = conn.execute(
+                        "SELECT id, alias_of FROM cu_venues WHERE id = ?",
+                        (resolved_venue_id,),
+                    ).fetchone()
+                    if not venue_row:
+                        return jsonify({"success": False, "error": "Venue not found"}), 404
+                    resolved_venue_id = int(venue_row["alias_of"] or venue_row["id"])
+                assignments.append("venue_id = ?")
+                params.append(resolved_venue_id)
+            elif venue_name:
+                venue_row = conn.execute(
+                    "SELECT id, alias_of FROM cu_venues WHERE name = ?",
+                    (venue_name,),
+                ).fetchone()
+                if venue_row:
+                    resolved_venue_id = int(venue_row["alias_of"] or venue_row["id"])
+                else:
+                    created = conn.execute(
+                        "INSERT INTO cu_venues (name) VALUES (?)",
+                        (venue_name,),
+                    )
+                    resolved_venue_id = int(created.lastrowid)
+                    record_entity_change(
+                        conn,
+                        entity_type="venue",
+                        entity_id=resolved_venue_id,
+                        operation="cor_unum.venue.create",
+                        summary=f"Created venue '{venue_name}'",
+                        actor=actor,
+                        details={"event_id": int(event_id)},
+                    )
+                assignments.append("venue_id = ?")
+                params.append(resolved_venue_id)
+            if not assignments:
+                return jsonify({"success": False, "error": "No fields to update"}), 400
+            params.append(event_id)
+            conn.execute(
+                f"UPDATE cu_events SET {', '.join(assignments)} WHERE id = ?",
+                tuple(params),
+            )
+            record_entity_change(
+                conn,
+                entity_type="event",
+                entity_id=int(event_id),
+                operation="cor_unum.event.update",
+                summary=f"Updated event '{existing['title']}'",
+                actor=actor,
+                details={"fields": list(data.keys())},
+            )
+        return jsonify({"success": True})
+
+    @app.route("/api/cor-unum/venues/<int:venue_id>/update", methods=["POST"])
+    def api_cu_update_venue(venue_id):
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        assignments: list[str] = []
+        params: list = []
+        for field in ("name", "address", "url"):
+            if field in data:
+                assignments.append(f"{field} = ?")
+                params.append((data.get(field) or "").strip() or None)
+        if not assignments:
+            return jsonify({"success": False, "error": "No fields to update"}), 400
+        params.append(venue_id)
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, name FROM cu_venues WHERE id = ?",
+                (venue_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Venue not found"}), 404
+            conn.execute(
+                f"UPDATE cu_venues SET {', '.join(assignments)} WHERE id = ?",
+                tuple(params),
+            )
+            record_entity_change(
+                conn,
+                entity_type="venue",
+                entity_id=int(venue_id),
+                operation="cor_unum.venue.update",
+                summary=f"Updated venue '{existing['name']}'",
+                actor=actor,
+                details={"fields": list(data.keys())},
+            )
+        return jsonify({"success": True})
+
     @app.route("/api/cor-unum/artists/<int:artist_id>/update", methods=["POST"])
     def api_cu_update_artist(artist_id):
-        admin_error = _require_cu_admin()
-        if admin_error:
-            return admin_error
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
         from ..ingestion.city_tags import set_local_yvr
+        from ..ingestion.history import record_entity_change
         data = request.get_json(silent=True) or {}
         updates = []
         params = []
         if "is_local" in data:
             pass
+        if "name" in data:
+            updates.append("name = ?")
+            params.append((data["name"] or "").strip())
         if "soundcloud_url" in data:
             updates.append("soundcloud_url = ?")
             params.append(data["soundcloud_url"].strip() or None)
@@ -3082,14 +3367,39 @@ def create_app() -> Flask:
             if "is_local" not in data:
                 return jsonify({"success": False, "error": "No fields to update"}), 400
         params.append(artist_id)
+        actor = _cu_actor_label()
         with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, name FROM cu_artists WHERE id = ?",
+                (artist_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Artist not found"}), 404
             if updates:
                 conn.execute(
                     f"UPDATE cu_artists SET {', '.join(updates)} WHERE id = ?",
                     params,
                 )
+                record_entity_change(
+                    conn,
+                    entity_type="artist",
+                    entity_id=int(artist_id),
+                    operation="cor_unum.artist.update",
+                    summary=f"Updated artist '{existing['name']}'",
+                    actor=actor,
+                    details={"fields": list(data.keys())},
+                )
             if "is_local" in data:
                 set_local_yvr(conn, artist_id, bool(data["is_local"]))
+                record_entity_change(
+                    conn,
+                    entity_type="artist",
+                    entity_id=int(artist_id),
+                    operation="cor_unum.artist.locality.update",
+                    summary=f"Updated local tag for artist '{existing['name']}'",
+                    actor=actor,
+                    details={"is_local": bool(data["is_local"])},
+                )
         return jsonify({"success": True})
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/check-locality", methods=["POST"])
@@ -3104,8 +3414,9 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/artists/check-all-locality", methods=["POST"])
     def api_cu_check_all_locality():
         from ..ingestion.service import check_all_artist_fingerprints
-        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
-        mode = (request.args.get("mode") or "unchecked").strip()
+        raw_limit = request.args.get("limit", 30, type=int)
+        limit = max(0, min(raw_limit if raw_limit is not None else 30, 200))
+        mode = (request.args.get("mode") or "unchecked").strip().lower()
         result = check_all_artist_fingerprints("soundcloud", limit=limit, mode=mode)
         return jsonify({"success": True, "result": result})
 
@@ -3126,8 +3437,9 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/artists/check-all-fingerprint/<source_key>", methods=["POST"])
     def api_cu_check_all_artist_fingerprints(source_key):
         from ..ingestion.service import check_all_artist_fingerprints
-        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
-        mode = (request.args.get("mode") or "unchecked").strip()
+        raw_limit = request.args.get("limit", 30, type=int)
+        limit = max(0, min(raw_limit if raw_limit is not None else 30, 200))
+        mode = (request.args.get("mode") or "unchecked").strip().lower()
         result = check_all_artist_fingerprints(source_key, limit=limit, mode=mode)
         if result.get("error"):
             return jsonify({"success": False, "error": result["error"]}), 400

@@ -1,0 +1,108 @@
+{% extends "cor_unum_base.html" %}
+{% block title %}Cor Unum — {{ title }}{% endblock %}
+
+{% block cu_extra_style %}
+.cu-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.cu-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.cu-header h1 { font-size: 1.3rem; margin: 0; }
+.cu-search { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.7rem; border-radius: 4px; font-size: 0.82rem; width: 220px; }
+.cu-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.cu-table th, .cu-table td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid #3c3c3c; }
+.cu-table th { color: #9aa0a6; font-weight: 500; background: #2d2d2d; position: sticky; top: 0; }
+.cu-pager { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; font-size: 0.82rem; color: #9aa0a6; }
+.cu-pager button { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
+.cu-pager button:disabled { opacity: 0.4; cursor: default; }
+.cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+{% endblock %}
+
+{% block cu_content %}
+<div class="cu-wrap">
+    <div class="cu-header">
+        <h1>{{ title }}</h1>
+        {% if table in ['events', 'artists', 'venues'] %}
+        <input class="cu-search" id="searchInput" placeholder="Search..." oninput="debouncedLoad()">
+        {% endif %}
+        {% if table == 'artists' %}
+        <select class="cu-search" id="localFilter" onchange="currentPage=1;loadData()" style="width:auto;">
+            <option value="">All Artists</option>
+            <option value="local">Vancouver Only</option>
+            <option value="canadian">Canadian Only</option>
+            <option value="not_local">Not Vancouver</option>
+            <option value="unchecked">Unchecked</option>
+        </select>
+        {% endif %}
+    </div>
+    <table class="cu-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"><tr><td colspan="8" style="color:#9aa0a6;font-style:italic;padding:1rem">Loading...</td></tr></tbody>
+    </table>
+    <div class="cu-pager">
+        <button id="prevBtn" onclick="changePage(-1)" disabled>← Prev</button>
+        <span id="pageInfo">Page 1</span>
+        <button id="nextBtn" onclick="changePage(1)">Next →</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+const TABLE = '{{ table }}';
+let currentPage = 1;
+let debounceTimer = null;
+
+const COLUMNS = {
+    'events': ['ID','Title','Date','Venue','Created'],
+    'artists': ['ID','Name','Last Seen','Created'],
+    'venues': ['ID','Name','Address','Verified','Created'],
+    'event-sources': ['ID','Event','Source Type','Source URL','Fingerprint','Captured'],
+    'source-registry': ['ID','Key','Label','Kind','Enabled','Last Run','Status','Needs Fix'],
+};
+
+const API_MAP = {
+    'events': '/api/cor-unum/events',
+    'artists': '/api/cor-unum/artists',
+    'venues': '/api/cor-unum/venues',
+    'event-sources': '/api/cor-unum/event-sources',
+    'source-registry': '/api/cor-unum/source-registry',
+};
+
+function renderHead() {
+    const cols = COLUMNS[TABLE] || [];
+    document.getElementById('table-head').innerHTML = '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr>';
+}
+
+function renderRow(item) {
+    switch(TABLE) {
+        case 'events': return `<td>${item.id}</td><td><a href="/cor-unum/event/${item.id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(item.title||'')}</a></td><td>${item.date||''}</td><td>${escapeHtml(item.venue_name||'')}</td><td style="font-size:0.75rem">${item.created_at||''}</td>`;
+        case 'artists': return `<td>${item.id}</td><td><a href="/cor-unum/artist/${item.id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(item.name||'')}</a></td><td style="font-size:0.75rem">${item.last_seen||'—'}</td><td style="font-size:0.75rem">${item.created_at||''}</td>`;
+        case 'venues': return `<td>${item.id}</td><td><a href="/cor-unum/venue/${item.id}" style="color:#8ab4f8;text-decoration:none">${escapeHtml(item.name||'')}</a></td><td>${escapeHtml(item.address||'—')}</td><td>${item.is_verified?'✓':'—'}</td><td style="font-size:0.75rem">${item.created_at||''}</td>`;
+        case 'event-sources': return `<td>${item.id}</td><td>${escapeHtml(item.event_title||'')}</td><td>${escapeHtml(item.source_type||'')}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis"><a href="${item.source_url||'#'}" target="_blank" style="color:#8ab4f8">${escapeHtml((item.source_url||'').substring(0,50))}</a></td><td style="font-size:0.72rem">${(item.source_fingerprint||'').substring(0,12)}…</td><td style="font-size:0.75rem">${item.captured_at||''}</td>`;
+        case 'source-registry': return `<td>${item.id}</td><td>${escapeHtml(item.source_key||'')}</td><td>${escapeHtml(item.source_label||'')}</td><td>${item.source_kind||''}</td><td>${item.enabled?'✓':'✗'}</td><td style="font-size:0.75rem">${item.last_run_at||'—'}</td><td>${item.last_status||'—'}</td><td>${item.needs_fixing?'⚠':'—'}</td>`;
+        default: return '<td>?</td>';
+    }
+}
+
+async function loadData() {
+    const search = document.getElementById('searchInput');
+    const q = search ? search.value.trim() : '';
+    let url = API_MAP[TABLE] + '?page=' + currentPage + '&per_page=50';
+    if (q) url += '&search=' + encodeURIComponent(q);
+    const localFilter = document.getElementById('localFilter');
+    if (localFilter && localFilter.value) url += '&local=' + localFilter.value;
+    try {
+        const r = await fetch(url);
+        const d = await r.json();
+        const items = d.items || [];
+        const body = document.getElementById('table-body');
+        body.innerHTML = items.length ? items.map(i => '<tr>' + renderRow(i) + '</tr>').join('') : '<tr><td colspan="8" style="color:#9aa0a6;font-style:italic">No records.</td></tr>';
+        document.getElementById('pageInfo').textContent = 'Page ' + d.page + ' of ' + (d.total_pages||1) + ' (' + d.total + ' total)';
+        document.getElementById('prevBtn').disabled = d.page <= 1;
+        document.getElementById('nextBtn').disabled = d.page >= (d.total_pages||1);
+    } catch(e) { console.error('loadData', e); }
+}
+
+function changePage(delta) { currentPage = Math.max(1, currentPage + delta); loadData(); }
+function debouncedLoad() { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => { currentPage = 1; loadData(); }, 300); }
+
+renderHead();
+loadData();
+{% endblock %}

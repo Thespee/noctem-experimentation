@@ -158,6 +158,18 @@ def run_web_server():
         threaded=True,
     )
 
+def run_portal_server():
+    """Run the standalone Cor Unum portal server."""
+    from .web.portal_app import create_portal_app
+    app = create_portal_app()
+    app.run(
+        host=Config.portal_host(),
+        port=Config.portal_port(),
+        debug=False,
+        use_reloader=False,
+        threaded=True,
+    )
+
 
 def run_cli():
     """Run the CLI interface."""
@@ -200,10 +212,10 @@ def main():
     parser = argparse.ArgumentParser(description="Noctem v0.6.0 Executive Assistant")
     parser.add_argument(
         "mode",
-        choices=["bot", "web", "cli", "all", "init"],
+        choices=["bot", "web", "portal", "cli", "all", "init"],
         default="cli",
         nargs="?",
-        help="Run mode: bot (Telegram), web (dashboard), cli (terminal), all, or init (setup DB)",
+        help="Run mode: bot (Telegram), web (dashboard), portal (Cor Unum portal), cli (terminal), all, or init (setup DB)",
     )
     parser.add_argument(
         "--port",
@@ -243,10 +255,14 @@ def main():
         print("1. Set Telegram token: python -m noctem.cli, then: set telegram_bot_token YOUR_TOKEN")
         print("2. Run CLI: python -m noctem cli")
         print("3. Run web: python -m noctem web")
+        print("4. Run Cor Unum portal: python -m noctem portal")
         return
     
     if args.port:
-        Config.set("web_port", args.port)
+        if args.mode == "portal":
+            Config.set("portal_port", args.port)
+        else:
+            Config.set("web_port", args.port)
     
     if args.mode == "cli":
         run_cli()
@@ -255,6 +271,11 @@ def main():
         if not args.quiet:
             logger.info(f"Starting web dashboard on http://{Config.web_host()}:{Config.web_port()}")
         run_web_server()
+
+    elif args.mode == "portal":
+        if not args.quiet:
+            logger.info(f"Starting Cor Unum portal on http://{Config.portal_host()}:{Config.portal_port()}")
+        run_portal_server()
     
     elif args.mode == "bot":
         token = Config.telegram_token()
