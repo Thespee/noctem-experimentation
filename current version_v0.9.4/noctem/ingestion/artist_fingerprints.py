@@ -60,11 +60,12 @@ def check_artist_fingerprint(source_key: str, artist_id: int, force: bool = Fals
     return result
 
 
-def check_all_fingerprints(source_key: str, limit: int = 50, mode: str = "unchecked") -> dict:
+def check_all_fingerprints(source_key: str, limit: int = 30, mode: str = "unchecked") -> dict:
     entry = _FINGERPRINT_REGISTRY.get(source_key)
     if not entry:
         return {"error": f"Unknown fingerprint source: {source_key}"}
-    recheck_all = (mode or "").strip().lower() == "all"
+    normalized_mode = (mode or "").strip().lower()
+    recheck_all = normalized_mode in {"all", "all_empty"} or int(limit) <= 0
     result = entry["check_all_fn"](limit=limit, recheck_all=recheck_all)
     if isinstance(result, dict):
         result.setdefault("source_key", source_key)

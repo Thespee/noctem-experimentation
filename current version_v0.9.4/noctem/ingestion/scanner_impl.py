@@ -35,6 +35,14 @@ class EventScraperScanner(BaseIngestionScanner):
                     summary["diagnostics"] = diagnostics
             except Exception:
                 pass
+        if summary["events_scraped"] == 0:
+            diagnostics = summary.get("diagnostics")
+            if isinstance(diagnostics, dict) and diagnostics.get("zero_yield_should_error"):
+                zero_yield_reason = str(
+                    diagnostics.get("zero_yield_reason")
+                    or f"{self.source_key}: zero events scraped despite parseable page signals"
+                ).strip()
+                summary["error_message"] = zero_yield_reason[:1000]
         with get_db() as conn:
             for raw in raw_events:
                 result = self._process_event_fn(conn, raw, self.source_key)
@@ -55,22 +63,50 @@ class ArtistFingerprintScanner(BaseIngestionScanner):
 
     def perform(self) -> dict:
         result = self._run_fn()
+        local_count = int(result.get("local_yvr", result.get("local", 0)))
+        not_local_count = int(result.get("not_local_yvr", result.get("not_local", 0)))
         summary = {
             "checked": int(result.get("checked", 0)),
-            "local_yvr": int(result.get("local", 0)),
-            "not_local_yvr": int(result.get("not_local", 0)),
+            "local_yvr": local_count,
+            "not_local_yvr": not_local_count,
             "canadian": int(result.get("canadian", 0)),
             "errors": int(result.get("errors", 0)),
         }
         if "urls_discovered" in result:
             summary["urls_discovered"] = int(result.get("urls_discovered", 0))
+        if "no_match_found" in result:
+            summary["no_match_found"] = int(result.get("no_match_found", 0))
+        if "discovery_provider_errors" in result:
+            summary["discovery_provider_errors"] = int(result.get("discovery_provider_errors", 0))
+        if result.get("provider_error_examples"):
+            summary["provider_error_examples"] = list(result.get("provider_error_examples") or [])[:5]
+        if result.get("no_match_examples"):
+            summary["no_match_examples"] = list(result.get("no_match_examples") or [])[:5]
         if result.get("error_message"):
             summary["error_message"] = str(result["error_message"])[:1000]
         elif summary["checked"] == 0 and summary["errors"] > 0:
-            summary["error_message"] = (
-                f"{self.source_key} fingerprint scan found 0 successful checks "
-                f"and {summary['errors']} errors"
-            )
+            no_match_count = int(summary.get("no_match_found", 0))
+            provider_error_count = int(summary.get("discovery_provider_errors", 0))
+            if provider_error_count and no_match_count:
+                summary["error_message"] = (
+                    f"{self.source_key} fingerprint scan found 0 successful checks; "
+                    f"provider failures={provider_error_count}, no-match={no_match_count}"
+                )
+            elif provider_error_count:
+                summary["error_message"] = (
+                    f"{self.source_key} fingerprint scan found 0 successful checks due to "
+                    f"{provider_error_count} discovery provider failures"
+                )
+            elif no_match_count:
+                summary["no_match_summary"] = (
+                    f"{self.source_key} fingerprint scan found 0 successful checks and "
+                    f"{no_match_count} discovery no-match results"
+                )
+            else:
+                summary["error_message"] = (
+                    f"{self.source_key} fingerprint scan found 0 successful checks "
+                    f"and {summary['errors']} errors"
+                )
         return summary
 
 

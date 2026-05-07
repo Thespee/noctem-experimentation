@@ -319,28 +319,26 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
 # Batch check
 # --------------------------------------------------------------------------
 
-def check_all_unchecked_artists(limit: int = 50,
+def check_all_unchecked_artists(limit: int = 30,
                                 recheck_all: bool = False) -> dict:
     """Batch-check artists via SoundCloud api-v2.
-
-    recheck_all=False: artists not yet checked by SoundCloud (no stored URL).
-    recheck_all=True: recheck all canonical artists.
+    recheck_all=False: random sample of canonical artists with empty SoundCloud URL.
+    recheck_all=True: all canonical artists with empty SoundCloud URL.
     """
     with get_db() as conn:
-        if recheck_all:
+        if recheck_all or int(limit) <= 0:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
                    WHERE alias_of IS NULL
-                   ORDER BY last_seen DESC NULLS LAST
-                   LIMIT ?""",
-                (limit,),
+                     AND (soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')
+                   ORDER BY RANDOM()"""
             ).fetchall()
         else:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
                    WHERE alias_of IS NULL
                      AND (soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')
-                   ORDER BY last_seen DESC NULLS LAST
+                   ORDER BY RANDOM()
                    LIMIT ?""",
                 (limit,),
             ).fetchall()

@@ -95,15 +95,15 @@ def _build_scanner_factories() -> dict[str, callable]:
         ),
         "soundcloud": lambda: ArtistFingerprintScanner(
             "soundcloud",
-            lambda: check_all_unchecked_artists(limit=120, recheck_all=False),
+            lambda: check_all_unchecked_artists(limit=30, recheck_all=False),
         ),
         "spotify": lambda: ArtistFingerprintScanner(
             "spotify",
-            lambda: check_spotify_fingerprints(limit=20),
+            lambda: check_spotify_fingerprints(limit=30),
         ),
         "instagram": lambda: ArtistFingerprintScanner(
             "instagram",
-            lambda: check_instagram_fingerprints(limit=20),
+            lambda: check_instagram_fingerprints(limit=30),
         ),
         "artist_dedupe_janitor": lambda: ArtistDedupeJanitorScanner(),
         "event_dedupe_janitor": lambda: EventDedupeJanitorScanner(),

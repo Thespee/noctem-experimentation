@@ -268,11 +268,37 @@ class TestAPI:
         app.config["TESTING"] = True
         with app.test_client() as c:
             yield c
+    def _remote_request(self, client, method, path, **kwargs):
+        environ_overrides = dict(kwargs.pop("environ_overrides", {}) or {})
+        environ_overrides.setdefault("REMOTE_ADDR", "203.0.113.77")
+        return client.open(path, method=method, environ_overrides=environ_overrides, **kwargs)
 
     def test_cor_unum_page_renders(self, client):
         r = client.get("/cor-unum")
         assert r.status_code == 200
         assert b"Cor Unum" in r.data
+        assert b"Check All Empty" in r.data
+
+    def test_api_check_all_fingerprint_all_empty_mode(self, client, monkeypatch):
+        captured = {}
+
+        def _fake_check_all(source_key, limit, mode):
+            captured["source_key"] = source_key
+            captured["limit"] = limit
+            captured["mode"] = mode
+            return {"checked": 12, "source_key": source_key}
+
+        monkeypatch.setattr(
+            "noctem.ingestion.service.check_all_artist_fingerprints",
+            _fake_check_all,
+        )
+
+        r = client.post("/api/cor-unum/artists/check-all-fingerprint/instagram?mode=all_empty&limit=0")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["success"] is True
+        assert data["result"]["checked"] == 12
+        assert captured == {"source_key": "instagram", "limit": 0, "mode": "all_empty"}
 
     def test_api_sources(self, client):
         r = client.get("/api/cor-unum/sources")
@@ -380,6 +406,259 @@ class TestAPI:
         assert member_session["role"] == "member"
         assert member_session["member_id"] == member["id"]
         assert member_session["is_member"] is True
+    def test_remote_public_scope_limits_non_cor_unum_surfaces(self, client):
+        with db.get_db() as conn:
+            artist_id = conn.execute(
+                "INSERT INTO cu_artists (name) VALUES ('Remote Public Artist')"
+            ).lastrowid
+
+        session_resp = self._remote_request(client, "GET", "/api/cor-unum/session")
+        assert session_resp.status_code == 200
+        session_payload = session_resp.get_json()["session"]
+        assert session_payload["role"] == "public"
+        assert session_payload["is_local_request"] is False
+        assert session_payload["can_assume_admin"] is False
+        assert session_payload["can_assume_member"] is True
+
+        upcoming_page = self._remote_request(client, "GET", "/cor-unum/upcoming")
+        assert upcoming_page.status_code == 200
+        artist_page = self._remote_request(client, "GET", f"/cor-unum/artist/{artist_id}")
+        assert artist_page.status_code == 200
+
+        blocked_db_page = self._remote_request(client, "GET", "/cor-unum/db/events")
+        assert blocked_db_page.status_code in {301, 302}
+        assert blocked_db_page.headers["Location"].endswith("/cor-unum/upcoming")
+
+        blocked_root_page = self._remote_request(client, "GET", "/")
+        assert blocked_root_page.status_code in {301, 302}
+        assert blocked_root_page.headers["Location"].endswith("/cor-unum/upcoming")
+
+        blocked_cu_api = self._remote_request(client, "GET", "/api/cor-unum/events")
+        assert blocked_cu_api.status_code == 403
+        blocked_non_cu_api = self._remote_request(client, "GET", "/api/butler/status")
+        assert blocked_non_cu_api.status_code == 403
+
+    def test_remote_member_scope_allows_datatables_but_blocks_settings_and_admin_apis(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
+                   VALUES (?, ?, 'member', 1, ?)""",
+                ("remote_member_scope", "Remote Member Scope", "seed"),
+            )
+
+        assume_member = self._remote_request(
+            client,
+            "POST",
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "remote_member_scope"},
+        )
+        assert assume_member.status_code == 200
+        member_session = assume_member.get_json()["session"]
+        assert member_session["role"] == "member"
+        assert member_session["is_member"] is True
+        assert member_session["is_local_request"] is False
+
+        for page in (
+            "/cor-unum/db/events",
+            "/cor-unum/db/artists",
+            "/cor-unum/db/venues",
+            "/cor-unum/add-event",
+        ):
+            resp = self._remote_request(client, "GET", page)
+            assert resp.status_code == 200, f"{page} should be available to remote members"
+
+        blocked_settings = self._remote_request(client, "GET", "/cor-unum/settings")
+        assert blocked_settings.status_code in {301, 302}
+        assert blocked_settings.headers["Location"].endswith("/cor-unum/upcoming")
+
+        blocked_sources_api = self._remote_request(client, "GET", "/api/cor-unum/sources")
+        assert blocked_sources_api.status_code == 403
+
+    def test_remote_member_create_event_records_event_and_artist_history(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
+                   VALUES (?, ?, 'member', 1, ?)""",
+                ("remote_member_create", "Remote Member Create", "seed"),
+            )
+
+        assume_member = self._remote_request(
+            client,
+            "POST",
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "remote_member_create"},
+        )
+        assert assume_member.status_code == 200
+
+        create_resp = self._remote_request(
+            client,
+            "POST",
+            "/api/cor-unum/events/create",
+            json={
+                "title": "Remote Member Event",
+                "date": date.today().isoformat(),
+                "venue_name": "Remote Member Venue",
+                "description": "created by remote member",
+                "artists": [{"name": "Remote Member New Artist", "is_new": True, "is_local": True}],
+            },
+        )
+        assert create_resp.status_code == 200
+        create_payload = create_resp.get_json()
+        assert create_payload["success"] is True
+        event_id = create_payload["event_id"]
+
+        event_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/event/{event_id}")
+        assert event_history_resp.status_code == 200
+        event_history = event_history_resp.get_json()["history"]
+        event_create = next((h for h in event_history if h["operation"] == "cor_unum.event.create"), None)
+        assert event_create is not None
+        assert str(event_create["actor"]).startswith("cu_member:remote_member_create")
+
+        with db.get_db() as conn:
+            artist_row = conn.execute(
+                "SELECT id FROM cu_artists WHERE name = ?",
+                ("Remote Member New Artist",),
+            ).fetchone()
+        assert artist_row is not None
+        artist_id = artist_row["id"]
+
+        artist_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
+        assert artist_history_resp.status_code == 200
+        artist_history = artist_history_resp.get_json()["history"]
+        artist_create = next((h for h in artist_history if h["operation"] == "cor_unum.artist.create"), None)
+        assert artist_create is not None
+        assert str(artist_create["actor"]).startswith("cu_member:remote_member_create")
+
+    def test_remote_member_event_and_venue_updates_record_history(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
+                   VALUES (?, ?, 'member', 1, ?)""",
+                ("remote_member_updates", "Remote Member Updates", "seed"),
+            )
+            venue_id = conn.execute(
+                "INSERT INTO cu_venues (name, is_verified) VALUES ('Initial Venue', 1)"
+            ).lastrowid
+            event_id = conn.execute(
+                "INSERT INTO cu_events (title, date, venue_id, description) VALUES (?, ?, ?, ?)",
+                ("Initial Event", date.today().isoformat(), venue_id, "initial"),
+            ).lastrowid
+
+        assume_member = self._remote_request(
+            client,
+            "POST",
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "remote_member_updates"},
+        )
+        assert assume_member.status_code == 200
+
+        update_event = self._remote_request(
+            client,
+            "POST",
+            f"/api/cor-unum/events/{event_id}/update",
+            json={"title": "Updated Event", "venue_name": "Venue Created Via Event Update"},
+        )
+        assert update_event.status_code == 200
+        assert update_event.get_json()["success"] is True
+
+        with db.get_db() as conn:
+            updated_event = conn.execute(
+                """SELECT e.title, v.id AS venue_id, v.name AS venue_name
+                   FROM cu_events e
+                   LEFT JOIN cu_venues v ON v.id = e.venue_id
+                   WHERE e.id = ?""",
+                (event_id,),
+            ).fetchone()
+        assert updated_event["title"] == "Updated Event"
+        assert updated_event["venue_name"] == "Venue Created Via Event Update"
+        new_venue_id = updated_event["venue_id"]
+
+        event_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/event/{event_id}")
+        assert event_history_resp.status_code == 200
+        event_history = event_history_resp.get_json()["history"]
+        event_update = next((h for h in event_history if h["operation"] == "cor_unum.event.update"), None)
+        assert event_update is not None
+        assert str(event_update["actor"]).startswith("cu_member:remote_member_updates")
+
+        venue_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
+        assert venue_history_resp.status_code == 200
+        venue_history = venue_history_resp.get_json()["history"]
+        venue_create = next((h for h in venue_history if h["operation"] == "cor_unum.venue.create"), None)
+        assert venue_create is not None
+        assert str(venue_create["actor"]).startswith("cu_member:remote_member_updates")
+
+        update_venue = self._remote_request(
+            client,
+            "POST",
+            f"/api/cor-unum/venues/{new_venue_id}/update",
+            json={"address": "123 Example St", "url": "https://venue.example.com"},
+        )
+        assert update_venue.status_code == 200
+        assert update_venue.get_json()["success"] is True
+
+        venue_history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/venue/{new_venue_id}")
+        assert venue_history_resp.status_code == 200
+        venue_history = venue_history_resp.get_json()["history"]
+        venue_update = next((h for h in venue_history if h["operation"] == "cor_unum.venue.update"), None)
+        assert venue_update is not None
+        assert str(venue_update["actor"]).startswith("cu_member:remote_member_updates")
+
+    def test_remote_member_artist_update_records_update_and_locality_history(self, client):
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
+                   VALUES (?, ?, 'member', 1, ?)""",
+                ("remote_member_artist", "Remote Member Artist", "seed"),
+            )
+            artist_id = conn.execute(
+                "INSERT INTO cu_artists (name, is_canadian, canadian) VALUES (?, 0, 0)",
+                ("Artist Before Member Update",),
+            ).lastrowid
+
+        assume_member = self._remote_request(
+            client,
+            "POST",
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "remote_member_artist"},
+        )
+        assert assume_member.status_code == 200
+
+        update_artist = self._remote_request(
+            client,
+            "POST",
+            f"/api/cor-unum/artists/{artist_id}/update",
+            json={
+                "name": "Artist After Member Update",
+                "is_local": True,
+                "is_canadian": True,
+                "spotify_url": "https://open.spotify.com/artist/memberupdate",
+            },
+        )
+        assert update_artist.status_code == 200
+        assert update_artist.get_json()["success"] is True
+
+        with db.get_db() as conn:
+            artist_row = conn.execute(
+                "SELECT name, is_canadian FROM cu_artists WHERE id = ?",
+                (artist_id,),
+            ).fetchone()
+            local_tag_row = conn.execute(
+                "SELECT tag FROM cu_artist_tags WHERE artist_id = ?",
+                (artist_id,),
+            ).fetchone()
+        assert artist_row["name"] == "Artist After Member Update"
+        assert artist_row["is_canadian"] == 1
+        assert local_tag_row is not None
+
+        history_resp = self._remote_request(client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
+        assert history_resp.status_code == 200
+        history_items = history_resp.get_json()["history"]
+        general_update = next((h for h in history_items if h["operation"] == "cor_unum.artist.update"), None)
+        locality_update = next((h for h in history_items if h["operation"] == "cor_unum.artist.locality.update"), None)
+        assert general_update is not None
+        assert locality_update is not None
+        assert str(general_update["actor"]).startswith("cu_member:remote_member_artist")
+        assert str(locality_update["actor"]).startswith("cu_member:remote_member_artist")
 
     def test_public_suggestion_accept_updates_event_and_history(self, client):
         with db.get_db() as conn:
@@ -531,13 +810,126 @@ class TestRunSummary:
         assert latest["source_key"] == "test_source"
         assert latest["events_ingested"] == 5
 
+# =========================================================================
+# Scanner behavior tests
+# =========================================================================
+
+class TestScannerBehavior:
+    def test_generic_date_parser_supports_weekday_prefixed_format(self):
+        from ..ingestion.sources.generic_sites import _parse_date
+        assert _parse_date("Sat May 30, 2026") == date(2026, 5, 30)
+    def test_generic_date_parser_supports_day_month_weekday_format(self):
+        from ..ingestion.sources.generic_sites import _parse_date
+        assert _parse_date("Sat 16 May", default_year=2026) == date(2026, 5, 16)
+
+    def test_generic_date_parser_supports_no_year_time_format(self):
+        from ..ingestion.sources.generic_sites import _parse_date
+        assert _parse_date("May 6 8:00 PM", default_year=2026) == date(2026, 5, 6)
+
+    def test_orange_vancouver_location_helper(self):
+        from ..ingestion.sources.generic_sites import _is_vancouver_location
+        assert _is_vancouver_location("Rickshaw Theatre", "Vancouver, BC")
+        assert _is_vancouver_location("Venue", "YVR")
+        assert not _is_vancouver_location("The Phoenix Bar and Grill", "Victoria, British Columbia")
+
+    def test_event_scanner_zero_yield_diagnostics_marks_run_error(self):
+        from ..ingestion.scanner_impl import EventScraperScanner
+
+        class _ZeroYieldScraper:
+            def run(self):
+                return []
+
+            def get_diagnostics(self):
+                return {
+                    "zero_yield_should_error": True,
+                    "zero_yield_reason": "ticketweb_ca: parsed 0 events from 12 candidate cards",
+                }
+
+        scanner = EventScraperScanner(
+            "ticketweb_ca",
+            _ZeroYieldScraper,
+            lambda conn, raw, source_key: {"event_created": 0, "artists_created": 0, "venue_created": 0, "duplicate": 0},
+        )
+        summary = scanner.execute()
+        assert summary["status"] == "error"
+        assert "parsed 0 events" in summary["error_message"]
+        with db.get_db() as conn:
+            row = conn.execute(
+                "SELECT last_status, needs_fixing FROM cu_source_registry WHERE source_key = ?",
+                ("ticketweb_ca",),
+            ).fetchone()
+        assert row["last_status"] == "error"
+        assert row["needs_fixing"] == 1
+
+    def test_event_scanner_zero_yield_without_diagnostics_stays_success(self):
+        from ..ingestion.scanner_impl import EventScraperScanner
+
+        class _QuietZeroYieldScraper:
+            def run(self):
+                return []
+
+        scanner = EventScraperScanner(
+            "ticketweb_ca",
+            _QuietZeroYieldScraper,
+            lambda conn, raw, source_key: {"event_created": 0, "artists_created": 0, "venue_created": 0, "duplicate": 0},
+        )
+        summary = scanner.execute()
+        assert summary["status"] == "success"
+        assert summary.get("error_message") is None
+
+    def test_fingerprint_scanner_uses_classified_no_match_message(self):
+        from ..ingestion.scanner_impl import ArtistFingerprintScanner
+
+        scanner = ArtistFingerprintScanner(
+            "spotify",
+            lambda: {
+                "checked": 0,
+                "local": 0,
+                "not_local": 0,
+                "canadian": 0,
+                "errors": 4,
+                "no_match_found": 4,
+                "discovery_provider_errors": 0,
+            },
+        )
+        summary = scanner.perform()
+        assert summary["no_match_found"] == 4
+        assert summary.get("error_message") is None
+        assert "no-match" in summary.get("no_match_summary", "")
+
+    def test_fingerprint_scanner_uses_classified_provider_failure_message(self):
+        from ..ingestion.scanner_impl import ArtistFingerprintScanner
+
+        scanner = ArtistFingerprintScanner(
+            "spotify",
+            lambda: {
+                "checked": 0,
+                "local_yvr": 0,
+                "not_local_yvr": 0,
+                "canadian": 0,
+                "errors": 2,
+                "no_match_found": 0,
+                "discovery_provider_errors": 2,
+            },
+        )
+        summary = scanner.perform()
+        assert summary["discovery_provider_errors"] == 2
+        assert "provider failures" in summary["error_message"]
+
 
 # =========================================================================
 # Instagram/Spotify checker behavior
 # =========================================================================
 
 class TestFingerprintCheckers:
-    def test_instagram_recheck_all_mode(self, monkeypatch):
+    def test_spotify_normalization_accepts_intl_artist_url(self):
+        from ..ingestion.link_discovery import _normalize_candidate_url
+        normalized = _normalize_candidate_url(
+            "spotify",
+            "https://open.spotify.com/intl-en/artist/6mdiAmATAx73kdxrNrnlao?si=abc123",
+        )
+        assert normalized == "https://open.spotify.com/artist/6mdiAmATAx73kdxrNrnlao"
+    def test_instagram_batches_only_target_empty_urls(self, monkeypatch):
         from ..ingestion.instagram import check_instagram_fingerprints
 
         class _Resp:
@@ -546,26 +938,34 @@ class TestFingerprintCheckers:
                 return None
 
         monkeypatch.setattr("noctem.ingestion.instagram.requests.get", lambda *a, **k: _Resp())
+        monkeypatch.setattr(
+            "noctem.ingestion.instagram.discover_best_profile_url",
+            lambda name, source: {
+                "candidate_url": f"https://instagram.com/{name.lower().replace(' ', '')}/",
+                "confidence_score": 93.0,
+                "query": "mock",
+            },
+        )
 
         with db.get_db() as conn:
             conn.execute(
                 """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
                    VALUES (?, ?, NULL)""",
-                ("IG Unchecked", "https://instagram.com/unchecked"),
+                ("IG Empty", ""),
             )
             conn.execute(
                 """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
                    VALUES (?, ?, ?)""",
-                ("IG Checked", "https://instagram.com/checked", "2026-01-01T00:00:00"),
+                ("IG Filled", "https://instagram.com/filled", "2026-01-01T00:00:00"),
             )
 
-        unchecked_only = check_instagram_fingerprints(limit=20, recheck_all=False)
+        unchecked_only = check_instagram_fingerprints(limit=30, recheck_all=False)
         assert unchecked_only["checked"] == 1
 
-        full = check_instagram_fingerprints(limit=20, recheck_all=True)
-        assert full["checked"] >= 2
+        full = check_instagram_fingerprints(limit=30, recheck_all=True)
+        assert full["checked"] == 0
 
-    def test_spotify_recheck_all_mode_and_per_artist_skip(self, monkeypatch):
+    def test_spotify_per_artist_does_not_skip_and_batches_only_target_empty_urls(self, monkeypatch):
         from ..ingestion.spotify import (
             check_artist_spotify_fingerprint,
             check_spotify_fingerprints,
@@ -577,30 +977,38 @@ class TestFingerprintCheckers:
                 return None
 
         monkeypatch.setattr("noctem.ingestion.spotify.requests.get", lambda *a, **k: _Resp())
+        monkeypatch.setattr(
+            "noctem.ingestion.spotify.discover_best_profile_url",
+            lambda name, source: {
+                "candidate_url": "https://open.spotify.com/artist/mockartistid",
+                "confidence_score": 95.0,
+                "query": "mock",
+            },
+        )
 
         with db.get_db() as conn:
             cur = conn.execute(
                 """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
                    VALUES (?, ?, NULL)""",
-                ("SP Unchecked", "https://open.spotify.com/artist/unchecked"),
+                ("SP Filled", "https://open.spotify.com/artist/filled"),
             )
             artist_id = cur.lastrowid
             conn.execute(
                 """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
-                   VALUES (?, ?, ?)""",
-                ("SP Checked", "https://open.spotify.com/artist/checked", "2026-01-01T00:00:00"),
+                   VALUES (?, ?, NULL)""",
+                ("SP Empty", ""),
             )
 
         first = check_artist_spotify_fingerprint(artist_id, force=False)
         assert not first.get("skipped", False)
         second = check_artist_spotify_fingerprint(artist_id, force=False)
-        assert second.get("skipped", False)
+        assert not second.get("skipped", False)
 
-        unchecked_only = check_spotify_fingerprints(limit=20, recheck_all=False)
-        assert unchecked_only["checked"] <= 1
+        unchecked_only = check_spotify_fingerprints(limit=30, recheck_all=False)
+        assert unchecked_only["checked"] == 1
 
-        full = check_spotify_fingerprints(limit=20, recheck_all=True)
-        assert full["checked"] >= 2
+        full = check_spotify_fingerprints(limit=30, recheck_all=True)
+        assert full["checked"] == 0
 
     def test_instagram_discovery_batch_and_single_persists_url(self, monkeypatch):
         from ..ingestion.instagram import (
@@ -723,3 +1131,109 @@ class TestFingerprintCheckers:
             ).fetchone()
         assert single_row["spotify_url"]
         assert single_row["spotify_checked_at"]
+
+    def test_spotify_discovery_provider_failure_classified_in_batch(self, monkeypatch):
+        from ..ingestion.link_discovery import DiscoveryProviderUnavailable
+        from ..ingestion.spotify import check_spotify_fingerprints
+
+        def _raise_provider_unavailable(*_args, **_kwargs):
+            raise DiscoveryProviderUnavailable("provider cooldown active")
+
+        monkeypatch.setattr(
+            "noctem.ingestion.spotify.discover_best_profile_url",
+            _raise_provider_unavailable,
+        )
+
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("SP Provider Failure",),
+            )
+
+        result = check_spotify_fingerprints(limit=20, recheck_all=False)
+        assert result["errors"] >= 1
+        assert result["discovery_provider_errors"] >= 1
+        assert result["no_match_found"] == 0
+        assert result.get("provider_error_examples")
+
+        with db.get_db() as conn:
+            row = conn.execute(
+                "SELECT spotify_discovery_error FROM cu_artists WHERE name = ?",
+                ("SP Provider Failure",),
+            ).fetchone()
+        assert str(row["spotify_discovery_error"] or "").startswith("provider_unavailable:")
+
+    def test_spotify_discovery_no_match_classified_in_batch(self, monkeypatch):
+        from ..ingestion.spotify import check_spotify_fingerprints
+
+        monkeypatch.setattr(
+            "noctem.ingestion.spotify.discover_best_profile_url",
+            lambda *_args, **_kwargs: None,
+        )
+
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_artists (name, spotify_url, spotify_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("SP No Match",),
+            )
+
+        result = check_spotify_fingerprints(limit=20, recheck_all=False)
+        assert result["errors"] >= 1
+        assert result["no_match_found"] >= 1
+        assert result["discovery_provider_errors"] == 0
+        assert result.get("no_match_examples")
+
+    def test_instagram_discovery_provider_failure_classified_in_batch(self, monkeypatch):
+        from ..ingestion.instagram import check_instagram_fingerprints
+        from ..ingestion.link_discovery import DiscoveryProviderUnavailable
+
+        def _raise_provider_unavailable(*_args, **_kwargs):
+            raise DiscoveryProviderUnavailable("provider cooldown active")
+
+        monkeypatch.setattr(
+            "noctem.ingestion.instagram.discover_best_profile_url",
+            _raise_provider_unavailable,
+        )
+
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("IG Provider Failure",),
+            )
+
+        result = check_instagram_fingerprints(limit=20, recheck_all=False)
+        assert result["errors"] >= 1
+        assert result["discovery_provider_errors"] >= 1
+        assert result["no_match_found"] == 0
+        assert result.get("provider_error_examples")
+
+        with db.get_db() as conn:
+            row = conn.execute(
+                "SELECT instagram_discovery_error FROM cu_artists WHERE name = ?",
+                ("IG Provider Failure",),
+            ).fetchone()
+        assert str(row["instagram_discovery_error"] or "").startswith("provider_unavailable:")
+
+    def test_instagram_discovery_no_match_classified_in_batch(self, monkeypatch):
+        from ..ingestion.instagram import check_instagram_fingerprints
+
+        monkeypatch.setattr(
+            "noctem.ingestion.instagram.discover_best_profile_url",
+            lambda *_args, **_kwargs: None,
+        )
+
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_artists (name, instagram_url, instagram_checked_at)
+                   VALUES (?, NULL, NULL)""",
+                ("IG No Match",),
+            )
+
+        result = check_instagram_fingerprints(limit=20, recheck_all=False)
+        assert result["errors"] >= 1
+        assert result["no_match_found"] >= 1
+        assert result["discovery_provider_errors"] == 0
+        assert result.get("no_match_examples")

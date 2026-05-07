@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 
 from ..db import get_db
 from .artist_fingerprints import (
@@ -83,7 +83,7 @@ def check_artist_fingerprint(source_key: str, artist_id: int, force: bool = Fals
     return _check_artist_fingerprint(source_key, artist_id, force=force)
 
 
-def check_all_artist_fingerprints(source_key: str, limit: int = 50, mode: str = "unchecked") -> dict:
+def check_all_artist_fingerprints(source_key: str, limit: int = 30, mode: str = "unchecked") -> dict:
     return _check_all_fingerprints(source_key, limit=limit, mode=mode)
 
 
@@ -281,7 +281,7 @@ def get_source_registry_page(page: int = 1, per_page: int = 50) -> dict:
 
 def get_upcoming_events(limit: int = 200, locality: str = "all") -> list[dict]:
     """Return upcoming events (today onward) with venue + performers + sources."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = date.today().isoformat()
     locality_filter = (locality or "all").strip().lower()
     with get_db() as conn:
         rows = conn.execute(
