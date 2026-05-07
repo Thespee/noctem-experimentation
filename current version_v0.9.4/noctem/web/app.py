@@ -4,6 +4,9 @@ Read-only view of goals, projects, and tasks.
 """
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import ipaddress
+import json
+import re
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 
@@ -23,6 +26,7 @@ from ..seed.loader import (
 )
 from ..seed.text_parser import parse_natural_seed_text, is_natural_seed_format
 from ..mcp import get_mcp_server
+from ..db import get_db
 
 # Common timezones for settings dropdown
 COMMON_TIMEZONES = [
@@ -40,19 +44,30 @@ COMMON_TIMEZONES = [
 class User:
     user_id: int
     username: str
-    is_admin: bool = False
+    role: str = "public"
+    member_id: int | None = None
+    artist_id: int | None = None
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+    @property
+    def is_member(self) -> bool:
+        return self.role in {"admin", "member"}
 
 
 @dataclass
 class Admin(User):
-    is_admin: bool = True
+    role: str = "admin"
 
-
-def create_app() -> Flask:
+def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True) -> Flask:
     """Create and configure the Flask application."""
-    app = Flask(__name__, 
-                template_folder="templates",
-                static_folder="static")
+    app = Flask(
+        __name__,
+        template_folder="templates_portal" if portal_mode else "templates",
+        static_folder="static",
+    )
     app.secret_key = 'noctem-dev-key'  # For flash messages
 
     def _calendar_redirect_response(default_endpoint: str = "calendar_upload"):
@@ -61,14 +76,111 @@ def create_app() -> Flask:
             return redirect(url_for("settings", _anchor="calendar-import"))
         return redirect(url_for(default_endpoint))
 
-    def _get_current_cu_user() -> User:
-        if session.get("cu_user_id") != 1:
+    def _request_remote_ip() -> str:
+        return (
+            (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+            or str(request.remote_addr or "")
+        )
+
+    def _is_private_request() -> bool:
+        remote = _request_remote_ip()
+        if remote in {"localhost", ""}:
+            return True
+        try:
+            addr = ipaddress.ip_address(remote)
+        except ValueError:
+            return False
+        if addr.is_loopback or addr.is_private:
+            return True
+        if isinstance(addr, ipaddress.IPv4Address):
+            if addr in ipaddress.ip_network("100.64.0.0/10"):
+                return True
+        return False
+
+    def _seed_default_cu_session() -> None:
+        session_mode = str(session.get("cu_app_mode") or "").strip().lower()
+        if portal_mode:
+            if session.get("cu_role") and session_mode == "portal":
+                return
+            session["cu_role"] = "public"
+            session["cu_user_id"] = 0
+            session["cu_username"] = "public"
+            session["cu_member_id"] = None
+            session["cu_app_mode"] = "portal"
+        elif _is_private_request():
+            if session.get("cu_role") and session_mode == "internal":
+                return
+            session["cu_role"] = "admin"
             session["cu_user_id"] = 1
             session["cu_username"] = "cor_unum_admin"
-            session["cu_is_admin"] = True
-        if session.get("cu_is_admin"):
-            return Admin(user_id=1, username=str(session.get("cu_username") or "cor_unum_admin"))
-        return User(user_id=1, username=str(session.get("cu_username") or "cor_unum_user"))
+            session["cu_member_id"] = None
+            session["cu_app_mode"] = "internal"
+        else:
+            if session.get("cu_role"):
+                return
+            session["cu_role"] = "public"
+            session["cu_user_id"] = 0
+            session["cu_username"] = "public"
+            session["cu_member_id"] = None
+            session["cu_app_mode"] = "internal"
+
+    def _set_cu_session_role(
+        *,
+        role: str,
+        username: str,
+        user_id: int,
+        member_id: int | None = None,
+    ) -> None:
+        session["cu_role"] = role
+        session["cu_username"] = username
+        session["cu_user_id"] = int(user_id)
+        session["cu_member_id"] = int(member_id) if member_id is not None else None
+        session["cu_app_mode"] = "portal" if portal_mode else "internal"
+
+    def _get_current_cu_user() -> User:
+        _seed_default_cu_session()
+        role = str(session.get("cu_role") or "public").strip().lower()
+        if role == "admin":
+            return Admin(
+                user_id=int(session.get("cu_user_id") or 1),
+                username=str(session.get("cu_username") or "cor_unum_admin"),
+            )
+        if role == "member":
+            member_id = session.get("cu_member_id")
+            if member_id is None:
+                _set_cu_session_role(role="public", username="public", user_id=0, member_id=None)
+                return User(user_id=0, username="public", role="public")
+            with get_db() as conn:
+                member = conn.execute(
+                    """SELECT m.id, m.username, m.artist_id
+                       FROM cu_members m
+                       WHERE m.id = ? AND m.is_active = 1""",
+                    (int(member_id),),
+                ).fetchone()
+            if not member:
+                _set_cu_session_role(role="public", username="public", user_id=0, member_id=None)
+                return User(user_id=0, username="public", role="public")
+            return User(
+                user_id=10_000 + int(member["id"]),
+                username=str(member["username"]),
+                role="member",
+                member_id=int(member["id"]),
+                artist_id=int(member["artist_id"]) if member["artist_id"] is not None else None,
+            )
+        return User(
+            user_id=int(session.get("cu_user_id") or 0),
+            username=str(session.get("cu_username") or "public"),
+            role="public",
+        )
+
+    def _cu_actor_label(user: User | None = None) -> str:
+        user = user or _get_current_cu_user()
+        if user.role == "admin":
+            return f"cu_admin:{user.username}"
+        if user.role == "member":
+            suffix = f":{user.member_id}" if user.member_id is not None else ""
+            return f"cu_member:{user.username}{suffix}"
+        return "cu_public"
 
     def _require_cu_admin():
         user = _get_current_cu_user()
@@ -76,9 +188,113 @@ def create_app() -> Flask:
             return jsonify({"success": False, "error": "Admin access required"}), 403
         return None
 
+    def _require_cu_member_or_admin():
+        user = _get_current_cu_user()
+        if not user.is_member:
+            return jsonify({"success": False, "error": "Member or admin access required"}), 403
+        return None
+
+    def _cu_assume_capabilities(user: User | None = None) -> dict:
+        current = user or _get_current_cu_user()
+        is_local = _is_private_request()
+        return {
+            "is_local_request": is_local,
+            "can_assume_admin": bool(current.is_admin or (is_local and not portal_mode)),
+            "can_assume_member": True,
+        }
+
+    def _is_portal_page_allowed(path: str) -> bool:
+        if path in {
+            "/",
+            "/health",
+            "/favicon.ico",
+            "/cor-unum",
+            "/cor-unum/upcoming",
+            "/cor-unum/add-event",
+            "/cor-unum/db/events",
+            "/cor-unum/db/artists",
+            "/cor-unum/db/venues",
+        }:
+            return True
+        if re.fullmatch(r"/cor-unum/(event|artist|venue)/\d+", path):
+            return True
+        if path.startswith("/static/"):
+            return True
+        return False
+
+    def _is_portal_api_allowed(path: str) -> bool:
+        if path in {
+            "/api/cor-unum/session",
+            "/api/cor-unum/session/assume",
+            "/api/cor-unum/upcoming",
+            "/api/cor-unum/events",
+            "/api/cor-unum/events/create",
+            "/api/cor-unum/artists",
+            "/api/cor-unum/artists/search",
+            "/api/cor-unum/venues",
+            "/api/cor-unum/venues/search",
+            "/api/cor-unum/suggestions",
+        }:
+            return True
+        if re.fullmatch(r"/api/cor-unum/events/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/events/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/artists/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/artists/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/venues/\d+", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/venues/\d+/update", path):
+            return True
+        if re.fullmatch(r"/api/cor-unum/history/(event|artist|venue|event_source)/\d+", path):
+            return True
+        return False
+
+    def _enforce_portal_scope():
+        path = str(request.path or "")
+        if path in {"/", "/cor-unum"}:
+            return redirect(url_for("cor_unum_upcoming"))
+        if path.startswith("/api/"):
+            if not _is_portal_api_allowed(path):
+                return jsonify({"success": False, "error": "Endpoint not available in portal mode"}), 403
+            return None
+        if _is_portal_page_allowed(path):
+            return None
+        return redirect(url_for("cor_unum_upcoming"))
+
+    def _enforce_cu_scope():
+        if portal_mode:
+            return _enforce_portal_scope()
+        path = str(request.path or "")
+        if path.startswith("/static/") or path in {"/favicon.ico", "/health"}:
+            return None
+        if not cor_unum_private_only:
+            return None
+        if _is_private_request():
+            return None
+        if path.startswith("/cor-unum"):
+            return redirect(url_for("dashboard"))
+        if path.startswith("/api/cor-unum"):
+            return jsonify({"success": False, "error": "Cor Unum dashboard APIs are private-only"}), 403
+        return None
+
+    @app.context_processor
+    def _inject_cu_template_context():
+        current = _get_current_cu_user()
+        return {
+            "cu_session_user": current,
+            "cu_is_local_request": _is_private_request(),
+            "cu_show_session_controls": portal_mode,
+        }
+
     @app.before_request
     def _bootstrap_cu_session():
         _get_current_cu_user()
+        private_scope_response = _enforce_cu_scope()
+        if private_scope_response is not None:
+            return private_scope_response
     
     @app.route("/")
     def dashboard():
@@ -2135,6 +2351,515 @@ def create_app() -> Flask:
     @app.route("/cor-unum/db/source-registry")
     def cor_unum_db_source_registry():
         return render_template("cor_unum_db.html", table="source-registry", title="Source Registry")
+    def _cu_session_payload(user: User | None = None) -> dict:
+        current = user or _get_current_cu_user()
+        capabilities = _cu_assume_capabilities(current)
+        return {
+            "user_id": current.user_id,
+            "username": current.username,
+            "role": current.role,
+            "member_id": current.member_id,
+            "artist_id": current.artist_id,
+            "is_admin": current.is_admin,
+            "is_member": current.is_member,
+            "can_mutate": current.is_member,
+            "is_local_request": capabilities["is_local_request"],
+            "can_assume_admin": capabilities["can_assume_admin"],
+            "can_assume_member": capabilities["can_assume_member"],
+        }
+
+    def _parse_suggestion_payload(raw_payload: str | None) -> dict:
+        if not raw_payload:
+            return {}
+        try:
+            value = json.loads(raw_payload)
+            if isinstance(value, dict):
+                return value
+            return {"value": value}
+        except Exception:
+            return {"message": str(raw_payload)}
+
+    def _serialize_cu_suggestion(row) -> dict:
+        payload = _parse_suggestion_payload(row["payload_json"])
+        return {
+            "id": row["id"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "status": row["status"],
+            "submitted_at": row["submitted_at"],
+            "submitted_by": row["submitted_by"],
+            "submitted_role": row["submitted_role"],
+            "resolved_at": row["resolved_at"],
+            "resolved_by": row["resolved_by"],
+            "decision_notes": row["decision_notes"],
+            "applied_event_id": row["applied_event_id"],
+            "payload": payload,
+        }
+
+    def _list_cu_suggestions(
+        *,
+        status: str | None = "pending",
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        clauses: list[str] = []
+        params: list = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if entity_type:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
+        if entity_id is not None:
+            clauses.append("entity_id = ?")
+            params.append(int(entity_id))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        bounded_limit = max(1, min(int(limit), 500))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"""SELECT *
+                    FROM cu_suggestions
+                    {where_sql}
+                    ORDER BY submitted_at DESC, id DESC
+                    LIMIT ?""",
+                tuple(params + [bounded_limit]),
+            ).fetchall()
+        return [_serialize_cu_suggestion(row) for row in rows]
+
+    def _coerce_bool(value) -> int:
+        if isinstance(value, bool):
+            return 1 if value else 0
+        text = str(value or "").strip().lower()
+        return 1 if text in {"1", "true", "yes", "on"} else 0
+
+    @app.route("/api/cor-unum/session")
+    def api_cu_session():
+        return jsonify({"success": True, "session": _cu_session_payload()})
+
+    @app.route("/api/cor-unum/session/assume", methods=["POST"])
+    def api_cu_assume_session():
+        data = request.get_json(silent=True) or {}
+        role = str(data.get("role") or "").strip().lower()
+        current = _get_current_cu_user()
+        capabilities = _cu_assume_capabilities(current)
+        if role not in {"admin", "member", "public"}:
+            return jsonify({"success": False, "error": "role must be admin, member, or public"}), 400
+        if role == "admin":
+            if not capabilities["can_assume_admin"]:
+                return jsonify({"success": False, "error": "Admin role assumption not allowed"}), 403
+            _set_cu_session_role(role="admin", username="cor_unum_admin", user_id=1, member_id=None)
+            return jsonify({"success": True, "session": _cu_session_payload()})
+        if role == "public":
+            _set_cu_session_role(role="public", username="public", user_id=0, member_id=None)
+            return jsonify({"success": True, "session": _cu_session_payload()})
+        if not capabilities["can_assume_member"]:
+            return jsonify({"success": False, "error": "Member role assumption not allowed"}), 403
+        member_id = data.get("member_id")
+        username = str(data.get("username") or data.get("member_username") or "").strip()
+        if member_id is None and not username:
+            return jsonify({"success": False, "error": "member_id or username required for member role"}), 400
+        claim_requested = member_id is None and bool(username)
+        with get_db() as conn:
+            member = None
+            if member_id is not None:
+                try:
+                    lookup_member_id = int(member_id)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "member_id must be an integer"}), 400
+                member = conn.execute(
+                    """SELECT id, username, artist_id, claimed_at
+                       FROM cu_members
+                       WHERE id = ? AND is_active = 1""",
+                    (lookup_member_id,),
+                ).fetchone()
+            elif username:
+                member = conn.execute(
+                    """SELECT id, username, artist_id, claimed_at
+                       FROM cu_members
+                       WHERE LOWER(username) = LOWER(?) AND is_active = 1""",
+                    (username,),
+                ).fetchone()
+            if member and claim_requested and not member["claimed_at"]:
+                now = datetime.utcnow().isoformat()
+                conn.execute(
+                    "UPDATE cu_members SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL",
+                    (now, int(member["id"])),
+                )
+                member = conn.execute(
+                    """SELECT id, username, artist_id, claimed_at
+                       FROM cu_members
+                       WHERE id = ? AND is_active = 1""",
+                    (int(member["id"]),),
+                ).fetchone()
+        if not member:
+            return jsonify({"success": False, "error": "Active member not found"}), 404
+        _set_cu_session_role(
+            role="member",
+            username=str(member["username"]),
+            user_id=10_000 + int(member["id"]),
+            member_id=int(member["id"]),
+        )
+        return jsonify({"success": True, "session": _cu_session_payload()})
+
+    @app.route("/api/cor-unum/members", methods=["GET"])
+    def api_cu_members():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
+                          a.name AS artist_name
+                   FROM cu_members m
+                   LEFT JOIN cu_artists a ON a.id = m.artist_id
+                   ORDER BY m.id DESC"""
+            ).fetchall()
+        return jsonify({"success": True, "members": [dict(r) for r in rows]})
+
+    @app.route("/api/cor-unum/members", methods=["POST"])
+    def api_cu_create_member():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username") or "").strip()
+        if not username:
+            return jsonify({"success": False, "error": "username required"}), 400
+        display_name = str(data.get("display_name") or "").strip() or username
+        artist_id = data.get("artist_id")
+        artist_name = str(data.get("artist_name") or "").strip()
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing_username = conn.execute(
+                "SELECT id FROM cu_members WHERE LOWER(username) = LOWER(?) LIMIT 1",
+                (username,),
+            ).fetchone()
+            if existing_username:
+                return jsonify({"success": False, "error": "username already exists"}), 409
+            canonical_artist_id = None
+            if artist_id is not None:
+                try:
+                    lookup_artist_id = int(artist_id)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "artist_id must be an integer"}), 400
+                row = conn.execute(
+                    "SELECT id, alias_of FROM cu_artists WHERE id = ?",
+                    (lookup_artist_id,),
+                ).fetchone()
+                if not row:
+                    return jsonify({"success": False, "error": "artist not found"}), 404
+                canonical_artist_id = int(row["alias_of"] or row["id"])
+            elif artist_name:
+                row = conn.execute(
+                    "SELECT id, alias_of FROM cu_artists WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1",
+                    (artist_name,),
+                ).fetchone()
+                if row:
+                    canonical_artist_id = int(row["alias_of"] or row["id"])
+                else:
+                    created = conn.execute(
+                        "INSERT INTO cu_artists (name, last_seen) VALUES (?, ?)",
+                        (artist_name, datetime.utcnow().isoformat()),
+                    )
+                    canonical_artist_id = int(created.lastrowid)
+                    record_entity_change(
+                        conn,
+                        entity_type="artist",
+                        entity_id=canonical_artist_id,
+                        operation="cor_unum.artist.create",
+                        summary=f"Artist created for member {username}",
+                        actor=actor,
+                        details={"username": username},
+                    )
+            if canonical_artist_id is not None:
+                active_member = conn.execute(
+                    """SELECT id, username
+                       FROM cu_members
+                       WHERE artist_id = ? AND is_active = 1
+                       ORDER BY id DESC
+                       LIMIT 1""",
+                    (canonical_artist_id,),
+                ).fetchone()
+                if active_member:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "artist already has an active member",
+                                "member": {"id": int(active_member["id"]), "username": str(active_member["username"])},
+                            }
+                        ),
+                        409,
+                    )
+            created_member = conn.execute(
+                """INSERT INTO cu_members (username, display_name, artist_id, role, is_active, created_by)
+                   VALUES (?, ?, ?, 'member', 1, ?)""",
+                (username, display_name, canonical_artist_id, actor),
+            )
+            member_id = int(created_member.lastrowid)
+            if canonical_artist_id is not None:
+                record_entity_change(
+                    conn,
+                    entity_type="artist",
+                    entity_id=canonical_artist_id,
+                    operation="cor_unum.member.link",
+                    summary=f"Linked member {username} to artist",
+                    actor=actor,
+                    details={"member_id": member_id, "username": username},
+                )
+            member = conn.execute(
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
+                          a.name AS artist_name
+                   FROM cu_members m
+                   LEFT JOIN cu_artists a ON a.id = m.artist_id
+                   WHERE m.id = ?""",
+                (member_id,),
+            ).fetchone()
+        return jsonify({"success": True, "member": dict(member)})
+
+    @app.route("/api/cor-unum/suggestions", methods=["GET"])
+    def api_cu_list_suggestions():
+        status = (request.args.get("status") or "pending").strip().lower() or None
+        entity_type = (request.args.get("entity_type") or "").strip().lower() or None
+        entity_id = request.args.get("entity_id", type=int)
+        limit = max(1, min(request.args.get("limit", 200, type=int), 500))
+        current = _get_current_cu_user()
+        if not current.is_member and (status not in {None, "pending"}):
+            return jsonify({"success": False, "error": "Public view only supports pending suggestions"}), 403
+        return jsonify(
+            {
+                "success": True,
+                "suggestions": _list_cu_suggestions(
+                    status=status,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    limit=limit,
+                ),
+            }
+        )
+
+    @app.route("/api/cor-unum/suggestions", methods=["POST"])
+    def api_cu_submit_suggestion():
+        data = request.get_json(silent=True) or {}
+        entity_type = str(data.get("entity_type") or "").strip().lower()
+        if entity_type not in {"event", "artist"}:
+            return jsonify({"success": False, "error": "entity_type must be event or artist"}), 400
+        entity_id = data.get("entity_id")
+        payload = data.get("payload")
+        if entity_id is None or not isinstance(payload, dict) or not payload:
+            return jsonify({"success": False, "error": "entity_id and payload object required"}), 400
+        current = _get_current_cu_user()
+        now = datetime.utcnow().isoformat()
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        with get_db() as conn:
+            exists = conn.execute(
+                f"SELECT id FROM cu_{entity_type}s WHERE id = ?",
+                (int(entity_id),),
+            ).fetchone()
+            if not exists:
+                return jsonify({"success": False, "error": f"{entity_type} not found"}), 404
+            created = conn.execute(
+                """INSERT INTO cu_suggestions
+                   (entity_type, entity_id, payload_json, status, submitted_by, submitted_role, submitted_at)
+                   VALUES (?, ?, ?, 'pending', ?, ?, ?)""",
+                (
+                    entity_type,
+                    int(entity_id),
+                    payload_json,
+                    current.username,
+                    current.role,
+                    now,
+                ),
+            )
+            suggestion_id = int(created.lastrowid)
+            row = conn.execute("SELECT * FROM cu_suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+        return jsonify({"success": True, "suggestion": _serialize_cu_suggestion(row)})
+
+    @app.route("/api/cor-unum/suggestions/<int:suggestion_id>/resolve", methods=["POST"])
+    def api_cu_resolve_suggestion(suggestion_id: int):
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        decision = str(data.get("decision") or "").strip().lower()
+        if decision not in {"accept", "reject"}:
+            return jsonify({"success": False, "error": "decision must be accept or reject"}), 400
+        notes = str(data.get("notes") or "").strip()
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT id, entity_type, entity_id, payload_json, status
+                   FROM cu_suggestions
+                   WHERE id = ?""",
+                (suggestion_id,),
+            ).fetchone()
+            if not row:
+                return jsonify({"success": False, "error": "Suggestion not found"}), 404
+            if row["status"] != "pending":
+                return jsonify({"success": False, "error": "Suggestion already resolved"}), 409
+            payload = _parse_suggestion_payload(row["payload_json"])
+            now = datetime.utcnow().isoformat()
+            applied_event_id = None
+            if decision == "accept":
+                assignments: list[str] = []
+                values: list = []
+                allowed_fields = {
+                    "event": {"title", "date", "description"},
+                    "artist": {"name", "soundcloud_url", "instagram_url", "spotify_url", "is_canadian"},
+                }
+                for field, value in payload.items():
+                    if field not in allowed_fields[row["entity_type"]]:
+                        continue
+                    if field == "is_canadian":
+                        assignments.append(f"{field} = ?")
+                        values.append(_coerce_bool(value))
+                    else:
+                        assignments.append(f"{field} = ?")
+                        values.append(str(value).strip())
+                if assignments:
+                    values.append(int(row["entity_id"]))
+                    conn.execute(
+                        f"UPDATE cu_{row['entity_type']}s SET {', '.join(assignments)} WHERE id = ?",
+                        tuple(values),
+                    )
+                event = record_entity_change(
+                    conn,
+                    entity_type=row["entity_type"],
+                    entity_id=int(row["entity_id"]),
+                    operation="cor_unum.suggestion.accepted",
+                    summary=f"Suggestion #{suggestion_id} accepted",
+                    actor=actor,
+                    details={"payload": payload, "notes": notes},
+                )
+                applied_event_id = (event or {}).get("event_id")
+            else:
+                record_entity_change(
+                    conn,
+                    entity_type=row["entity_type"],
+                    entity_id=int(row["entity_id"]),
+                    operation="cor_unum.suggestion.rejected",
+                    summary=f"Suggestion #{suggestion_id} rejected",
+                    actor=actor,
+                    details={"payload": payload, "notes": notes},
+                )
+            conn.execute(
+                """UPDATE cu_suggestions
+                   SET status = ?, resolved_at = ?, resolved_by = ?, decision_notes = ?, applied_event_id = ?
+                   WHERE id = ?""",
+                (
+                    "accepted" if decision == "accept" else "rejected",
+                    now,
+                    actor,
+                    notes,
+                    applied_event_id,
+                    suggestion_id,
+                ),
+            )
+            resolved = conn.execute("SELECT * FROM cu_suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+        return jsonify({"success": True, "suggestion": _serialize_cu_suggestion(resolved)})
+
+    @app.route("/api/cor-unum/history/<entity_type>/<int:entity_id>")
+    def api_cu_history(entity_type: str, entity_id: int):
+        if entity_type not in {"event", "artist", "venue", "event_source"}:
+            return jsonify({"success": False, "error": "Unsupported entity type"}), 400
+        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
+        from ..ingestion.history import list_entity_history
+        with get_db() as conn:
+            rows = list_entity_history(
+                conn,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                limit=limit,
+            )
+        history = [
+            {
+                "id": row.get("event_id") or row.get("version_id"),
+                "operation": row.get("operation"),
+                "summary": row.get("summary"),
+                "actor": row.get("created_by"),
+                "details": row.get("details") or {},
+                "created_at": row.get("created_at"),
+            }
+            for row in rows
+        ]
+        return jsonify({"success": True, "history": history})
+
+    @app.route("/api/cor-unum/artists/<int:artist_id>/expand-member", methods=["POST"])
+    def api_cu_expand_member_from_artist(artist_id: int):
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username") or "").strip()
+        if not username:
+            return jsonify({"success": False, "error": "username required"}), 400
+        payload = {
+            "username": username,
+            "display_name": str(data.get("display_name") or "").strip() or username,
+            "artist_id": artist_id,
+        }
+        from ..ingestion.history import record_entity_change
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing_username = conn.execute(
+                "SELECT id FROM cu_members WHERE LOWER(username) = LOWER(?) LIMIT 1",
+                (username,),
+            ).fetchone()
+            if existing_username:
+                return jsonify({"success": False, "error": "username already exists"}), 409
+            row = conn.execute(
+                "SELECT id, alias_of, name FROM cu_artists WHERE id = ?",
+                (artist_id,),
+            ).fetchone()
+            if not row:
+                return jsonify({"success": False, "error": "artist not found"}), 404
+            canonical_artist_id = int(row["alias_of"] or row["id"])
+            active_member = conn.execute(
+                """SELECT id, username
+                   FROM cu_members
+                   WHERE artist_id = ? AND is_active = 1
+                   ORDER BY id DESC
+                   LIMIT 1""",
+                (canonical_artist_id,),
+            ).fetchone()
+            if active_member:
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "artist already has an active member",
+                            "member": {"id": int(active_member["id"]), "username": str(active_member["username"])},
+                        }
+                    ),
+                    409,
+                )
+            created = conn.execute(
+                """INSERT INTO cu_members (username, display_name, artist_id, role, is_active, created_by)
+                   VALUES (?, ?, ?, 'member', 1, ?)""",
+                (username, payload["display_name"], canonical_artist_id, actor),
+            )
+            member_id = int(created.lastrowid)
+            record_entity_change(
+                conn,
+                entity_type="artist",
+                entity_id=canonical_artist_id,
+                operation="cor_unum.member.link",
+                summary=f"Linked member {username} to artist {row['name']}",
+                actor=actor,
+                details={"member_id": member_id, "username": username},
+            )
+            member = conn.execute(
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
+                          a.name AS artist_name
+                   FROM cu_members m
+                   LEFT JOIN cu_artists a ON a.id = m.artist_id
+                   WHERE m.id = ?""",
+                (member_id,),
+            ).fetchone()
+        return jsonify({"success": True, "member": dict(member)})
 
     # --- Cor Unum API endpoints ---
 
@@ -2231,7 +2956,9 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/duplicates")
     def api_cu_duplicates():
         from ..ingestion.service import get_duplicate_candidates
-        return jsonify({"success": True, **get_duplicate_candidates()})
+        payload = get_duplicate_candidates()
+        payload["pending_suggestions"] = _list_cu_suggestions(status="pending", limit=100)
+        return jsonify({"success": True, **payload})
 
     @app.route("/api/cor-unum/duplicates/rescan", methods=["POST"])
     def api_cu_duplicates_rescan():
@@ -2284,18 +3011,94 @@ def create_app() -> Flask:
         return jsonify({"success": True, **result})
 
     # --- Cor Unum: browse pages ---
+    @app.route("/cor-unum/add-artist")
+    def cor_unum_add_artist():
+        """Manual artist creation page (admin only)."""
+        current = _get_current_cu_user()
+        if not current.is_admin:
+            return redirect(url_for("cor_unum"))
+        return render_template("cor_unum_add_artist.html")
 
     @app.route("/cor-unum/add-event")
     def cor_unum_add_event():
         """Manual event creation page."""
         return render_template("cor_unum_add_event.html")
-
-    @app.route("/api/cor-unum/events/create", methods=["POST"])
-    def api_cu_create_event():
+    @app.route("/api/cor-unum/artists/create", methods=["POST"])
+    def api_cu_create_artist():
         admin_error = _require_cu_admin()
         if admin_error:
             return admin_error
+        from ..ingestion.city_tags import LOCAL_CITY_TAG, set_local_yvr
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        name = str(data.get("name") or "").strip()
+        if not name:
+            return jsonify({"success": False, "error": "name required"}), 400
+        soundcloud_url = str(data.get("soundcloud_url") or "").strip() or None
+        instagram_url = str(data.get("instagram_url") or "").strip() or None
+        spotify_url = str(data.get("spotify_url") or "").strip() or None
+        is_canadian = _coerce_bool(data.get("is_canadian"))
+        is_local = bool(data.get("is_local"))
+        actor = _cu_actor_label()
+        now = datetime.utcnow().isoformat()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, alias_of FROM cu_artists WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1",
+                (name,),
+            ).fetchone()
+            if existing:
+                existing_id = int(existing["alias_of"] or existing["id"])
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "artist already exists",
+                            "artist_id": existing_id,
+                        }
+                    ),
+                    409,
+                )
+            created = conn.execute(
+                """INSERT INTO cu_artists (name, soundcloud_url, instagram_url, spotify_url, is_canadian, last_seen)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (name, soundcloud_url, instagram_url, spotify_url, int(is_canadian), now),
+            )
+            artist_id = int(created.lastrowid)
+            if is_local:
+                set_local_yvr(conn, artist_id, True)
+            record_entity_change(
+                conn,
+                entity_type="artist",
+                entity_id=artist_id,
+                operation="cor_unum.artist.create",
+                summary=f"Created artist '{name}'",
+                actor=actor,
+                details={
+                    "is_local": is_local,
+                    "is_canadian": bool(is_canadian),
+                    "source": "manual_dashboard",
+                },
+            )
+            artist = conn.execute(
+                """SELECT a.id, a.name, a.soundcloud_url, a.instagram_url, a.spotify_url, a.is_canadian,
+                          EXISTS (
+                              SELECT 1
+                              FROM cu_artist_tags t
+                              WHERE t.artist_id = a.id AND t.tag = ?
+                          ) AS is_local
+                   FROM cu_artists a
+                   WHERE a.id = ?""",
+                (LOCAL_CITY_TAG, artist_id),
+            ).fetchone()
+        return jsonify({"success": True, "artist": dict(artist)})
+
+    @app.route("/api/cor-unum/events/create", methods=["POST"])
+    def api_cu_create_event():
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
         from ..ingestion.city_tags import LOCAL_CITY_TAG
+        from ..ingestion.history import record_entity_change
         from ..ingestion.models import FALLBACK_VENUE_NAME
         data = request.get_json(silent=True) or {}
         title = (data.get("title") or "").strip()
@@ -2307,8 +3110,37 @@ def create_app() -> Flask:
         venue_name = (data.get("venue_name") or "").strip()
         description = (data.get("description") or "").strip()
         artist_list = data.get("artists") or []
+        current_user = _get_current_cu_user()
+        actor = _cu_actor_label()
 
         with get_db() as conn:
+            member_artist_id = None
+            if current_user.role == "member":
+                if current_user.artist_id is None:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "Member account must be linked to an artist before creating events",
+                            }
+                        ),
+                        409,
+                    )
+                member_artist_row = conn.execute(
+                    "SELECT id, alias_of FROM cu_artists WHERE id = ?",
+                    (int(current_user.artist_id),),
+                ).fetchone()
+                if not member_artist_row:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "Linked artist not found for member account",
+                            }
+                        ),
+                        409,
+                    )
+                member_artist_id = int(member_artist_row["alias_of"] or member_artist_row["id"])
             # Resolve or create venue
             if venue_id:
                 pass  # use existing
@@ -2339,6 +3171,7 @@ def create_app() -> Flask:
             )
 
             # Process artists
+            canonical_artist_ids: set[int] = set()
             for art in artist_list:
                 art_name = (art.get("name") or "").strip()
                 if not art_name:
@@ -2360,15 +3193,47 @@ def create_app() -> Flask:
                             (art_name, datetime.utcnow().isoformat()),
                         )
                         art_id = cur2.lastrowid
+                        record_entity_change(
+                            conn,
+                            entity_type="artist",
+                            entity_id=int(art_id),
+                            operation="cor_unum.artist.create",
+                            summary=f"Artist created while adding event {title}",
+                            actor=actor,
+                            details={"event_id": int(event_id)},
+                        )
                         if art.get("is_local"):
                             conn.execute(
                                 "INSERT OR IGNORE INTO cu_artist_tags (artist_id, tag) VALUES (?, ?)",
                                 (art_id, LOCAL_CITY_TAG),
                             )
+                canonical_artist_ids.add(int(art_id))
                 conn.execute(
                     "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
                     (event_id, art_id),
                 )
+            auto_added_member_artist = False
+            if member_artist_id is not None and member_artist_id not in canonical_artist_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                    (event_id, member_artist_id),
+                )
+                canonical_artist_ids.add(member_artist_id)
+                auto_added_member_artist = True
+            record_entity_change(
+                conn,
+                entity_type="event",
+                entity_id=int(event_id),
+                operation="cor_unum.event.create",
+                summary=f"Created event '{title}'",
+                actor=actor,
+                details={
+                    "date": date_str,
+                    "venue_id": int(venue_id) if venue_id else None,
+                    "artist_count": len(canonical_artist_ids),
+                    "member_artist_enforced": auto_added_member_artist,
+                },
+            )
 
         return jsonify({"success": True, "event_id": event_id})
 
@@ -2396,31 +3261,77 @@ def create_app() -> Flask:
     def api_cu_upcoming():
         from ..ingestion.service import get_upcoming_events
         limit = max(1, min(request.args.get("limit", 200, type=int), 500))
-        return jsonify({"success": True, "events": get_upcoming_events(limit=limit)})
+        locality = (request.args.get("locality") or "all").strip().lower()
+        return jsonify({"success": True, "events": get_upcoming_events(limit=limit, locality=locality)})
 
     @app.route("/api/cor-unum/events/<int:event_id>")
     def api_cu_event_detail(event_id):
         from ..ingestion.service import get_event_detail
+        from ..ingestion.history import list_entity_history
         ev = get_event_detail(event_id)
         if not ev:
             return jsonify({"success": False, "error": "Event not found"}), 404
-        return jsonify({"success": True, "event": ev})
+        with get_db() as conn:
+            rows = list_entity_history(conn, entity_type="event", entity_id=event_id, limit=50)
+        history = [
+            {
+                "id": row.get("event_id") or row.get("version_id"),
+                "operation": row.get("operation"),
+                "summary": row.get("summary"),
+                "actor": row.get("created_by"),
+                "details": row.get("details") or {},
+                "created_at": row.get("created_at"),
+            }
+            for row in rows
+        ]
+        suggestions = _list_cu_suggestions(status=None, entity_type="event", entity_id=event_id, limit=100)
+        return jsonify({"success": True, "event": ev, "history": history, "suggestions": suggestions})
 
     @app.route("/api/cor-unum/artists/<int:artist_id>")
     def api_cu_artist_detail(artist_id):
         from ..ingestion.service import get_artist_detail
+        from ..ingestion.history import list_entity_history
         artist = get_artist_detail(artist_id)
         if not artist:
             return jsonify({"success": False, "error": "Artist not found"}), 404
-        return jsonify({"success": True, "artist": artist})
+        with get_db() as conn:
+            rows = list_entity_history(conn, entity_type="artist", entity_id=artist_id, limit=50)
+        history = [
+            {
+                "id": row.get("event_id") or row.get("version_id"),
+                "operation": row.get("operation"),
+                "summary": row.get("summary"),
+                "actor": row.get("created_by"),
+                "details": row.get("details") or {},
+                "created_at": row.get("created_at"),
+            }
+            for row in rows
+        ]
+        suggestions = _list_cu_suggestions(status=None, entity_type="artist", entity_id=artist_id, limit=100)
+        return jsonify({"success": True, "artist": artist, "history": history, "suggestions": suggestions})
 
     @app.route("/api/cor-unum/venues/<int:venue_id>")
     def api_cu_venue_detail(venue_id):
         from ..ingestion.service import get_venue_detail
+        from ..ingestion.history import list_entity_history
         venue = get_venue_detail(venue_id)
         if not venue:
             return jsonify({"success": False, "error": "Venue not found"}), 404
-        return jsonify({"success": True, "venue": venue})
+        with get_db() as conn:
+            rows = list_entity_history(conn, entity_type="venue", entity_id=venue_id, limit=50)
+        history = [
+            {
+                "id": row.get("event_id") or row.get("version_id"),
+                "operation": row.get("operation"),
+                "summary": row.get("summary"),
+                "actor": row.get("created_by"),
+                "details": row.get("details") or {},
+                "created_at": row.get("created_at"),
+            }
+            for row in rows
+        ]
+        suggestions = _list_cu_suggestions(status=None, entity_type="venue", entity_id=venue_id, limit=100)
+        return jsonify({"success": True, "venue": venue, "history": history, "suggestions": suggestions})
 
     # --- Cor Unum: merge / alias endpoints ---
 
@@ -2491,17 +3402,145 @@ def create_app() -> Flask:
         )
         return jsonify({"success": True})
 
+    @app.route("/api/cor-unum/events/<int:event_id>/update", methods=["POST"])
+    def api_cu_update_event(event_id):
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        assignments: list[str] = []
+        params: list = []
+        title = data.get("title")
+        date_value = data.get("date")
+        description = data.get("description")
+        venue_id = data.get("venue_id")
+        venue_name = str(data.get("venue_name") or "").strip()
+        if title is not None:
+            assignments.append("title = ?")
+            params.append(str(title).strip())
+        if date_value is not None:
+            assignments.append("date = ?")
+            params.append(str(date_value).strip())
+        if description is not None:
+            assignments.append("description = ?")
+            params.append(str(description).strip())
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, title FROM cu_events WHERE id = ?",
+                (event_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Event not found"}), 404
+            if venue_id is not None:
+                resolved_venue_id = int(venue_id) if str(venue_id).strip() else None
+                if resolved_venue_id is not None:
+                    venue_row = conn.execute(
+                        "SELECT id, alias_of FROM cu_venues WHERE id = ?",
+                        (resolved_venue_id,),
+                    ).fetchone()
+                    if not venue_row:
+                        return jsonify({"success": False, "error": "Venue not found"}), 404
+                    resolved_venue_id = int(venue_row["alias_of"] or venue_row["id"])
+                assignments.append("venue_id = ?")
+                params.append(resolved_venue_id)
+            elif venue_name:
+                venue_row = conn.execute(
+                    "SELECT id, alias_of FROM cu_venues WHERE name = ?",
+                    (venue_name,),
+                ).fetchone()
+                if venue_row:
+                    resolved_venue_id = int(venue_row["alias_of"] or venue_row["id"])
+                else:
+                    created = conn.execute(
+                        "INSERT INTO cu_venues (name) VALUES (?)",
+                        (venue_name,),
+                    )
+                    resolved_venue_id = int(created.lastrowid)
+                    record_entity_change(
+                        conn,
+                        entity_type="venue",
+                        entity_id=resolved_venue_id,
+                        operation="cor_unum.venue.create",
+                        summary=f"Created venue '{venue_name}'",
+                        actor=actor,
+                        details={"event_id": int(event_id)},
+                    )
+                assignments.append("venue_id = ?")
+                params.append(resolved_venue_id)
+            if not assignments:
+                return jsonify({"success": False, "error": "No fields to update"}), 400
+            params.append(event_id)
+            conn.execute(
+                f"UPDATE cu_events SET {', '.join(assignments)} WHERE id = ?",
+                tuple(params),
+            )
+            record_entity_change(
+                conn,
+                entity_type="event",
+                entity_id=int(event_id),
+                operation="cor_unum.event.update",
+                summary=f"Updated event '{existing['title']}'",
+                actor=actor,
+                details={"fields": list(data.keys())},
+            )
+        return jsonify({"success": True})
+
+    @app.route("/api/cor-unum/venues/<int:venue_id>/update", methods=["POST"])
+    def api_cu_update_venue(venue_id):
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        assignments: list[str] = []
+        params: list = []
+        for field in ("name", "address", "url"):
+            if field in data:
+                assignments.append(f"{field} = ?")
+                params.append((data.get(field) or "").strip() or None)
+        if not assignments:
+            return jsonify({"success": False, "error": "No fields to update"}), 400
+        params.append(venue_id)
+        actor = _cu_actor_label()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, name FROM cu_venues WHERE id = ?",
+                (venue_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Venue not found"}), 404
+            conn.execute(
+                f"UPDATE cu_venues SET {', '.join(assignments)} WHERE id = ?",
+                tuple(params),
+            )
+            record_entity_change(
+                conn,
+                entity_type="venue",
+                entity_id=int(venue_id),
+                operation="cor_unum.venue.update",
+                summary=f"Updated venue '{existing['name']}'",
+                actor=actor,
+                details={"fields": list(data.keys())},
+            )
+        return jsonify({"success": True})
+
     @app.route("/api/cor-unum/artists/<int:artist_id>/update", methods=["POST"])
     def api_cu_update_artist(artist_id):
-        admin_error = _require_cu_admin()
-        if admin_error:
-            return admin_error
+        member_error = _require_cu_member_or_admin()
+        if member_error:
+            return member_error
         from ..ingestion.city_tags import set_local_yvr
+        from ..ingestion.history import record_entity_change
         data = request.get_json(silent=True) or {}
         updates = []
         params = []
         if "is_local" in data:
             pass
+        if "name" in data:
+            updates.append("name = ?")
+            params.append((data["name"] or "").strip())
         if "soundcloud_url" in data:
             updates.append("soundcloud_url = ?")
             params.append(data["soundcloud_url"].strip() or None)
@@ -2519,14 +3558,39 @@ def create_app() -> Flask:
             if "is_local" not in data:
                 return jsonify({"success": False, "error": "No fields to update"}), 400
         params.append(artist_id)
+        actor = _cu_actor_label()
         with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, name FROM cu_artists WHERE id = ?",
+                (artist_id,),
+            ).fetchone()
+            if not existing:
+                return jsonify({"success": False, "error": "Artist not found"}), 404
             if updates:
                 conn.execute(
                     f"UPDATE cu_artists SET {', '.join(updates)} WHERE id = ?",
                     params,
                 )
+                record_entity_change(
+                    conn,
+                    entity_type="artist",
+                    entity_id=int(artist_id),
+                    operation="cor_unum.artist.update",
+                    summary=f"Updated artist '{existing['name']}'",
+                    actor=actor,
+                    details={"fields": list(data.keys())},
+                )
             if "is_local" in data:
                 set_local_yvr(conn, artist_id, bool(data["is_local"]))
+                record_entity_change(
+                    conn,
+                    entity_type="artist",
+                    entity_id=int(artist_id),
+                    operation="cor_unum.artist.locality.update",
+                    summary=f"Updated local tag for artist '{existing['name']}'",
+                    actor=actor,
+                    details={"is_local": bool(data["is_local"])},
+                )
         return jsonify({"success": True})
 
     @app.route("/api/cor-unum/artists/<int:artist_id>/check-locality", methods=["POST"])
@@ -2541,8 +3605,9 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/artists/check-all-locality", methods=["POST"])
     def api_cu_check_all_locality():
         from ..ingestion.service import check_all_artist_fingerprints
-        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
-        mode = (request.args.get("mode") or "unchecked").strip()
+        raw_limit = request.args.get("limit", 30, type=int)
+        limit = max(0, min(raw_limit if raw_limit is not None else 30, 200))
+        mode = (request.args.get("mode") or "unchecked").strip().lower()
         result = check_all_artist_fingerprints("soundcloud", limit=limit, mode=mode)
         return jsonify({"success": True, "result": result})
 
@@ -2563,8 +3628,9 @@ def create_app() -> Flask:
     @app.route("/api/cor-unum/artists/check-all-fingerprint/<source_key>", methods=["POST"])
     def api_cu_check_all_artist_fingerprints(source_key):
         from ..ingestion.service import check_all_artist_fingerprints
-        limit = max(1, min(request.args.get("limit", 50, type=int), 200))
-        mode = (request.args.get("mode") or "unchecked").strip()
+        raw_limit = request.args.get("limit", 30, type=int)
+        limit = max(0, min(raw_limit if raw_limit is not None else 30, 200))
+        mode = (request.args.get("mode") or "unchecked").strip().lower()
         result = check_all_artist_fingerprints(source_key, limit=limit, mode=mode)
         if result.get("error"):
             return jsonify({"success": False, "error": result["error"]}), 400

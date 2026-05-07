@@ -56,6 +56,59 @@ def record_run(summary: dict, started_at: datetime) -> None:
     _with_locked_db_retry(_write, str(summary.get("source_key")), "record ingestion run")
 
 
+def create_running_run(summary: dict, started_at: datetime) -> int | None:
+    """Insert a running run row and return its ID."""
+    run_id: int | None = None
+
+    def _write():
+        nonlocal run_id
+        with get_db() as conn:
+            cursor = conn.execute(
+                """INSERT INTO cu_ingestion_runs
+                   (source_key, started_at, status, raw_summary_json)
+                   VALUES (?, ?, 'running', ?)""",
+                (
+                    summary["source_key"],
+                    started_at.isoformat(),
+                    json.dumps(summary),
+                ),
+            )
+            run_id = int(cursor.lastrowid)
+
+    _with_locked_db_retry(_write, str(summary.get("source_key")), "create running ingestion run")
+    return run_id
+
+
+def finalize_run(run_id: int | None, summary: dict, started_at: datetime) -> None:
+    """Finalize an existing running row, or fall back to direct insert."""
+    if not run_id:
+        record_run(summary, started_at)
+        return
+
+    def _write():
+        with get_db() as conn:
+            conn.execute(
+                """UPDATE cu_ingestion_runs
+                   SET finished_at = ?, status = ?,
+                       events_ingested = ?, artists_added = ?, venues_added = ?,
+                       duplicates_skipped = ?, error_message = ?, raw_summary_json = ?
+                   WHERE id = ?""",
+                (
+                    datetime.utcnow().isoformat(),
+                    summary["status"],
+                    summary.get("events_ingested", 0),
+                    summary.get("artists_added", 0),
+                    summary.get("venues_added", 0),
+                    summary.get("duplicates_skipped", 0),
+                    summary.get("error_message"),
+                    json.dumps(summary),
+                    run_id,
+                ),
+            )
+
+    _with_locked_db_retry(_write, str(summary.get("source_key")), "finalize ingestion run")
+
+
 def update_source_status(source_key: str, status: str, error: str | None) -> None:
     """Update cu_source_registry with latest run status."""
     def _write():
@@ -88,13 +141,14 @@ class BaseIngestionScanner(ABC):
         """Execute scanner with standardized run reporting and error handling."""
         started_at = datetime.utcnow()
         summary = self.make_summary(started_at)
+        run_id = create_running_run(summary, started_at)
         try:
             summary.update(self.perform())
             summary["status"] = "error" if summary.get("error_message") else "success"
         except Exception as exc:
             summary["status"] = "error"
             summary["error_message"] = str(exc)[:1000]
-        record_run(summary, started_at)
+        finalize_run(run_id, summary, started_at)
         update_source_status(
             self.source_key,
             summary["status"],

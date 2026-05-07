@@ -34,6 +34,36 @@ SOURCE_REGISTRY_SEEDS = [
         "target_url": "https://www.eventbrite.ca/b/canada--vancouver/music/",
     },
     {
+        "source_key": "denizens_yvr",
+        "source_label": "Denizens YVR Events",
+        "source_kind": "event",
+        "target_url": "https://www.denizensyvr.com/events?utm_content=link_in_bio",
+    },
+    {
+        "source_key": "digital_motion_bc",
+        "source_label": "Digital Motion BC Events",
+        "source_kind": "event",
+        "target_url": "https://digitalmotionbc.ca/events/",
+    },
+    {
+        "source_key": "orange_tickets",
+        "source_label": "Orange Tickets Events",
+        "source_kind": "event",
+        "target_url": "https://orangetickets.ca/?utm_source=ig&utm_medium=social&utm_content=link_in_bio",
+    },
+    {
+        "source_key": "ticketleader_concerts",
+        "source_label": "TicketLeader Concerts",
+        "source_kind": "event",
+        "target_url": "https://www.ticketleader.ca/events/category/concerts",
+    },
+    {
+        "source_key": "ticketweb_ca",
+        "source_label": "TicketWeb Canada",
+        "source_kind": "event",
+        "target_url": "https://www.ticketweb.ca/",
+    },
+    {
         "source_key": "soundcloud",
         "source_label": "SoundCloud Fingerprint",
         "source_kind": "fingerprint",

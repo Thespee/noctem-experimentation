@@ -112,12 +112,20 @@ def _normalize_candidate_url(source_key: str, raw_url: str) -> str:
             return ""
         return f"https://instagram.com/{first_seg}/"
     if source_key == "spotify":
-        if host not in {"open.spotify.com"}:
+        if host not in {"open.spotify.com", "spotify.com"}:
             return ""
         parts = [p for p in path.split("/") if p]
-        if len(parts) < 2 or parts[0] != "artist":
+        artist_id = ""
+        if len(parts) >= 2 and parts[0] == "artist":
+            artist_id = parts[1]
+        elif len(parts) >= 3 and parts[0].startswith("intl-") and parts[1] == "artist":
+            artist_id = parts[2]
+        if not artist_id:
             return ""
-        return f"https://open.spotify.com/artist/{parts[1]}"
+        artist_id = re.sub(r"[^A-Za-z0-9]", "", artist_id.strip())
+        if not artist_id:
+            return ""
+        return f"https://open.spotify.com/artist/{artist_id}"
     return ""
 
 
@@ -260,6 +268,7 @@ def _queries_for(source_key: str, artist_name: str) -> list[str]:
         return [
             f'site:open.spotify.com/artist "{artist_name}"',
             f'site:open.spotify.com "{artist_name}" music',
+            f'"{artist_name}" "open.spotify.com/artist"',
         ]
     return []
 

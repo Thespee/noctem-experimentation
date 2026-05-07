@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 
 from ..db import get_db
 from .artist_fingerprints import (
@@ -19,6 +19,33 @@ from .artist_fingerprints import list_fingerprint_sources as _list_fingerprint_s
 from .city_tags import LOCAL_CITY_TAG
 from .engine import run_full_pipeline, run_ingestion, run_sources_by_class
 
+
+def _apply_event_composition_metrics(event_payload: dict) -> dict:
+    performers = list(event_payload.get("performers") or [])
+    total = len(performers)
+    if total <= 0:
+        event_payload["local_density_pct"] = 0.0
+        event_payload["vancouver_pct"] = 0.0
+        event_payload["canadian_pct"] = 0.0
+        event_payload["canadian_non_vancouver_pct"] = 0.0
+        event_payload["unknown_or_non_canadian_pct"] = 0.0
+        return event_payload
+    vancouver_count = len([p for p in performers if bool(p.get("is_yvr_local"))])
+    canadian_count = len(
+        [
+            p
+            for p in performers
+            if bool(p.get("is_yvr_local")) or bool(int(p.get("is_canadian") or 0))
+        ]
+    )
+    canadian_non_vancouver_count = max(0, canadian_count - vancouver_count)
+    unknown_or_non_canadian_count = max(0, total - vancouver_count - canadian_non_vancouver_count)
+    event_payload["local_density_pct"] = round((vancouver_count / total) * 100, 2)
+    event_payload["vancouver_pct"] = round((vancouver_count / total) * 100, 2)
+    event_payload["canadian_pct"] = round((canadian_count / total) * 100, 2)
+    event_payload["canadian_non_vancouver_pct"] = round((canadian_non_vancouver_count / total) * 100, 2)
+    event_payload["unknown_or_non_canadian_pct"] = round((unknown_or_non_canadian_count / total) * 100, 2)
+    return event_payload
 
 # --------------------------------------------------------------------------
 # Source management
@@ -56,7 +83,7 @@ def check_artist_fingerprint(source_key: str, artist_id: int, force: bool = Fals
     return _check_artist_fingerprint(source_key, artist_id, force=force)
 
 
-def check_all_artist_fingerprints(source_key: str, limit: int = 50, mode: str = "unchecked") -> dict:
+def check_all_artist_fingerprints(source_key: str, limit: int = 30, mode: str = "unchecked") -> dict:
     return _check_all_fingerprints(source_key, limit=limit, mode=mode)
 
 
@@ -179,6 +206,8 @@ def get_artists(page: int = 1, per_page: int = 50, search: str = "",
             "EXISTS (SELECT 1 FROM cu_artist_tags t WHERE t.artist_id = cu_artists.id AND t.tag = ?)"
         )
         params.append(LOCAL_CITY_TAG)
+    elif local == "canadian":
+        conditions.append("COALESCE(canadian, is_canadian, 0) = 1")
     elif local == "not_local":
         conditions.append(
             "NOT EXISTS (SELECT 1 FROM cu_artist_tags t WHERE t.artist_id = cu_artists.id AND t.tag = ?)"
@@ -250,9 +279,10 @@ def get_source_registry_page(page: int = 1, per_page: int = 50) -> dict:
 # Detail views
 # --------------------------------------------------------------------------
 
-def get_upcoming_events(limit: int = 200) -> list[dict]:
+def get_upcoming_events(limit: int = 200, locality: str = "all") -> list[dict]:
     """Return upcoming events (today onward) with venue + performers + sources."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = date.today().isoformat()
+    locality_filter = (locality or "all").strip().lower()
     with get_db() as conn:
         rows = conn.execute(
             """SELECT e.id, e.title, e.date, e.description, e.created_at,
@@ -271,7 +301,7 @@ def get_upcoming_events(limit: int = 200) -> list[dict]:
             ev["performers"] = [
                 dict(a)
                 for a in conn.execute(
-                    """SELECT a.id, a.name,
+                    """SELECT a.id, a.name, COALESCE(a.canadian, a.is_canadian, 0) AS is_canadian,
                               EXISTS (
                                   SELECT 1 FROM cu_artist_tags t
                                   WHERE t.artist_id = a.id AND t.tag = ?
@@ -282,6 +312,15 @@ def get_upcoming_events(limit: int = 200) -> list[dict]:
                     (LOCAL_CITY_TAG, eid),
                 ).fetchall()
             ]
+            if locality_filter == "vancouver":
+                if not any(bool(p.get("is_yvr_local")) for p in ev["performers"]):
+                    continue
+            elif locality_filter == "canadian":
+                if not any(
+                    bool(p.get("is_yvr_local")) or bool(int(p.get("is_canadian") or 0))
+                    for p in ev["performers"]
+                ):
+                    continue
             ev["sources"] = [
                 dict(s)
                 for s in conn.execute(
@@ -289,10 +328,7 @@ def get_upcoming_events(limit: int = 200) -> list[dict]:
                     (eid,),
                 ).fetchall()
             ]
-            total_artists = len(ev["performers"])
-            local_artists = len([p for p in ev["performers"] if p.get("is_yvr_local")])
-            ev["local_density_pct"] = round((local_artists / total_artists) * 100, 2) if total_artists else 0.0
-            events.append(ev)
+            events.append(_apply_event_composition_metrics(ev))
         return events
 
 
@@ -313,7 +349,7 @@ def get_event_detail(event_id: int) -> dict | None:
         ev["performers"] = [
             dict(a)
             for a in conn.execute(
-                """SELECT a.id, a.name, a.bio_link,
+                """SELECT a.id, a.name, a.bio_link, COALESCE(a.canadian, a.is_canadian, 0) AS is_canadian,
                           EXISTS (
                               SELECT 1 FROM cu_artist_tags t
                               WHERE t.artist_id = a.id AND t.tag = ?
@@ -331,10 +367,7 @@ def get_event_detail(event_id: int) -> dict | None:
                 (event_id,),
             ).fetchall()
         ]
-        total_artists = len(ev["performers"])
-        local_artists = len([p for p in ev["performers"] if p.get("is_yvr_local")])
-        ev["local_density_pct"] = round((local_artists / total_artists) * 100, 2) if total_artists else 0.0
-        return ev
+        return _apply_event_composition_metrics(ev)
 
 
 def get_artist_detail(artist_id: int) -> dict | None:
@@ -377,6 +410,20 @@ def get_artist_detail(artist_id: int) -> dict | None:
                 (artist_id,),
             ).fetchall()
         ]
+        artist["linked_members"] = [
+            dict(r)
+            for r in conn.execute(
+                """SELECT id, username, display_name, role, is_active, claimed_at, created_at
+                   FROM cu_members
+                   WHERE artist_id = ?
+                   ORDER BY is_active DESC, id DESC""",
+                (artist_id,),
+            ).fetchall()
+        ]
+        artist["active_member"] = next(
+            (member for member in artist["linked_members"] if int(member.get("is_active") or 0) == 1),
+            None,
+        )
         return artist
 
 

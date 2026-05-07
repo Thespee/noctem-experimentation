@@ -1,25 +1,26 @@
 """Spotify fingerprint scanner for Cor Unum artists."""
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import logging
+import re
+import time
 
 import requests
 
 from ..db import get_db
-from .city_tags import is_local_yvr, set_local_yvr
+from .city_tags import set_local_yvr
 from .link_discovery import DiscoveryProviderUnavailable, discover_best_profile_url
+from .locality import derive_locality_flags
 
 logger = logging.getLogger(__name__)
-DISCOVERY_RETRY_BACKOFF_HOURS = 24
+DISCOVERY_PROVIDER_RETRY_ATTEMPTS = 2
+DISCOVERY_PROVIDER_RETRY_SLEEP_SECONDS = 0.35
+DISCOVERY_SAMPLE_LIMIT = 5
 _DISCOVERY_COLUMN_MIGRATIONS = (
     ("spotify_last_discovery_attempt_at", "TIMESTAMP"),
     ("spotify_discovery_error", "TEXT"),
 )
-
-
-def _discovery_retry_cutoff_iso() -> str:
-    return (datetime.utcnow() - timedelta(hours=DISCOVERY_RETRY_BACKOFF_HOURS)).isoformat()
 
 
 def _ensure_discovery_columns(conn) -> None:
@@ -48,9 +49,67 @@ def _profile_signals(url: str) -> tuple[bool, bool]:
         text = resp.text.lower()
     except Exception:
         return False, False
-    is_local = "vancouver" in text or "yvr" in text
-    is_canadian = is_local or "canada" in text or "british columbia" in text
-    return is_local, is_canadian
+    return derive_locality_flags(text, url)
+
+
+def _append_unique_sample(values: list[str], value: str, limit: int = DISCOVERY_SAMPLE_LIMIT) -> None:
+    item = (value or "").strip()
+    if not item or item in values:
+        return
+    if len(values) >= limit:
+        return
+    values.append(item)
+
+
+def _discovery_name_variants(artist_name: str) -> list[str]:
+    base = " ".join(str(artist_name or "").split()).strip()
+    if not base:
+        return []
+    variants = [base]
+    simplified = re.sub(r"[^A-Za-z0-9\s]", " ", base)
+    simplified = " ".join(simplified.split()).strip()
+    if simplified and simplified.lower() != base.lower():
+        variants.append(simplified)
+    return variants[:2]
+
+
+def _discover_spotify_url(artist_name: str) -> dict:
+    variants = _discovery_name_variants(artist_name)
+    provider_errors: list[str] = []
+    had_live_discovery_response = False
+    for variant in variants:
+        for attempt in range(1, DISCOVERY_PROVIDER_RETRY_ATTEMPTS + 1):
+            try:
+                discovered_match = discover_best_profile_url(variant, "spotify")
+                had_live_discovery_response = True
+                if discovered_match and discovered_match.get("candidate_url"):
+                    return {
+                        "status": "found",
+                        "candidate_url": str(discovered_match.get("candidate_url") or "").strip(),
+                        "query": discovered_match.get("query"),
+                        "confidence_score": discovered_match.get("confidence_score"),
+                        "name_variant": variant,
+                    }
+                break
+            except DiscoveryProviderUnavailable as exc:
+                provider_errors.append(str(exc))
+                if attempt < DISCOVERY_PROVIDER_RETRY_ATTEMPTS:
+                    time.sleep(DISCOVERY_PROVIDER_RETRY_SLEEP_SECONDS * attempt)
+                    continue
+                break
+    if had_live_discovery_response:
+        return {
+            "status": "no_match_found",
+            "name_variants": variants,
+        }
+    if provider_errors:
+        return {
+            "status": "provider_unavailable",
+            "error": provider_errors[-1],
+            "provider_errors": provider_errors[-3:],
+            "name_variants": variants,
+        }
+    return {"status": "no_match_found", "name_variants": variants}
 
 def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dict:
     attempt_at = datetime.utcnow().isoformat()
@@ -58,7 +117,7 @@ def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dic
         _ensure_discovery_columns(conn)
         has_discovery_cols = _has_discovery_columns(conn)
         row = conn.execute(
-            """SELECT id, name, alias_of, spotify_url, is_canadian, spotify_checked_at
+            """SELECT id, name, alias_of, spotify_url, is_canadian, canadian, spotify_checked_at
                FROM cu_artists WHERE id = ?""",
             (artist_id,),
         ).fetchone()
@@ -68,20 +127,30 @@ def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dic
             return check_artist_spotify_fingerprint(row["alias_of"], force=force)
         spotify_url = (row["spotify_url"] or "").strip()
         discovered = False
+        discovered_query = ""
+        discovery_name_variant = ""
         if not spotify_url:
-            try:
-                discovered_match = discover_best_profile_url(row["name"], "spotify")
-            except DiscoveryProviderUnavailable as exc:
+            discovery_result = _discover_spotify_url(row["name"])
+            discovery_status = str(discovery_result.get("status") or "")
+            if discovery_status == "provider_unavailable":
+                discovery_error = str(
+                    discovery_result.get("error") or "Spotify discovery provider unavailable"
+                )
                 if has_discovery_cols:
                     conn.execute(
                         """UPDATE cu_artists
                            SET spotify_last_discovery_attempt_at = ?, spotify_discovery_error = ?
                            WHERE id = ?""",
-                        (attempt_at, str(exc)[:500], artist_id),
+                        (attempt_at, f"provider_unavailable: {discovery_error}"[:500], artist_id),
                     )
-                return {"error": str(exc)}
-            if discovered_match and discovered_match.get("candidate_url"):
-                spotify_url = discovered_match["candidate_url"].strip()
+                return {
+                    "error": discovery_error,
+                    "discovery_error_code": "provider_unavailable",
+                }
+            if discovery_status == "found" and discovery_result.get("candidate_url"):
+                spotify_url = str(discovery_result.get("candidate_url") or "").strip()
+                discovered_query = str(discovery_result.get("query") or "")
+                discovery_name_variant = str(discovery_result.get("name_variant") or "")
                 if has_discovery_cols:
                     conn.execute(
                         """UPDATE cu_artists
@@ -103,19 +172,10 @@ def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dic
                            WHERE id = ?""",
                         (attempt_at, "no_match_found", artist_id),
                     )
-                return {"error": "No Spotify URL found for this artist"}
-        checked_at = row["spotify_checked_at"]
-        if not force and checked_at:
-            cached_local = is_local_yvr(conn, artist_id)
-            return {
-                "artist_id": artist_id,
-                "artist_name": row["name"],
-                "is_local": cached_local,
-                "is_canadian": row["is_canadian"],
-                "checked_at": checked_at,
-                "spotify_url": spotify_url,
-                "skipped": True,
-            }
+                return {
+                    "error": "No Spotify URL found for this artist",
+                    "discovery_error_code": "no_match_found",
+                }
         artist_name = row["name"]
 
     is_local, is_canadian = _profile_signals(spotify_url)
@@ -126,17 +186,17 @@ def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dic
         if has_discovery_cols:
             conn.execute(
                 """UPDATE cu_artists
-                   SET is_canadian = ?,
+                       SET is_canadian = ?, canadian = ?,
                        spotify_checked_at = ?,
                        spotify_last_discovery_attempt_at = ?,
                        spotify_discovery_error = NULL
                    WHERE id = ?""",
-                (1 if is_canadian else 0, datetime.utcnow().isoformat(), attempt_at, artist_id),
+                (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), attempt_at, artist_id),
             )
         else:
             conn.execute(
-                "UPDATE cu_artists SET is_canadian = ?, spotify_checked_at = ? WHERE id = ?",
-                (1 if is_canadian else 0, datetime.utcnow().isoformat(), artist_id),
+                "UPDATE cu_artists SET is_canadian = ?, canadian = ?, spotify_checked_at = ? WHERE id = ?",
+                (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), artist_id),
             )
     return {
         "artist_id": artist_id,
@@ -145,44 +205,29 @@ def check_artist_spotify_fingerprint(artist_id: int, force: bool = False) -> dic
         "is_canadian": is_canadian,
         "spotify_url": spotify_url,
         "discovered_url": discovered,
+        "discovery_query": discovered_query,
+        "discovery_name_variant": discovery_name_variant,
     }
 
 
-def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> dict:
-    retry_cutoff = _discovery_retry_cutoff_iso()
+def check_spotify_fingerprints(limit: int = 30, recheck_all: bool = False) -> dict:
     with get_db() as conn:
         _ensure_discovery_columns(conn)
-        has_discovery_cols = _has_discovery_columns(conn)
-        if recheck_all:
+        if recheck_all or int(limit) <= 0:
             rows = conn.execute(
                 """SELECT id, name, spotify_url
                    FROM cu_artists
                    WHERE alias_of IS NULL
-                   ORDER BY last_seen DESC NULLS LAST
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
-        elif has_discovery_cols:
-            rows = conn.execute(
-                """SELECT id, name, spotify_url
-                   FROM cu_artists
-                   WHERE alias_of IS NULL
-                     AND spotify_checked_at IS NULL
-                     AND (
-                       spotify_last_discovery_attempt_at IS NULL
-                       OR spotify_last_discovery_attempt_at < ?
-                     )
-                   ORDER BY last_seen DESC NULLS LAST
-                   LIMIT ?""",
-                (retry_cutoff, limit),
+                     AND (spotify_url IS NULL OR TRIM(spotify_url) = '')
+                   ORDER BY RANDOM()"""
             ).fetchall()
         else:
             rows = conn.execute(
                 """SELECT id, name, spotify_url
                    FROM cu_artists
                    WHERE alias_of IS NULL
-                     AND spotify_checked_at IS NULL
-                   ORDER BY last_seen DESC NULLS LAST
+                     AND (spotify_url IS NULL OR TRIM(spotify_url) = '')
+                   ORDER BY RANDOM()
                    LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -193,6 +238,10 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
         "canadian": 0,
         "errors": 0,
         "urls_discovered": 0,
+        "no_match_found": 0,
+        "discovery_provider_errors": 0,
+        "no_match_examples": [],
+        "provider_error_examples": [],
         "error_message": None,
     }
     with get_db() as conn:
@@ -202,14 +251,10 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
             attempt_at = datetime.utcnow().isoformat()
             spotify_url = (row["spotify_url"] or "").strip()
             if not spotify_url:
-                try:
-                    discovered_match = discover_best_profile_url(row["name"], "spotify")
-                except DiscoveryProviderUnavailable as exc:
-                    result["error_message"] = str(exc)
-                    logger.warning("Aborting spotify fingerprint run: %s", exc)
-                    break
-                if discovered_match and discovered_match.get("candidate_url"):
-                    spotify_url = discovered_match["candidate_url"].strip()
+                discovery_result = _discover_spotify_url(row["name"])
+                discovery_status = str(discovery_result.get("status") or "")
+                if discovery_status == "found" and discovery_result.get("candidate_url"):
+                    spotify_url = str(discovery_result.get("candidate_url") or "").strip()
                     if has_discovery_cols:
                         conn.execute(
                             """UPDATE cu_artists
@@ -223,6 +268,24 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
                             (spotify_url, row["id"]),
                         )
                     result["urls_discovered"] += 1
+                elif discovery_status == "provider_unavailable":
+                    discovery_error = str(
+                        discovery_result.get("error") or "Spotify discovery provider unavailable"
+                    )
+                    if has_discovery_cols:
+                        conn.execute(
+                            """UPDATE cu_artists
+                               SET spotify_last_discovery_attempt_at = ?, spotify_discovery_error = ?
+                               WHERE id = ?""",
+                            (attempt_at, f"provider_unavailable: {discovery_error}"[:500], row["id"]),
+                        )
+                    result["errors"] += 1
+                    result["discovery_provider_errors"] += 1
+                    _append_unique_sample(
+                        result["provider_error_examples"],
+                        f"{row['name']}: {discovery_error[:120]}",
+                    )
+                    continue
                 else:
                     if has_discovery_cols:
                         conn.execute(
@@ -232,6 +295,8 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
                             (attempt_at, "no_match_found", row["id"]),
                         )
                     result["errors"] += 1
+                    result["no_match_found"] += 1
+                    _append_unique_sample(result["no_match_examples"], str(row["name"] or ""))
                     continue
             result["checked"] += 1
             is_local, is_canadian = _profile_signals(spotify_url)
@@ -239,16 +304,16 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
             if has_discovery_cols:
                 conn.execute(
                     """UPDATE cu_artists
-                       SET is_canadian = ?,
+                       SET is_canadian = ?, canadian = ?,
                            spotify_checked_at = ?,
                            spotify_discovery_error = NULL
                        WHERE id = ?""",
-                    (1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
+                    (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
                 )
             else:
                 conn.execute(
-                    "UPDATE cu_artists SET is_canadian = ?, spotify_checked_at = ? WHERE id = ?",
-                    (1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
+                    "UPDATE cu_artists SET is_canadian = ?, canadian = ?, spotify_checked_at = ? WHERE id = ?",
+                    (1 if is_canadian else 0, 1 if is_canadian else 0, datetime.utcnow().isoformat(), row["id"]),
                 )
             if is_local:
                 result["local"] += 1
@@ -256,6 +321,10 @@ def check_spotify_fingerprints(limit: int = 150, recheck_all: bool = False) -> d
                 result["not_local"] += 1
             if is_canadian:
                 result["canadian"] += 1
+    if not result["no_match_examples"]:
+        result.pop("no_match_examples")
+    if not result["provider_error_examples"]:
+        result.pop("provider_error_examples")
     if not result["error_message"]:
         result.pop("error_message")
     return result

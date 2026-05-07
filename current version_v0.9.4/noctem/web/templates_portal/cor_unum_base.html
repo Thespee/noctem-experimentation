@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Cor Unum Portal{% endblock %}</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            background: #141414;
+            color: #e8eaed;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .cu-nav {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.6rem 1rem;
+            background: #1a1a1a;
+            border-bottom: 1px solid #3c3c3c;
+            font-size: 0.82rem;
+            flex-wrap: wrap;
+        }
+        .cu-nav a {
+            color: #9aa0a6;
+            text-decoration: none;
+            padding: 0.35rem 0.7rem;
+            border-radius: 5px;
+            transition: all 0.12s;
+            white-space: nowrap;
+        }
+        .cu-nav a:hover {
+            background: #2d2d2d;
+            color: #e8eaed;
+        }
+        .cu-nav a.active {
+            background: #3c4043;
+            color: #8ab4f8;
+        }
+        .cu-nav .cu-nav-brand {
+            font-weight: 600;
+            color: #e8eaed;
+            margin-right: 0.5rem;
+        }
+        .cu-nav .cu-nav-spacer {
+            flex: 1;
+        }
+        .cu-session {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-left: 0.5rem;
+        }
+        .cu-session-label {
+            color: #9aa0a6;
+            font-size: 0.74rem;
+        }
+        .cu-session-badge {
+            background: #2d2d2d;
+            border: 1px solid #3c3c3c;
+            border-radius: 999px;
+            padding: 0.15rem 0.55rem;
+            color: #8ab4f8;
+            font-size: 0.72rem;
+        }
+        .cu-session button,
+        .cu-session input {
+            background: #2d2d2d;
+            border: 1px solid #3c3c3c;
+            color: #e8eaed;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            padding: 0.2rem 0.45rem;
+        }
+        .cu-session button {
+            cursor: pointer;
+        }
+        .cu-session-block {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        {% block cu_extra_style %}{% endblock %}
+    </style>
+</head>
+<body>
+    <div class="cu-nav">
+        <a href="/cor-unum/upcoming" class="cu-nav-brand">Cor Unum Portal</a>
+        <a href="/cor-unum/upcoming" class="{% if request.path == '/cor-unum/upcoming' %}active{% endif %}">Upcoming</a>
+        {% if cu_session_user and cu_session_user.is_member %}
+        <a href="/cor-unum/db/events" class="{% if request.path == '/cor-unum/db/events' %}active{% endif %}">Events</a>
+        <a href="/cor-unum/db/artists" class="{% if request.path == '/cor-unum/db/artists' %}active{% endif %}">Artists</a>
+        <a href="/cor-unum/db/venues" class="{% if request.path == '/cor-unum/db/venues' %}active{% endif %}">Venues</a>
+        <a href="/cor-unum/add-event" class="{% if request.path == '/cor-unum/add-event' %}active{% endif %}">Add Event</a>
+        {% endif %}
+        <span class="cu-nav-spacer"></span>
+        <div class="cu-session" id="cuSessionControls">
+            <span class="cu-session-label">Session</span>
+            <span class="cu-session-badge" id="cuSessionBadge">loading…</span>
+            <div class="cu-session-block" id="cuRemoteSigninControls" style="display:none;">
+                <input id="cuMemberUsernameInput" type="text" placeholder="member username">
+                <button type="button" onclick="window.signInCorUnumMember()">Sign in</button>
+            </div>
+            <div class="cu-session-block" id="cuRemoteMemberControls" style="display:none;">
+                <button type="button" onclick="window.signOutCorUnumMember()">Sign out</button>
+            </div>
+            <button type="button" onclick="window.refreshCorUnumSession()">↻</button>
+        </div>
+    </div>
+    {% block cu_content %}{% endblock %}
+    <script>
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        window.corUnumSession = null;
+        window.refreshCorUnumSession = async function refreshCorUnumSession() {
+            try {
+                const r = await fetch('/api/cor-unum/session');
+                const data = await r.json();
+                window.corUnumSession = data.session || null;
+            } catch (e) {
+                window.corUnumSession = null;
+            }
+            const badge = document.getElementById('cuSessionBadge');
+            const remoteSigninControls = document.getElementById('cuRemoteSigninControls');
+            const remoteMemberControls = document.getElementById('cuRemoteMemberControls');
+            if (!window.corUnumSession) {
+                badge.textContent = 'unavailable';
+                remoteSigninControls.style.display = 'none';
+                remoteMemberControls.style.display = 'none';
+                return;
+            }
+            const s = window.corUnumSession;
+            badge.textContent = s.role === 'member' ? `${s.role}:${s.username}` : s.role;
+            if (s.is_member) {
+                remoteSigninControls.style.display = 'none';
+                remoteMemberControls.style.display = '';
+            } else {
+                remoteSigninControls.style.display = '';
+                remoteMemberControls.style.display = 'none';
+            }
+        };
+        window.signInCorUnumMember = async function signInCorUnumMember() {
+            const input = document.getElementById('cuMemberUsernameInput');
+            const username = (input.value || '').trim();
+            if (!username) return;
+            const r = await fetch('/api/cor-unum/session/assume', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role: 'member', username}),
+            });
+            if (!r.ok) return;
+            window.location.reload();
+        };
+        window.signOutCorUnumMember = async function signOutCorUnumMember() {
+            const r = await fetch('/api/cor-unum/session/assume', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role: 'public'}),
+            });
+            if (!r.ok) return;
+            window.location.reload();
+        };
+        document.addEventListener('DOMContentLoaded', () => {
+            window.refreshCorUnumSession();
+        });
+    </script>
+    <script>{% block extra_script %}{% endblock %}</script>
+</body>
+</html>

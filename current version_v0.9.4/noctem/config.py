@@ -14,6 +14,8 @@ DEFAULTS = {
     "timezone": "America/Vancouver",
     "web_port": 5000,
     "web_host": "0.0.0.0",
+    "portal_port": 5001,
+    "portal_host": "0.0.0.0",
     # v0.9.3: model-first chat defaults
     "chat_assistant_name": "Alfred",
     "chat_model_first_enabled": True,
@@ -125,6 +127,14 @@ class Config:
     @classmethod
     def web_host(cls) -> str:
         return cls.get("web_host", "0.0.0.0")
+
+    @classmethod
+    def portal_port(cls) -> int:
+        return cls.get("portal_port", 5001)
+
+    @classmethod
+    def portal_host(cls) -> str:
+        return cls.get("portal_host", "0.0.0.0")
 
     @classmethod
     def _env_bool(cls, key: str, default: bool) -> bool:

@@ -208,6 +208,41 @@ Noctem is a private, local-first agentic assistant for managing tasks, projects,
 - **Sidebar link** under Tools section in `base.html`.
 - Do not integrate feedback doc with the agentic workflow or review runtime until explicitly requested — this surface is manual and deterministic only.
 
+## Session Learnings (May 2026, Cor Unum Artist/Member Lifecycle + Portal/Internal Split)
+
+- Cor Unum now runs as two scoped surfaces:
+  - **Internal dashboard** (`web/app.py` default app): private/local-only when `cor_unum_private_only=True`.
+  - **Portal app** (`web/portal_app.py`): separate public/member-facing surface with a strict allowlist of pages and APIs.
+- Internal and portal access policies are now explicit:
+  - Internal blocks remote access to `/cor-unum*` and `/api/cor-unum*` (private-only gate).
+  - Portal allows only upcoming/event/artist/venue browsing + member data-table/event-create flows; admin ingestion/settings APIs stay blocked.
+- Standalone artist creation is implemented for admins:
+  - Page route: `/cor-unum/add-artist`
+  - API route: `POST /api/cor-unum/artists/create`
+  - Behavior: duplicate-name detection (case-insensitive), optional social links, optional local/canadian flags, and history event recording.
+- Artist→member lifecycle is now first-class:
+  - Promotion endpoint: `POST /api/cor-unum/artists/<id>/expand-member`
+  - Constraints: case-insensitive unique username + one active member per canonical artist.
+  - Artist detail payload includes `linked_members` and `active_member` so UI can show account state directly.
+- Username-based claiming is implemented without email/password auth:
+  - Member claim flow remains `POST /api/cor-unum/session/assume` with `{role: "member", username: ...}`.
+  - `cu_members.claimed_at` is stamped on first successful username claim/sign-in.
+  - `GET /api/cor-unum/members` now returns `claimed_at` for admin visibility.
+- Member-owned event creation now enforces artist linkage server-side:
+  - `POST /api/cor-unum/events/create` rejects member users not linked to an artist (`409`).
+  - If linked member omits their own artist from performers, backend auto-adds it.
+  - Event history details now include linkage enforcement metadata (`member_artist_enforced`, canonical `artist_count`).
+- Internal UI entry points were expanded:
+  - `Add Artist` links added in `cor_unum_base.html`, `cor_unum.html`, and artist DB view (`cor_unum_db.html`).
+  - Artist detail view (`cor_unum_artist.html`) now surfaces linked member status, active claimed/unclaimed state, and inline promotion success/conflict feedback.
+- Key bug learned and fixed:
+  - Shared session cookies between portal and internal apps caused role bleed (portal/public session could hide internal admin controls such as Promote/Add Artist).
+  - Fix: session mode isolation via `session["cu_app_mode"]` (`portal` vs `internal`) in Cor Unum session bootstrap/setters.
+- Test learnings and validation:
+  - `test_cor_unum.py` gained coverage for add-artist, promotion conflicts, username-claim stamping, portal/member linkage enforcement, and remote scope behavior.
+  - Repaired accidental test corruption introduced during edits (stray schema-test insert + undefined `artist_id` in portal linkage test).
+  - Final validation after fixes: targeted Cor Unum suite `70 passed`; full suite `237 passed`.
+
 ## Testing
 
 - Run all tests: `python -m pytest tests -v` from `current version_v0.9.4/`.

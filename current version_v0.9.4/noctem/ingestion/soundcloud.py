@@ -20,6 +20,7 @@ import requests
 from ..config import Config
 from ..db import get_db
 from .city_tags import is_local_yvr, set_local_yvr
+from .locality import derive_locality_flags
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
     """
     with get_db() as conn:
         row = conn.execute(
-            """SELECT id, name, alias_of, soundcloud_url, is_canadian
+            """SELECT id, name, alias_of, soundcloud_url, is_canadian, canadian
                FROM cu_artists WHERE id = ?""",
             (artist_id,),
         ).fetchone()
@@ -289,21 +290,18 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
     sc_url = best["permalink_url"] if best else None
     city_found = best["city"] if best else None
     followers_found = best["followers"] if best else None
-    city_l = (city_found or "").lower()
-    is_canadian = bool(
-        is_local
-        or ("canada" in city_l)
-        or ("bc" in city_l)
-        or ("british columbia" in city_l)
-    )
+    local_from_city, canadian_from_city = derive_locality_flags(city_found)
+    is_local = bool(is_local or local_from_city)
+    is_canadian = bool(canadian_from_city or is_local)
 
     # Store result
     with get_db() as conn:
         set_local_yvr(conn, artist_id, is_local)
         conn.execute(
-            """UPDATE cu_artists SET soundcloud_url = ?, sc_followers = ?, is_canadian = ?
+            """UPDATE cu_artists
+               SET soundcloud_url = ?, sc_followers = ?, is_canadian = ?, canadian = ?
                WHERE id = ?""",
-            (sc_url, followers_found, 1 if is_canadian else 0, artist_id),
+            (sc_url, followers_found, 1 if is_canadian else 0, 1 if is_canadian else 0, artist_id),
         )
 
     return {
@@ -321,28 +319,26 @@ def check_artist_locality(artist_id: int, force: bool = False) -> dict:
 # Batch check
 # --------------------------------------------------------------------------
 
-def check_all_unchecked_artists(limit: int = 50,
+def check_all_unchecked_artists(limit: int = 30,
                                 recheck_all: bool = False) -> dict:
     """Batch-check artists via SoundCloud api-v2.
-
-    recheck_all=False: artists not yet checked by SoundCloud (no stored URL).
-    recheck_all=True: recheck all canonical artists.
+    recheck_all=False: random sample of canonical artists with empty SoundCloud URL.
+    recheck_all=True: all canonical artists with empty SoundCloud URL.
     """
     with get_db() as conn:
-        if recheck_all:
+        if recheck_all or int(limit) <= 0:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
                    WHERE alias_of IS NULL
-                   ORDER BY last_seen DESC NULLS LAST
-                   LIMIT ?""",
-                (limit,),
+                     AND (soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')
+                   ORDER BY RANDOM()"""
             ).fetchall()
         else:
             rows = conn.execute(
                 """SELECT id, name FROM cu_artists
                    WHERE alias_of IS NULL
                      AND (soundcloud_url IS NULL OR TRIM(soundcloud_url) = '')
-                   ORDER BY last_seen DESC NULLS LAST
+                   ORDER BY RANDOM()
                    LIMIT ?""",
                 (limit,),
             ).fetchall()

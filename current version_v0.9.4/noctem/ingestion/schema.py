@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS cu_artists (
     spotify_url TEXT,
     last_seen TIMESTAMP,
     is_canadian INTEGER,
+    canadian INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -106,6 +107,36 @@ CREATE TABLE IF NOT EXISTS cu_ingestion_runs (
     raw_summary_json TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Cor Unum: trusted member identities linked to artists
+CREATE TABLE IF NOT EXISTS cu_members (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    artist_id INTEGER REFERENCES cu_artists(id),
+    role TEXT NOT NULL DEFAULT 'member'
+        CHECK(role IN ('member', 'admin')),
+    is_active INTEGER DEFAULT 1,
+    created_by TEXT,
+    claimed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- Cor Unum: public detail suggestions moderation queue
+CREATE TABLE IF NOT EXISTS cu_suggestions (
+    id INTEGER PRIMARY KEY,
+    entity_type TEXT NOT NULL
+        CHECK(entity_type IN ('event', 'artist')),
+    entity_id INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'accepted', 'rejected')),
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submitted_by TEXT,
+    submitted_role TEXT,
+    resolved_at TIMESTAMP,
+    resolved_by TEXT,
+    decision_notes TEXT,
+    applied_event_id TEXT
+);
 -- Cor Unum: ignored duplicate candidates (suppresses resurfacing on rescan)
 CREATE TABLE IF NOT EXISTS cu_duplicate_ignores (
     id INTEGER PRIMARY KEY,
@@ -144,6 +175,12 @@ CREATE INDEX IF NOT EXISTS idx_cu_duplicate_ignores_lookup
     ON cu_duplicate_ignores(entity_type, source_key, left_id, right_id);
 CREATE INDEX IF NOT EXISTS idx_cu_artist_link_candidates_lookup
     ON cu_artist_link_candidates(artist_id, source_key, status, confidence_score DESC);
+CREATE INDEX IF NOT EXISTS idx_cu_members_artist
+    ON cu_members(artist_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_cu_suggestions_status
+    ON cu_suggestions(status, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_cu_suggestions_entity
+    ON cu_suggestions(entity_type, entity_id, submitted_at);
 """
 
 
@@ -173,6 +210,8 @@ def _migrate_cu_columns(conn) -> None:
         ("cu_artists", "spotify_last_discovery_attempt_at", "TIMESTAMP"),
         ("cu_artists", "instagram_discovery_error", "TEXT"),
         ("cu_artists", "spotify_discovery_error", "TEXT"),
+        ("cu_artists", "canadian", "INTEGER NOT NULL DEFAULT 0"),
+        ("cu_members", "claimed_at", "TIMESTAMP"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -182,6 +221,7 @@ def _migrate_cu_columns(conn) -> None:
         except Exception:
             pass
     _migrate_local_flag_to_city_tags(conn)
+    _backfill_canadian(conn)
 
 
 def _migrate_local_flag_to_city_tags(conn) -> None:
@@ -192,6 +232,36 @@ def _migrate_local_flag_to_city_tags(conn) -> None:
                SELECT id, 'YVR'
                FROM cu_artists
                WHERE is_local = 1"""
+        )
+    except Exception:
+        pass
+
+
+def _backfill_canadian(conn) -> None:
+    """Normalize canadian/is_canadian values and infer canadian from YVR tags."""
+    try:
+        conn.execute(
+            """UPDATE cu_artists
+               SET canadian = COALESCE(canadian, is_canadian, 0)"""
+        )
+        conn.execute(
+            """UPDATE cu_artists
+               SET canadian = 1
+               WHERE id IN (
+                   SELECT artist_id
+                   FROM cu_artist_tags
+                   WHERE tag = 'YVR'
+               )"""
+        )
+        conn.execute(
+            """UPDATE cu_artists
+               SET canadian = 0
+               WHERE canadian IS NULL"""
+        )
+        conn.execute(
+            """UPDATE cu_artists
+               SET is_canadian = canadian
+               WHERE is_canadian IS NULL OR is_canadian != canadian"""
         )
     except Exception:
         pass
@@ -217,6 +287,12 @@ def seed_cu_data(conn) -> None:
                (source_key, source_label, source_kind, target_url, enabled)
                VALUES (?, ?, ?, ?, 1)""",
             (src["source_key"], src["source_label"], src["source_kind"], src["target_url"]),
+        )
+        conn.execute(
+            """UPDATE cu_source_registry
+               SET source_label = ?, source_kind = ?, target_url = ?
+               WHERE source_key = ?""",
+            (src["source_label"], src["source_kind"], src["target_url"], src["source_key"]),
         )
 
     # Remove stale source keys that no longer exist in seeds
