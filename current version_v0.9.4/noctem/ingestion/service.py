@@ -410,6 +410,20 @@ def get_artist_detail(artist_id: int) -> dict | None:
                 (artist_id,),
             ).fetchall()
         ]
+        artist["linked_members"] = [
+            dict(r)
+            for r in conn.execute(
+                """SELECT id, username, display_name, role, is_active, claimed_at, created_at
+                   FROM cu_members
+                   WHERE artist_id = ?
+                   ORDER BY is_active DESC, id DESC""",
+                (artist_id,),
+            ).fetchall()
+        ]
+        artist["active_member"] = next(
+            (member for member in artist["linked_members"] if int(member.get("is_active") or 0) == 1),
+            None,
+        )
         return artist
 
 

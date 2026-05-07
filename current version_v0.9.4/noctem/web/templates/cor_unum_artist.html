@@ -40,6 +40,13 @@
 .cu-pill.pending { background: #4e342e; color: #ffccbc; }
 .cu-pill.accepted { background: #1b5e20; color: #a5d6a7; }
 .cu-pill.rejected { background: #b71c1c; color: #ef9a9a; }
+.cu-member-summary { margin: 0.3rem 0 0.5rem; font-size: 0.78rem; color: #c7cacf; }
+.cu-member-summary strong { color: #e8eaed; }
+.cu-member-list { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.cu-member-list li { padding: 0.35rem 0.45rem; border: 1px solid #3c3c3c; border-radius: 4px; background: #202124; margin-bottom: 0.35rem; font-size: 0.74rem; }
+.cu-inline-status { margin-top: 0.55rem; font-size: 0.76rem; border-radius: 4px; padding: 0.35rem 0.5rem; border: 1px solid #3c3c3c; color: #9aa0a6; background: #202124; }
+.cu-inline-status.ok { border-color: #1b5e20; color: #a5d6a7; }
+.cu-inline-status.err { border-color: #b71c1c; color: #ef9a9a; }
 {% endblock %}
 
 {% block cu_content %}
@@ -55,6 +62,13 @@ let mergeTimer = null;
 function statusPill(status) {
     const safe = escapeHtml(String(status || 'pending'));
     return `<span class="cu-pill ${safe}">${safe}</span>`;
+}
+
+function formatDateTime(value) {
+    if (!value) return '—';
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return escapeHtml(String(value));
+    return dt.toLocaleString();
 }
 
 function renderSuggestionPayload(payload) {
@@ -112,6 +126,31 @@ function buildHistoryList(history) {
     </li>`).join('')}</ul>`;
 }
 
+function buildMemberCard(artist) {
+    const linkedMembers = Array.isArray(artist.linked_members) ? artist.linked_members : [];
+    const activeMember = artist.active_member || null;
+    if (!linkedMembers.length) {
+        return `<div class="cu-card">
+            <div class="cu-section-label" style="margin-top:0;">Member Account</div>
+            <div class="cu-empty" style="padding:0.35rem 0;text-align:left;">No member account linked to this artist yet.</div>
+        </div>`;
+    }
+    const activeText = activeMember
+        ? `<div class="cu-member-summary">Active member: <strong>${escapeHtml(activeMember.username || '')}</strong>${activeMember.claimed_at ? ` · claimed ${formatDateTime(activeMember.claimed_at)}` : ' · unclaimed'}</div>`
+        : '<div class="cu-member-summary">No active member account.</div>';
+    return `<div class="cu-card">
+        <div class="cu-section-label" style="margin-top:0;">Member Account</div>
+        ${activeText}
+        <ul class="cu-member-list">
+            ${linkedMembers.map(m => `<li>
+                <strong>${escapeHtml(m.username || '')}</strong>
+                ${m.is_active ? '<span style="color:#a5d6a7;"> · active</span>' : '<span style="color:#ef9a9a;"> · inactive</span>'}
+                ${m.claimed_at ? ` · claimed ${formatDateTime(m.claimed_at)}` : ' · unclaimed'}
+            </li>`).join('')}
+        </ul>
+    </div>`;
+}
+
 async function loadArtist() {
     try {
         if (typeof window.refreshCorUnumSession === 'function') {
@@ -167,40 +206,41 @@ async function loadArtist() {
         } else {
             html += `<div class="cu-empty">No events found for this artist.</div>`;
         }
+        html += buildMemberCard(a);
         html += `<div class="cu-section-label">Suggestions</div>`;
         html += buildSuggestionForm();
         html += buildSuggestionList(d.suggestions || [], session);
         html += `<div class="cu-section-label">History</div>`;
         html += buildHistoryList(d.history || []);
         if (session && session.is_member) {
-            html += `<div class=\"cu-card\">
-                <div class=\"cu-section-label\" style=\"margin-top:0;\">Edit Artist</div>
-                <div class=\"cu-row\">
+            html += `<div class="cu-card">
+                <div class="cu-section-label" style="margin-top:0;">Edit Artist</div>
+                <div class="cu-row">
                     <label>Vancouver Artist
-                        <select id=\"editLocal\" class=\"cu-select\">
-                            <option value=\"true\" ${isYvrLocal ? 'selected' : ''}>Yes</option>
-                            <option value=\"false\" ${!isYvrLocal ? 'selected' : ''}>No</option>
+                        <select id="editLocal" class="cu-select">
+                            <option value="true" ${isYvrLocal ? 'selected' : ''}>Yes</option>
+                            <option value="false" ${!isYvrLocal ? 'selected' : ''}>No</option>
                         </select>
                     </label>
                     <label>Canadian
-                        <select id=\"editCanadian\" class=\"cu-select\">
-                            <option value=\"true\" ${a.is_canadian ? 'selected' : ''}>Yes</option>
-                            <option value=\"false\" ${!a.is_canadian ? 'selected' : ''}>No</option>
+                        <select id="editCanadian" class="cu-select">
+                            <option value="true" ${a.is_canadian ? 'selected' : ''}>Yes</option>
+                            <option value="false" ${!a.is_canadian ? 'selected' : ''}>No</option>
                         </select>
                     </label>
                 </div>
-                <div class=\"cu-row\">
-                    <label>SoundCloud URL<input type=\"text\" id=\"editSoundcloud\" class=\"cu-input\" value=\"${escapeHtml(a.soundcloud_url || '')}\" placeholder=\"https://soundcloud.com/...\"></label>
-                    <label>Instagram URL<input type=\"text\" id=\"editInstagram\" class=\"cu-input\" value=\"${escapeHtml(a.instagram_url || '')}\" placeholder=\"https://instagram.com/...\"></label>
+                <div class="cu-row">
+                    <label>SoundCloud URL<input type="text" id="editSoundcloud" class="cu-input" value="${escapeHtml(a.soundcloud_url || '')}" placeholder="https://soundcloud.com/..."></label>
+                    <label>Instagram URL<input type="text" id="editInstagram" class="cu-input" value="${escapeHtml(a.instagram_url || '')}" placeholder="https://instagram.com/..."></label>
                 </div>
-                <div class=\"cu-row single\">
-                    <label>Spotify URL<input type=\"text\" id=\"editSpotify\" class=\"cu-input\" value=\"${escapeHtml(a.spotify_url || '')}\" placeholder=\"https://open.spotify.com/...\"></label>
+                <div class="cu-row single">
+                    <label>Spotify URL<input type="text" id="editSpotify" class="cu-input" value="${escapeHtml(a.spotify_url || '')}" placeholder="https://open.spotify.com/..."></label>
                 </div>
-                <div style=\"display:flex;gap:0.45rem;margin-top:0.55rem;flex-wrap:wrap;\">
-                    <button class=\"cu-btn primary\" onclick=\"saveArtist()\">Save</button>
-                    ${session.is_admin ? `<button class=\"cu-btn\" onclick=\"checkLocality()\">Recheck SoundCloud</button>` : ''}
-                    ${session.is_admin ? `<button class=\"cu-btn\" onclick=\"recheckFingerprint('instagram')\">Recheck Instagram</button>` : ''}
-                    ${session.is_admin ? `<button class=\"cu-btn\" onclick=\"recheckFingerprint('spotify')\">Recheck Spotify</button>` : ''}
+                <div style="display:flex;gap:0.45rem;margin-top:0.55rem;flex-wrap:wrap;">
+                    <button class="cu-btn primary" onclick="saveArtist()">Save</button>
+                    ${session.is_admin ? `<button class="cu-btn" onclick="checkLocality()">Recheck SoundCloud</button>` : ''}
+                    ${session.is_admin ? `<button class="cu-btn" onclick="recheckFingerprint('instagram')">Recheck Instagram</button>` : ''}
+                    ${session.is_admin ? `<button class="cu-btn" onclick="recheckFingerprint('spotify')">Recheck Spotify</button>` : ''}
                 </div>
             </div>`;
         }
@@ -210,14 +250,25 @@ async function loadArtist() {
                 <label>Search canonical artist<input id="mergeSearch" class="cu-input" placeholder="Search artist..." oninput="searchMerge()"></label>
                 <ul class="cu-merge-results" id="mergeResults"></ul>
             </div>`;
-            html += `<div class="cu-card">
-                <div class="cu-section-label" style="margin-top:0;">Admin: Link Member Account</div>
-                <div class="cu-row">
-                    <label>Username<input id="memberUsername" class="cu-input" placeholder="member username"></label>
-                    <label>Display Name<input id="memberDisplayName" class="cu-input" placeholder="optional display name"></label>
-                </div>
-                <div style="margin-top:0.55rem;"><button class="cu-btn primary" onclick="expandMemberFromArtist()">Create/Link Member</button></div>
-            </div>`;
+            const activeMember = a.active_member || null;
+            if (activeMember && activeMember.is_active) {
+                html += `<div class="cu-card">
+                    <div class="cu-section-label" style="margin-top:0;">Admin: Promote Artist to Member</div>
+                    <div class="cu-inline-status ok">Active member already linked: <strong>${escapeHtml(activeMember.username || '')}</strong>${activeMember.claimed_at ? ` · claimed ${formatDateTime(activeMember.claimed_at)}` : ' · unclaimed'}</div>
+                </div>`;
+            } else {
+                html += `<div class="cu-card">
+                    <div class="cu-section-label" style="margin-top:0;">Admin: Promote Artist to Member</div>
+                    <div class="cu-row">
+                        <label>Username<input id="memberUsername" class="cu-input" placeholder="member username"></label>
+                        <label>Display Name<input id="memberDisplayName" class="cu-input" placeholder="optional display name"></label>
+                    </div>
+                    <div style="margin-top:0.55rem;">
+                        <button class="cu-btn primary" onclick="expandMemberFromArtist()">Promote to Member</button>
+                    </div>
+                    <div id="memberLinkStatus" class="cu-inline-status" style="display:none;"></div>
+                </div>`;
+            }
         }
         document.getElementById('artistDetail').innerHTML = html;
     } catch (e) {
@@ -310,14 +361,43 @@ async function saveArtist() {
 }
 
 async function expandMemberFromArtist() {
+    const statusEl = document.getElementById('memberLinkStatus');
     const username = (document.getElementById('memberUsername')?.value || '').trim();
     const displayName = (document.getElementById('memberDisplayName')?.value || '').trim();
-    if (!username) return;
-    await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/expand-member', {
+    if (!username) {
+        if (statusEl) {
+            statusEl.style.display = '';
+            statusEl.className = 'cu-inline-status err';
+            statusEl.textContent = 'Username is required.';
+        }
+        return;
+    }
+    if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.className = 'cu-inline-status';
+        statusEl.textContent = 'Promoting artist to member…';
+    }
+    const r = await fetch('/api/cor-unum/artists/' + ARTIST_ID + '/expand-member', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({username, display_name: displayName}),
     });
+    const d = await r.json();
+    if (!r.ok || !d.success) {
+        const conflictUser = d && d.member && d.member.username ? ` (${d.member.username})` : '';
+        const message = (d && d.error) ? d.error + conflictUser : 'Failed to link member account.';
+        if (statusEl) {
+            statusEl.style.display = '';
+            statusEl.className = 'cu-inline-status err';
+            statusEl.textContent = message;
+        }
+        return;
+    }
+    if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.className = 'cu-inline-status ok';
+        statusEl.textContent = `Linked member ${d.member?.username || username}.`;
+    }
     await loadArtist();
 }
 

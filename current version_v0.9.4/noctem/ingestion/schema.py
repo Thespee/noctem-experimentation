@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS cu_members (
         CHECK(role IN ('member', 'admin')),
     is_active INTEGER DEFAULT 1,
     created_by TEXT,
+    claimed_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 -- Cor Unum: public detail suggestions moderation queue
@@ -210,6 +211,7 @@ def _migrate_cu_columns(conn) -> None:
         ("cu_artists", "instagram_discovery_error", "TEXT"),
         ("cu_artists", "spotify_discovery_error", "TEXT"),
         ("cu_artists", "canadian", "INTEGER NOT NULL DEFAULT 0"),
+        ("cu_members", "claimed_at", "TIMESTAMP"),
     ]
     for table, column, col_type in migrations:
         try:

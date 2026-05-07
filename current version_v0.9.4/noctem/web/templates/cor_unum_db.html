@@ -13,6 +13,8 @@
 .cu-pager button { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
 .cu-pager button:disabled { opacity: 0.4; cursor: default; }
 .cu-back { color: #8ab4f8; text-decoration: none; font-size: 0.82rem; }
+.cu-add-link { color: #e8eaed; text-decoration: none; font-size: 0.78rem; background: #00695c; border: 1px solid #00695c; padding: 0.32rem 0.65rem; border-radius: 4px; }
+.cu-add-link:hover { background: #00796b; border-color: #00796b; }
 {% endblock %}
 
 {% block cu_content %}
@@ -30,6 +32,9 @@
             <option value="not_local">Not Vancouver</option>
             <option value="unchecked">Unchecked</option>
         </select>
+        {% if cu_session_user.is_admin %}
+        <a class="cu-add-link" href="/cor-unum/add-artist">+ Add Artist</a>
+        {% endif %}
         {% endif %}
     </div>
     <table class="cu-table">

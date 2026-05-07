@@ -26,6 +26,9 @@
     <a href="/cor-unum/db/artists" class="{% if request.path == '/cor-unum/db/artists' %}active{% endif %}">Artists</a>
     <a href="/cor-unum/db/venues" class="{% if request.path == '/cor-unum/db/venues' %}active{% endif %}">Venues</a>
     <a href="/cor-unum/add-event" class="{% if request.path == '/cor-unum/add-event' %}active{% endif %}">Add Event</a>
+    {% if cu_session_user.is_admin %}
+    <a href="/cor-unum/add-artist" class="{% if request.path == '/cor-unum/add-artist' %}active{% endif %}">Add Artist</a>
+    {% endif %}
     {% endif %}
     <span class="cu-nav-spacer"></span>
     <div class="cu-session" id="cuSessionControls" {% if not cu_show_session_controls %}style="display:none;"{% endif %}>

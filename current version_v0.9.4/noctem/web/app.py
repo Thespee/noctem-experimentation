@@ -98,23 +98,31 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         return False
 
     def _seed_default_cu_session() -> None:
-        if session.get("cu_role"):
-            return
+        session_mode = str(session.get("cu_app_mode") or "").strip().lower()
         if portal_mode:
+            if session.get("cu_role") and session_mode == "portal":
+                return
             session["cu_role"] = "public"
             session["cu_user_id"] = 0
             session["cu_username"] = "public"
             session["cu_member_id"] = None
+            session["cu_app_mode"] = "portal"
         elif _is_private_request():
+            if session.get("cu_role") and session_mode == "internal":
+                return
             session["cu_role"] = "admin"
             session["cu_user_id"] = 1
             session["cu_username"] = "cor_unum_admin"
             session["cu_member_id"] = None
+            session["cu_app_mode"] = "internal"
         else:
+            if session.get("cu_role"):
+                return
             session["cu_role"] = "public"
             session["cu_user_id"] = 0
             session["cu_username"] = "public"
             session["cu_member_id"] = None
+            session["cu_app_mode"] = "internal"
 
     def _set_cu_session_role(
         *,
@@ -127,6 +135,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         session["cu_username"] = username
         session["cu_user_id"] = int(user_id)
         session["cu_member_id"] = int(member_id) if member_id is not None else None
+        session["cu_app_mode"] = "portal" if portal_mode else "internal"
 
     def _get_current_cu_user() -> User:
         _seed_default_cu_session()
@@ -2450,6 +2459,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         username = str(data.get("username") or data.get("member_username") or "").strip()
         if member_id is None and not username:
             return jsonify({"success": False, "error": "member_id or username required for member role"}), 400
+        claim_requested = member_id is None and bool(username)
         with get_db() as conn:
             member = None
             if member_id is not None:
@@ -2458,17 +2468,29 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                 except (TypeError, ValueError):
                     return jsonify({"success": False, "error": "member_id must be an integer"}), 400
                 member = conn.execute(
-                    """SELECT id, username, artist_id
+                    """SELECT id, username, artist_id, claimed_at
                        FROM cu_members
                        WHERE id = ? AND is_active = 1""",
                     (lookup_member_id,),
                 ).fetchone()
             elif username:
                 member = conn.execute(
-                    """SELECT id, username, artist_id
+                    """SELECT id, username, artist_id, claimed_at
                        FROM cu_members
                        WHERE LOWER(username) = LOWER(?) AND is_active = 1""",
                     (username,),
+                ).fetchone()
+            if member and claim_requested and not member["claimed_at"]:
+                now = datetime.utcnow().isoformat()
+                conn.execute(
+                    "UPDATE cu_members SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL",
+                    (now, int(member["id"])),
+                )
+                member = conn.execute(
+                    """SELECT id, username, artist_id, claimed_at
+                       FROM cu_members
+                       WHERE id = ? AND is_active = 1""",
+                    (int(member["id"]),),
                 ).fetchone()
         if not member:
             return jsonify({"success": False, "error": "Active member not found"}), 404
@@ -2487,7 +2509,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
             return admin_error
         with get_db() as conn:
             rows = conn.execute(
-                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at,
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
                           a.name AS artist_name
                    FROM cu_members m
                    LEFT JOIN cu_artists a ON a.id = m.artist_id
@@ -2510,18 +2532,28 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         artist_name = str(data.get("artist_name") or "").strip()
         actor = _cu_actor_label()
         with get_db() as conn:
+            existing_username = conn.execute(
+                "SELECT id FROM cu_members WHERE LOWER(username) = LOWER(?) LIMIT 1",
+                (username,),
+            ).fetchone()
+            if existing_username:
+                return jsonify({"success": False, "error": "username already exists"}), 409
             canonical_artist_id = None
             if artist_id is not None:
+                try:
+                    lookup_artist_id = int(artist_id)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "artist_id must be an integer"}), 400
                 row = conn.execute(
                     "SELECT id, alias_of FROM cu_artists WHERE id = ?",
-                    (int(artist_id),),
+                    (lookup_artist_id,),
                 ).fetchone()
                 if not row:
                     return jsonify({"success": False, "error": "artist not found"}), 404
                 canonical_artist_id = int(row["alias_of"] or row["id"])
             elif artist_name:
                 row = conn.execute(
-                    "SELECT id, alias_of FROM cu_artists WHERE name = ?",
+                    "SELECT id, alias_of FROM cu_artists WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1",
                     (artist_name,),
                 ).fetchone()
                 if row:
@@ -2541,6 +2573,26 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                         actor=actor,
                         details={"username": username},
                     )
+            if canonical_artist_id is not None:
+                active_member = conn.execute(
+                    """SELECT id, username
+                       FROM cu_members
+                       WHERE artist_id = ? AND is_active = 1
+                       ORDER BY id DESC
+                       LIMIT 1""",
+                    (canonical_artist_id,),
+                ).fetchone()
+                if active_member:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "artist already has an active member",
+                                "member": {"id": int(active_member["id"]), "username": str(active_member["username"])},
+                            }
+                        ),
+                        409,
+                    )
             created_member = conn.execute(
                 """INSERT INTO cu_members (username, display_name, artist_id, role, is_active, created_by)
                    VALUES (?, ?, ?, 'member', 1, ?)""",
@@ -2558,7 +2610,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                     details={"member_id": member_id, "username": username},
                 )
             member = conn.execute(
-                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at,
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
                           a.name AS artist_name
                    FROM cu_members m
                    LEFT JOIN cu_artists a ON a.id = m.artist_id
@@ -2752,6 +2804,12 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         from ..ingestion.history import record_entity_change
         actor = _cu_actor_label()
         with get_db() as conn:
+            existing_username = conn.execute(
+                "SELECT id FROM cu_members WHERE LOWER(username) = LOWER(?) LIMIT 1",
+                (username,),
+            ).fetchone()
+            if existing_username:
+                return jsonify({"success": False, "error": "username already exists"}), 409
             row = conn.execute(
                 "SELECT id, alias_of, name FROM cu_artists WHERE id = ?",
                 (artist_id,),
@@ -2759,6 +2817,25 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
             if not row:
                 return jsonify({"success": False, "error": "artist not found"}), 404
             canonical_artist_id = int(row["alias_of"] or row["id"])
+            active_member = conn.execute(
+                """SELECT id, username
+                   FROM cu_members
+                   WHERE artist_id = ? AND is_active = 1
+                   ORDER BY id DESC
+                   LIMIT 1""",
+                (canonical_artist_id,),
+            ).fetchone()
+            if active_member:
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "artist already has an active member",
+                            "member": {"id": int(active_member["id"]), "username": str(active_member["username"])},
+                        }
+                    ),
+                    409,
+                )
             created = conn.execute(
                 """INSERT INTO cu_members (username, display_name, artist_id, role, is_active, created_by)
                    VALUES (?, ?, ?, 'member', 1, ?)""",
@@ -2775,7 +2852,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                 details={"member_id": member_id, "username": username},
             )
             member = conn.execute(
-                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at,
+                """SELECT m.id, m.username, m.display_name, m.artist_id, m.role, m.is_active, m.created_by, m.created_at, m.claimed_at,
                           a.name AS artist_name
                    FROM cu_members m
                    LEFT JOIN cu_artists a ON a.id = m.artist_id
@@ -2934,11 +3011,86 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         return jsonify({"success": True, **result})
 
     # --- Cor Unum: browse pages ---
+    @app.route("/cor-unum/add-artist")
+    def cor_unum_add_artist():
+        """Manual artist creation page (admin only)."""
+        current = _get_current_cu_user()
+        if not current.is_admin:
+            return redirect(url_for("cor_unum"))
+        return render_template("cor_unum_add_artist.html")
 
     @app.route("/cor-unum/add-event")
     def cor_unum_add_event():
         """Manual event creation page."""
         return render_template("cor_unum_add_event.html")
+    @app.route("/api/cor-unum/artists/create", methods=["POST"])
+    def api_cu_create_artist():
+        admin_error = _require_cu_admin()
+        if admin_error:
+            return admin_error
+        from ..ingestion.city_tags import LOCAL_CITY_TAG, set_local_yvr
+        from ..ingestion.history import record_entity_change
+        data = request.get_json(silent=True) or {}
+        name = str(data.get("name") or "").strip()
+        if not name:
+            return jsonify({"success": False, "error": "name required"}), 400
+        soundcloud_url = str(data.get("soundcloud_url") or "").strip() or None
+        instagram_url = str(data.get("instagram_url") or "").strip() or None
+        spotify_url = str(data.get("spotify_url") or "").strip() or None
+        is_canadian = _coerce_bool(data.get("is_canadian"))
+        is_local = bool(data.get("is_local"))
+        actor = _cu_actor_label()
+        now = datetime.utcnow().isoformat()
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id, alias_of FROM cu_artists WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1",
+                (name,),
+            ).fetchone()
+            if existing:
+                existing_id = int(existing["alias_of"] or existing["id"])
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "artist already exists",
+                            "artist_id": existing_id,
+                        }
+                    ),
+                    409,
+                )
+            created = conn.execute(
+                """INSERT INTO cu_artists (name, soundcloud_url, instagram_url, spotify_url, is_canadian, last_seen)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (name, soundcloud_url, instagram_url, spotify_url, int(is_canadian), now),
+            )
+            artist_id = int(created.lastrowid)
+            if is_local:
+                set_local_yvr(conn, artist_id, True)
+            record_entity_change(
+                conn,
+                entity_type="artist",
+                entity_id=artist_id,
+                operation="cor_unum.artist.create",
+                summary=f"Created artist '{name}'",
+                actor=actor,
+                details={
+                    "is_local": is_local,
+                    "is_canadian": bool(is_canadian),
+                    "source": "manual_dashboard",
+                },
+            )
+            artist = conn.execute(
+                """SELECT a.id, a.name, a.soundcloud_url, a.instagram_url, a.spotify_url, a.is_canadian,
+                          EXISTS (
+                              SELECT 1
+                              FROM cu_artist_tags t
+                              WHERE t.artist_id = a.id AND t.tag = ?
+                          ) AS is_local
+                   FROM cu_artists a
+                   WHERE a.id = ?""",
+                (LOCAL_CITY_TAG, artist_id),
+            ).fetchone()
+        return jsonify({"success": True, "artist": dict(artist)})
 
     @app.route("/api/cor-unum/events/create", methods=["POST"])
     def api_cu_create_event():
@@ -2958,9 +3110,37 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
         venue_name = (data.get("venue_name") or "").strip()
         description = (data.get("description") or "").strip()
         artist_list = data.get("artists") or []
+        current_user = _get_current_cu_user()
         actor = _cu_actor_label()
 
         with get_db() as conn:
+            member_artist_id = None
+            if current_user.role == "member":
+                if current_user.artist_id is None:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "Member account must be linked to an artist before creating events",
+                            }
+                        ),
+                        409,
+                    )
+                member_artist_row = conn.execute(
+                    "SELECT id, alias_of FROM cu_artists WHERE id = ?",
+                    (int(current_user.artist_id),),
+                ).fetchone()
+                if not member_artist_row:
+                    return (
+                        jsonify(
+                            {
+                                "success": False,
+                                "error": "Linked artist not found for member account",
+                            }
+                        ),
+                        409,
+                    )
+                member_artist_id = int(member_artist_row["alias_of"] or member_artist_row["id"])
             # Resolve or create venue
             if venue_id:
                 pass  # use existing
@@ -2991,6 +3171,7 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
             )
 
             # Process artists
+            canonical_artist_ids: set[int] = set()
             for art in artist_list:
                 art_name = (art.get("name") or "").strip()
                 if not art_name:
@@ -3026,10 +3207,19 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                                 "INSERT OR IGNORE INTO cu_artist_tags (artist_id, tag) VALUES (?, ?)",
                                 (art_id, LOCAL_CITY_TAG),
                             )
+                canonical_artist_ids.add(int(art_id))
                 conn.execute(
                     "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
                     (event_id, art_id),
                 )
+            auto_added_member_artist = False
+            if member_artist_id is not None and member_artist_id not in canonical_artist_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO cu_event_performers (event_id, artist_id) VALUES (?, ?)",
+                    (event_id, member_artist_id),
+                )
+                canonical_artist_ids.add(member_artist_id)
+                auto_added_member_artist = True
             record_entity_change(
                 conn,
                 entity_type="event",
@@ -3040,7 +3230,8 @@ def create_app(*, portal_mode: bool = False, cor_unum_private_only: bool = True)
                 details={
                     "date": date_str,
                     "venue_id": int(venue_id) if venue_id else None,
-                    "artist_count": len(artist_list),
+                    "artist_count": len(canonical_artist_ids),
+                    "member_artist_enforced": auto_added_member_artist,
                 },
             )
 

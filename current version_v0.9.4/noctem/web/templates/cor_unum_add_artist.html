@@ -1,0 +1,95 @@
+{% extends "cor_unum_base.html" %}
+{% block title %}Cor Unum — Add Artist{% endblock %}
+
+{% block cu_extra_style %}
+.cu-wrap { max-width: 680px; margin: 0 auto; padding: 1.5rem; }
+h1 { font-size: 1.3rem; margin: 0 0 1.2rem; }
+.cu-field { margin-bottom: 0.75rem; }
+.cu-field label { display: block; font-size: 0.82rem; color: #9aa0a6; margin-bottom: 0.2rem; }
+.cu-field input[type="text"], .cu-field input[type="url"] { background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.4rem 0.7rem; border-radius: 4px; font-size: 0.85rem; width: 100%; box-sizing: border-box; }
+.cu-checks { display: flex; gap: 1rem; align-items: center; margin: 0.8rem 0 1.2rem; }
+.cu-checks label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.82rem; color: #c7cacf; }
+.cu-checks input[type="checkbox"] { accent-color: #1a73e8; }
+.cu-btn { background: #1a73e8; border: none; color: #fff; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.82rem; }
+.cu-btn:hover { background: #1565c0; }
+.cu-btn.secondary { background: #3c4043; border: 1px solid #5f6368; color: #e8eaed; margin-left: 0.45rem; }
+.cu-btn.secondary:hover { background: #5f6368; }
+.cu-toast { position: fixed; top: 1rem; right: 1rem; background: #2d2d2d; border: 1px solid #3c3c3c; color: #e8eaed; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.82rem; z-index: 999; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+.cu-toast.show { opacity: 1; }
+.cu-toast.err { border-color: #b71c1c; color: #ef9a9a; }
+{% endblock %}
+
+{% block cu_content %}
+<div id="toast" class="cu-toast"></div>
+<div class="cu-wrap">
+    <h1>Add Artist</h1>
+    <div class="cu-field">
+        <label>Artist Name *</label>
+        <input id="artistName" type="text" placeholder="Artist / project name">
+    </div>
+    <div class="cu-field">
+        <label>SoundCloud URL</label>
+        <input id="artistSoundcloud" type="url" placeholder="https://soundcloud.com/...">
+    </div>
+    <div class="cu-field">
+        <label>Instagram URL</label>
+        <input id="artistInstagram" type="url" placeholder="https://instagram.com/...">
+    </div>
+    <div class="cu-field">
+        <label>Spotify URL</label>
+        <input id="artistSpotify" type="url" placeholder="https://open.spotify.com/...">
+    </div>
+    <div class="cu-checks">
+        <label><input id="artistLocal" type="checkbox"> Vancouver local</label>
+        <label><input id="artistCanadian" type="checkbox"> Canadian</label>
+    </div>
+    <div>
+        <button class="cu-btn" onclick="createArtist()">Create Artist</button>
+        <a class="cu-btn secondary" href="/cor-unum/db/artists">Back to Artists</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+function showToast(message, isError) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'cu-toast show' + (isError ? ' err' : '');
+    clearTimeout(toast._tid);
+    toast._tid = setTimeout(() => { toast.className = 'cu-toast'; }, 3200);
+}
+
+async function createArtist() {
+    const name = (document.getElementById('artistName').value || '').trim();
+    if (!name) {
+        showToast('Artist name is required', true);
+        return;
+    }
+    const payload = {
+        name,
+        soundcloud_url: (document.getElementById('artistSoundcloud').value || '').trim(),
+        instagram_url: (document.getElementById('artistInstagram').value || '').trim(),
+        spotify_url: (document.getElementById('artistSpotify').value || '').trim(),
+        is_local: !!document.getElementById('artistLocal').checked,
+        is_canadian: !!document.getElementById('artistCanadian').checked,
+    };
+    const res = await fetch('/api/cor-unum/artists/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (data.success && data.artist) {
+        window.location.href = '/cor-unum/artist/' + data.artist.id;
+        return;
+    }
+    if (data.artist_id) {
+        showToast('Artist already exists — opening existing record', false);
+        setTimeout(() => {
+            window.location.href = '/cor-unum/artist/' + data.artist_id;
+        }, 450);
+        return;
+    }
+    showToast('Error: ' + (data.error || 'unknown'), true);
+}
+{% endblock %}

@@ -391,6 +391,46 @@ class TestAPI:
             r = client.get(path)
             assert r.status_code == 200, f"{path} returned {r.status_code}"
 
+    def test_add_artist_page_and_api_create_artist(self, client):
+        page = client.get("/cor-unum/add-artist")
+        assert page.status_code == 200
+
+        created = client.post(
+            "/api/cor-unum/artists/create",
+            json={
+                "name": "Standalone Artist",
+                "soundcloud_url": "https://soundcloud.com/standalone-artist",
+                "is_local": True,
+                "is_canadian": True,
+            },
+        )
+        assert created.status_code == 200
+        payload = created.get_json()
+        assert payload["success"] is True
+        artist_id = payload["artist"]["id"]
+
+        with db.get_db() as conn:
+            artist_row = conn.execute(
+                "SELECT name, is_canadian FROM cu_artists WHERE id = ?",
+                (artist_id,),
+            ).fetchone()
+            local_tag = conn.execute(
+                "SELECT tag FROM cu_artist_tags WHERE artist_id = ?",
+                (artist_id,),
+            ).fetchone()
+        assert artist_row["name"] == "Standalone Artist"
+        assert artist_row["is_canadian"] == 1
+        assert local_tag is not None
+
+        duplicate = client.post(
+            "/api/cor-unum/artists/create",
+            json={"name": "standalone artist"},
+        )
+        assert duplicate.status_code == 409
+        dup_payload = duplicate.get_json()
+        assert dup_payload["success"] is False
+        assert dup_payload["artist_id"] == artist_id
+
     def test_session_assume_public_and_member(self, client):
         create_member = client.post(
             "/api/cor-unum/members",
@@ -414,6 +454,35 @@ class TestAPI:
         assert member_session["role"] == "member"
         assert member_session["member_id"] == member["id"]
         assert member_session["is_member"] is True
+
+    def test_session_assume_member_by_username_sets_claimed_at(self, client):
+        create_member = client.post(
+            "/api/cor-unum/members",
+            json={"username": "member_claim", "display_name": "Member Claim"},
+        )
+        assert create_member.status_code == 200
+        member_id = create_member.get_json()["member"]["id"]
+
+        with db.get_db() as conn:
+            before = conn.execute(
+                "SELECT claimed_at FROM cu_members WHERE id = ?",
+                (member_id,),
+            ).fetchone()
+        assert before["claimed_at"] is None
+
+        assume = client.post(
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "member_claim"},
+        )
+        assert assume.status_code == 200
+        assert assume.get_json()["session"]["role"] == "member"
+
+        with db.get_db() as conn:
+            after = conn.execute(
+                "SELECT claimed_at FROM cu_members WHERE id = ?",
+                (member_id,),
+            ).fetchone()
+        assert after["claimed_at"] is not None
 
     def test_internal_cor_unum_scope_is_private_only(self, client):
         blocked_page = self._remote_request(client, "GET", "/cor-unum")
@@ -493,12 +562,15 @@ class TestAPI:
         blocked_sources_api = self._remote_request(portal_client, "GET", "/api/cor-unum/sources")
         assert blocked_sources_api.status_code == 403
 
-    def test_portal_member_create_event_records_event_and_artist_history(self, portal_client):
+    def test_portal_member_create_event_enforces_member_artist_linkage(self, portal_client):
         with db.get_db() as conn:
+            artist_id = conn.execute(
+                "INSERT INTO cu_artists (name) VALUES ('Remote Member Linked Artist')"
+            ).lastrowid
             conn.execute(
-                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
-                   VALUES (?, ?, 'member', 1, ?)""",
-                ("remote_member_create", "Remote Member Create", "seed"),
+                """INSERT INTO cu_members (username, display_name, artist_id, role, is_active, created_by)
+                   VALUES (?, ?, ?, 'member', 1, ?)""",
+                ("remote_member_create", "Remote Member Create", artist_id, "seed"),
             )
 
         assume_member = self._remote_request(
@@ -518,7 +590,7 @@ class TestAPI:
                 "date": date.today().isoformat(),
                 "venue_name": "Remote Member Venue",
                 "description": "created by remote member",
-                "artists": [{"name": "Remote Member New Artist", "is_new": True, "is_local": True}],
+                "artists": [],
             },
         )
         assert create_resp.status_code == 200
@@ -532,21 +604,49 @@ class TestAPI:
         event_create = next((h for h in event_history if h["operation"] == "cor_unum.event.create"), None)
         assert event_create is not None
         assert str(event_create["actor"]).startswith("cu_member:remote_member_create")
+        details = event_create.get("details") or {}
+        assert details.get("member_artist_enforced") is True
+        assert int(details.get("artist_count", 0)) == 1
 
         with db.get_db() as conn:
-            artist_row = conn.execute(
-                "SELECT id FROM cu_artists WHERE name = ?",
-                ("Remote Member New Artist",),
-            ).fetchone()
-        assert artist_row is not None
-        artist_id = artist_row["id"]
+            performer_rows = conn.execute(
+                "SELECT artist_id FROM cu_event_performers WHERE event_id = ?",
+                (event_id,),
+            ).fetchall()
+        performer_ids = {row["artist_id"] for row in performer_rows}
+        assert performer_ids == {artist_id}
 
-        artist_history_resp = self._remote_request(portal_client, "GET", f"/api/cor-unum/history/artist/{artist_id}")
-        assert artist_history_resp.status_code == 200
-        artist_history = artist_history_resp.get_json()["history"]
-        artist_create = next((h for h in artist_history if h["operation"] == "cor_unum.artist.create"), None)
-        assert artist_create is not None
-        assert str(artist_create["actor"]).startswith("cu_member:remote_member_create")
+    def test_portal_member_without_artist_cannot_create_event(self, portal_client):
+        with db.get_db() as conn:
+            conn.execute(
+                """INSERT INTO cu_members (username, display_name, role, is_active, created_by)
+                   VALUES (?, ?, 'member', 1, ?)""",
+                ("remote_member_no_artist", "Remote Member No Artist", "seed"),
+            )
+
+        assume_member = self._remote_request(
+            portal_client,
+            "POST",
+            "/api/cor-unum/session/assume",
+            json={"role": "member", "username": "remote_member_no_artist"},
+        )
+        assert assume_member.status_code == 200
+
+        create_resp = self._remote_request(
+            portal_client,
+            "POST",
+            "/api/cor-unum/events/create",
+            json={
+                "title": "Remote Member Missing Artist",
+                "date": date.today().isoformat(),
+                "venue_name": "Remote Member Venue",
+                "artists": [],
+            },
+        )
+        assert create_resp.status_code == 409
+        payload = create_resp.get_json()
+        assert payload["success"] is False
+        assert "linked to an artist" in str(payload.get("error", ""))
 
     def test_portal_member_event_and_venue_updates_record_history(self, portal_client):
         with db.get_db() as conn:
@@ -800,6 +900,28 @@ class TestAPI:
         assert payload["success"] is True
         assert payload["member"]["artist_id"] == artist_id
         assert payload["member"]["username"] == "artist_member"
+
+    def test_expand_member_from_artist_conflict_when_active_member_exists(self, client):
+        with db.get_db() as conn:
+            artist_id = conn.execute(
+                "INSERT INTO cu_artists (name) VALUES ('Artist Conflict Member')"
+            ).lastrowid
+
+        first = client.post(
+            f"/api/cor-unum/artists/{artist_id}/expand-member",
+            json={"username": "artist_member_first"},
+        )
+        assert first.status_code == 200
+
+        second = client.post(
+            f"/api/cor-unum/artists/{artist_id}/expand-member",
+            json={"username": "artist_member_second"},
+        )
+        assert second.status_code == 409
+        payload = second.get_json()
+        assert payload["success"] is False
+        assert payload["error"] == "artist already has an active member"
+        assert payload["member"]["username"] == "artist_member_first"
 
 
 # =========================================================================
