@@ -72,6 +72,14 @@ int    outroCycleTotal    = 4;
 // ─ Debug ─────────────────────────────────────────────────────────
 boolean showDebug = false;              // press 'D' to toggle
 
+// ─ Export Mode ───────────────────────────────────────────────────
+// Set true to save intro (scenes 0+1) and outro (scene 3) frames.
+// Scene 2 (green screen) is intentionally skipped — it is generated
+// by the separate scene2_processor.py script.
+// Run the sketch once with exportMode = true, then run the processor.
+boolean exportMode = true;
+String exportPath = "../export/";       // relative to sketch folder
+
 
 // ═════════════════════════════════════════════════════════════════
 // INTERNAL STATE (do not edit)
@@ -99,6 +107,11 @@ int scene       = 0;    // 0 intro-p1  1 intro-p2  2 middle  3 outro
 int sceneFrame  = 0;
 int globalFrame = 0;
 
+// Export counters (only used when exportMode == true)
+int exportIntroFrame = 0;
+int exportOutroFrame = 0;
+boolean exportComplete = false;
+
 
 // ═════════════════════════════════════════════════════════════════
 // SETUP
@@ -111,6 +124,15 @@ void settings() {
 void setup() {
   frameRate(targetFPS);
   framesPerBeat = round(targetFPS * 60.0 / bpm);   // 15
+
+  if (exportMode) {
+    println("=== EXPORT MODE ===");
+    println("Intro frames (scenes 0+1) -> " + exportPath + "intro/");
+    println("Outro frames (scene 3)    -> " + exportPath + "outro/");
+    println("Scene 2 is skipped. Generate it with scene2_processor.py");
+    println("The sketch will stop automatically after one cycle.");
+    println("===================");
+  }
 
   fontCorUnum = createFont("../fonts/RammettoOne-Regular.ttf", fontCreateSize);
   fonts1 = loadFontPool(font1Pool);
@@ -157,6 +179,8 @@ void resetAll() {
 // ═════════════════════════════════════════════════════════════════
 
 void draw() {
+  if (exportComplete) return;
+
   blendMode(BLEND);          // safety reset each frame
   handleTransitions();       // advance scene when its duration expires
 
@@ -168,6 +192,16 @@ void draw() {
   }
 
   if (showDebug) drawSafeZoneOverlay();
+
+  if (exportMode) {
+    if (scene == 0 || scene == 1) {
+      saveFrame(exportPath + "intro/" + nf(exportIntroFrame++, 4) + ".png");
+    } else if (scene == 3) {
+      saveFrame(exportPath + "outro/" + nf(exportOutroFrame++, 4) + ".png");
+    }
+    // Scene 2 is intentionally not saved.
+  }
+
   sceneFrame++;
   globalFrame++;
 }
@@ -180,7 +214,17 @@ void handleTransitions() {
   } else if (scene == 2 && sceneFrame >= 2 * targetFPS) {
     advanceTo(3);
   } else if (scene == 3 && sceneFrame >= outroWords.length * outroFramesPerWord * outroCycleTotal) {
-    resetAll();
+    if (exportMode) {
+      exportComplete = true;
+      println("Export complete.");
+      println("Intro frames saved: " + exportIntroFrame);
+      println("Outro frames saved: " + exportOutroFrame);
+      println("Folder: " + sketchPath(exportPath));
+      noLoop();
+      return;
+    } else {
+      resetAll();
+    }
   }
 }
 

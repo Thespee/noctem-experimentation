@@ -14,10 +14,12 @@ Processing 4 generative video sketch. 1080×1920 vertical canvas, 30 FPS, 120 BP
 |-------|----------|---------|
 | 0 — Intro P1 | 4 beats | "COR / UNUM" expansion → chromatic aberration → logo punch-through |
 | 1 — Intro P2 | variable | Word cycle with half-beat mutations (font, chromatic, wobble) |
-| 2 — Middle | 60 frames | Solid green screen |
+| 2 — Middle | variable | Raw video with 4× random 1-beat filler cutaways + chroma-keyed green screen |
 | 3 — Outro | variable | Word-by-word phrase, 4 cycles, quarter-beat colour flash |
 
-Loops indefinitely.
+In normal (preview) mode the sketch loops indefinitely.
+In export mode it renders one full cycle and stops.
+Scene 2 is generated separately by `scene2_processor.py`.
 
 ## Global Scale
 
