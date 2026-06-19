@@ -2,145 +2,105 @@
 """
 scene2_processor.py
 ===================
-Processes raw footage for Scene 2 of the vertical video.
+Config-driven Scene 2 processor for the vertical visual pipeline.
 
 Workflow:
-1. Extracts 4 random 1-beat segments from the filler portion
-   (between 0 and ACTUAL_START_SECONDS)
-2. Trims the main content from ACTUAL_START_SECONDS to CUT_FROM_END
-3. Replaces green screen in the main content with INPUT_PHOTO
-4. Concatenates: filler1 + filler2 + filler3 + filler4 + processed_main
-5. Renders to OUTPUT_VIDEO
-
-Dependencies:
-  - ffmpeg (must be on PATH)
-  - ffprobe (must be on PATH)
+1) Extract 4 random 1-beat filler cutaways from [0, actual_start_seconds)
+2) Trim main content from actual_start_seconds to (duration - cut_from_end_seconds)
+3) Chroma-key green screen and composite over configured background photo
+4) Optional foreground-only dithering branch
+5) Concatenate filler cutaways + processed main into output video
 """
 
-import subprocess
-import os
-import sys
+from __future__ import annotations
+
+import argparse
+import json
 import random
-import tempfile
 import shutil
-
-# ═════════════════════════════════════════════════════════════════
-# USER CONFIGURATION — edit everything below this line
-# ═════════════════════════════════════════════════════════════════
-
-# ─ Paths ────────────────────────────────────────────────────────
-# ← YOUR RAW VIDEO FILE (replace with actual path)
-#    Use r"..." for Windows paths so backslashes aren't treated as escapes.
-INPUT_VIDEO = r"C:\Users\Rage4\Documents\GitHub\noctem\video dev\videos\test videos\VID_20260520_152333.mp4"
-
-# ← YOUR PHOTO TO OVERLAY ON THE GREEN SCREEN (replace with actual path)
-INPUT_PHOTO = r"C:\Users\Rage4\Documents\GitHub\noctem\video dev\videos\IMG_0724.JPG"
-
-# ← WHERE TO SAVE THE RESULTING SCENE 2 VIDEO
-OUTPUT_VIDEO = "../export/scene2.mp4"
-
-# ─ Timing ─────────────────────────────────────────────────────────
-# These should match your Processing sketch:
-BPM = 120.0
-FPS = 30.0
-
-# Mark when your actual video content starts (seconds).
-# Random 1-beat cutaways will be pulled from [0, ACTUAL_START_SECONDS).
-ACTUAL_START_SECONDS = 50
-
-# Cut this many seconds from the end of the main content.
-# Set to 0 to use everything from ACTUAL_START_SECONDS to the end.
-CUT_FROM_END_SECONDS = 3
-
-# ─ Green Screen Parameters ────────────────────────────────────────
-# Hex color to key out. Default is pure green (#00FF00).
-# If your green screen is a different shade, use a color picker
-# and set it here (format: 0xRRGGBB).
-CHROMA_KEY_COLOR = "0x4D7B5A"
-
-# Similarity: how close a pixel must be to the key color to be removed.
-# Range: 0.01 (very strict, leaves edges) to 1.0 (very loose, may eat non-green).
-# Default 0.15. Increase if green edges remain; decrease if non-green areas disappear.
-CHROMA_SIMILARITY = 0.15
-
-# Blend: edge softness. 0.0 = hard edges, higher = softer feather.
-# Range: 0.0 to 1.0. Default 0.0.
-CHROMA_BLEND = 0.0
-
-# ─ Output Resolution ───────────────────────────────────────────────
-# Hard-coded to match the Processing canvas. The input video MUST already be
-# this resolution or the script will abort. Convert it beforehand if needed.
-OUTPUT_RESOLUTION = (1080, 1920)
-
-# ─ Random Seed ───────────────────────────────────────────────────
-# Change this to get different random cutaway segments.
-RANDOM_SEED = 42069
-
-# ─ Debug ───────────────────────────────────────────────────────────
-# Set True to keep temporary files after rendering (for inspection).
-KEEP_TEMP = False
-
-# ═════════════════════════════════════════════════════════════════
-# INTERNALS — do not edit below unless you know what you're doing
-# ═════════════════════════════════════════════════════════════════
-
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
 
 
-def resolve_path(path):
-    """Resolve relative paths against the script's directory."""
-    if not path or os.path.isabs(path):
-        return path
-    return os.path.join(_SCRIPT_DIR, path)
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG = SCRIPT_DIR / "pipeline" / "config" / "visual_pipeline.json"
 
 
-def run(cmd, **kwargs):
-    """Run a shell command, print it, and raise on failure."""
+def load_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def resolve_repo_path(path_value: str) -> Path:
+    path = Path(path_value)
+    return (SCRIPT_DIR / path).resolve() if not path.is_absolute() else path.resolve()
+
+
+def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     print(f"[CMD] {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
-    if result.returncode != 0:
-        print(f"[STDERR] {result.stderr}", file=sys.stderr)
-        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
-    return result
+    completed = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    if completed.returncode != 0:
+        if completed.stdout:
+            print(completed.stdout)
+        if completed.stderr:
+            print(completed.stderr, file=sys.stderr)
+        raise RuntimeError(f"Command failed ({completed.returncode}): {' '.join(cmd)}")
+    return completed
 
 
-def get_video_duration(path):
-    """Get duration in seconds using ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        path,
-    ]
-    result = run(cmd)
+def get_video_duration(path: Path) -> float:
+    result = run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ]
+    )
     return float(result.stdout.strip())
 
 
-def get_video_info(path):
-    """Get raw (width, height) and rotation metadata using ffprobe."""
-    # --- raw width / height ---
-    cmd_wh = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        path,
-    ]
-    result_wh = run(cmd_wh)
+def get_video_info(path: Path) -> tuple[int, int, int]:
+    result_wh = run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ]
+    )
     lines = [ln for ln in result_wh.stdout.splitlines() if ln.strip()]
     if len(lines) < 2:
         raise RuntimeError(f"Unexpected ffprobe resolution output: {result_wh.stdout!r}")
     w, h = int(lines[0].strip()), int(lines[1].strip())
 
-    # --- rotation from Display Matrix side data ---
-    cmd_rot = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream_side_data_list",
-        "-of", "default=noprint_wrappers=1",
-        path,
-    ]
-    result_rot = run(cmd_rot)
+    result_rot = run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream_side_data_list",
+            "-of",
+            "default=noprint_wrappers=1",
+            str(path),
+        ]
+    )
     rotation = 0
     for line in result_rot.stdout.splitlines():
         line = line.strip()
@@ -148,233 +108,274 @@ def get_video_info(path):
             try:
                 rotation = int(line.split("=", 1)[1])
             except ValueError:
-                pass
+                rotation = 0
             break
     return w, h, rotation
 
 
-def main():
-    # ─ Dependency checks ──────────────────────────────────────────
-    for bin_name in ["ffmpeg", "ffprobe"]:
-        if shutil.which(bin_name) is None:
-            print(f"[FATAL] '{bin_name}' not found on PATH. Install FFmpeg and try again.")
-            sys.exit(1)
-
-    # ─ Input validation ───────────────────────────────────────────
-    if not os.path.exists(INPUT_VIDEO):
-        print(f"[FATAL] INPUT_VIDEO not found: {INPUT_VIDEO}")
-        print("Hint: edit the INPUT_VIDEO path at the top of this script.")
-        sys.exit(1)
-    if not os.path.exists(INPUT_PHOTO):
-        print(f"[FATAL] INPUT_PHOTO not found: {INPUT_PHOTO}")
-        print("Hint: edit the INPUT_PHOTO path at the top of this script.")
-        sys.exit(1)
-
-    # ─ Timing calculations ──────────────────────────────────────
-    beat_duration = 60.0 / BPM
-    beat_frames = int(FPS * beat_duration)
-
-    print(f"=" * 60)
-    print(f"Scene 2 Processor")
-    print(f"=" * 60)
-    print(f"Beat duration : {beat_duration:.3f}s ({beat_frames} frames)")
-    print(f"Filler range  : 0s → {ACTUAL_START_SECONDS}s")
-
-    # ─ Video metadata ─────────────────────────────────────────────
-    total_duration = get_video_duration(INPUT_VIDEO)
-    v_w, v_h, rotation = get_video_info(INPUT_VIDEO)
-    print(f"Video raw size : {v_w}x{v_h}  (rotation={rotation})")
-    print(f"Video duration : {total_duration:.3f}s")
-
-    # ─ Resolution enforcement (account for rotation metadata) ─────
-    ow, oh = OUTPUT_RESOLUTION
-
-    # Normalize rotation to 0-359 range for robust matching
+def get_transpose_for_rotation(rotation: int) -> tuple[str, int]:
     rot = rotation % 360
+    if rot == 270:
+        return "transpose=1,", 270
+    if rot == 90:
+        return "transpose=2,", 90
+    if rot == 180:
+        return "transpose=1,transpose=1,", 180
+    return "", 0
 
-    # Compute effective (displayed) dimensions after player applies rotation
-    effective_w, effective_h = v_w, v_h
-    transpose_filter = ""
-    if rot in (90, 270):
-        effective_w, effective_h = v_h, v_w
-        # FFmpeg auto-rotates by default; we suppress it with -noautorotate
-        # and manually transpose the raw pixels once to bake the rotation in.
-        #
-        # For raw landscape 1920×1080 with rotation=-90 (camera held 90° clockwise):
-        #   Raw pixels have content rotated 90° clockwise.
-        #   transpose=2 (90° counter-clockwise) makes content upright.
-        # For rotation=+90 (camera held 90° counter-clockwise):
-        #   Raw pixels have content rotated 90° counter-clockwise.
-        #   transpose=1 (90° clockwise) makes content upright.
-        if rot == 270:   # 270° = -90°
-            transpose_filter = "transpose=1,"   # 90° clockwise
-        else:            # rot == 90°
-            transpose_filter = "transpose=2,"   # 90° counter-clockwise
-    elif rot == 180:
-        effective_w, effective_h = v_w, v_h
-        transpose_filter = "transpose=1,transpose=1,"  # 180°
+
+def shared_raw_dither_filter(width: int, height: int, factor: int, threshold: int) -> str:
+    low_w = max(1, width // max(1, factor))
+    low_h = max(1, height // max(1, factor))
+    return (
+        f"scale={low_w}:{low_h}:flags=neighbor,"
+        f"scale={width}:{height}:flags=neighbor,"
+        f"format=gray,lut=y='if(lt(val,{threshold}),0,255)'"
+    )
+
+
+def alpha_preserving_dither_filtergraph(input_label: str, output_label: str, width: int, height: int, factor: int, threshold: int) -> str:
+    low_w = max(1, width // max(1, factor))
+    low_h = max(1, height // max(1, factor))
+    return (
+        f"[{input_label}]format=rgba,split=2[fg_color][fg_alpha_src];"
+        f"[fg_alpha_src]alphaextract[fg_alpha];"
+        f"[fg_color]scale={low_w}:{low_h}:flags=neighbor,"
+        f"scale={width}:{height}:flags=neighbor,"
+        f"format=gray,lut=y='if(lt(val,{threshold}),0,255)',format=rgb24[fg_bw];"
+        f"[fg_bw][fg_alpha]alphamerge[{output_label}]"
+    )
+
+
+def build_from_config(config: dict[str, Any], profile: str) -> dict[str, Any]:
+    global_cfg = config["global"]
+    scene2_cfg = config["scene2"]
+    assets_cfg = config["assets"]["scene2"]
+    paths_cfg = config["paths"]
+    ffmpeg_profile = config["profiles"][profile]["ffmpeg"]
+    dither_cfg = config.get("dither", {})
+
+    input_video = resolve_repo_path(assets_cfg["input_video"])
+    input_photo = resolve_repo_path(assets_cfg["input_photo"])
+    output_video = resolve_repo_path(paths_cfg["scene2_output"])
+    output_video.parent.mkdir(parents=True, exist_ok=True)
+
+    bpm = float(global_cfg["bpm"])
+    fps = float(global_cfg["fps"])
+    ow = int(global_cfg["resolution"]["width"])
+    oh = int(global_cfg["resolution"]["height"])
+    actual_start_seconds = float(scene2_cfg["timing"]["actual_start_seconds"])
+    cut_from_end_seconds = float(scene2_cfg["timing"]["cut_from_end_seconds"])
+    chroma_key_color = str(scene2_cfg["chroma"]["key_color"])
+    chroma_similarity = float(scene2_cfg["chroma"]["similarity"])
+    chroma_blend = float(scene2_cfg["chroma"]["blend"])
+    random_seed = int(global_cfg["random_seed"])
+    keep_temp = bool(scene2_cfg.get("keep_temp", False))
+    preset = str(ffmpeg_profile["preset"])
+    crf = int(ffmpeg_profile["crf"])
+    pix_fmt = str(ffmpeg_profile["pix_fmt"])
+    dither_factor = int(dither_cfg.get("pixelation_factor", 10))
+    dither_threshold = int(dither_cfg.get("threshold", 128))
+
+    for dep in ["ffmpeg", "ffprobe"]:
+        if shutil.which(dep) is None:
+            raise RuntimeError(f"'{dep}' is required on PATH")
+    if not input_video.exists():
+        raise FileNotFoundError(f"Missing input video: {input_video}")
+    if not input_photo.exists():
+        raise FileNotFoundError(f"Missing input photo: {input_photo}")
+
+    beat_duration = 60.0 / bpm
+    beat_frames = int(fps * beat_duration)
+    total_duration = get_video_duration(input_video)
+    v_w, v_h, rotation = get_video_info(input_video)
+
+    transpose_filter, normalized_rotation = get_transpose_for_rotation(rotation)
+    effective_w, effective_h = (v_h, v_w) if normalized_rotation in (90, 270) else (v_w, v_h)
     if (effective_w, effective_h) != (ow, oh):
-        print(f"[FATAL] Input video effective size is {effective_w}x{effective_h}, must be {ow}x{oh}.")
-        print(f"        Raw size: {v_w}x{v_h}, rotation: {rotation} (normalized={rot})")
-        print("        Convert it first if the dimensions are simply wrong.")
-        sys.exit(1)
+        raise RuntimeError(
+            f"Input effective size {effective_w}x{effective_h} does not match configured {ow}x{oh} "
+            f"(raw={v_w}x{v_h}, rotation={rotation})"
+        )
 
-    # ─ Main content range ─────────────────────────────────────────
-    main_start = ACTUAL_START_SECONDS
-    if CUT_FROM_END_SECONDS > 0:
-        main_end = total_duration - CUT_FROM_END_SECONDS
-    else:
-        main_end = total_duration
+    main_start = actual_start_seconds
+    main_end = total_duration - cut_from_end_seconds if cut_from_end_seconds > 0 else total_duration
     main_duration = main_end - main_start
-
     if main_duration <= 0:
-        print("[FATAL] Main content duration is <= 0. Check ACTUAL_START_SECONDS and CUT_FROM_END_SECONDS.")
-        sys.exit(1)
+        raise RuntimeError("Main content duration <= 0. Check start/cut settings.")
 
-    print(f"Main content  : {main_start:.3f}s → {main_end:.3f}s ({main_duration:.3f}s)")
+    random.seed(random_seed)
+    max_start = max(0.0, actual_start_seconds - beat_duration)
+    segment_starts: list[float] = []
+    for _ in range(4):
+        segment_starts.append(random.uniform(0, max_start) if max_start > 0 else 0.0)
+    segment_starts.sort()
 
-    # ─ Validate filler length ─────────────────────────────────────
-    needed_filler = 4 * beat_duration
-    if ACTUAL_START_SECONDS < needed_filler:
-        print(f"[WARNING] Filler portion ({ACTUAL_START_SECONDS:.3f}s) is shorter than 4 beats ({needed_filler:.3f}s).")
-        print("          Segments may overlap or all start at 0s.")
-
-    # ─ Pick 4 random 1-beat segment starts ────────────────────────
-    random.seed(RANDOM_SEED)
-    max_start = max(0.0, ACTUAL_START_SECONDS - beat_duration)
-    segment_starts = []
-    for i in range(4):
-        if max_start > 0:
-            start = random.uniform(0, max_start)
-        else:
-            start = 0.0
-        segment_starts.append(start)
-    segment_starts.sort()  # chronological order for the final video
-
-    print(f"Filler cutaways (each {beat_duration:.3f}s, chronological):")
-    for i, s in enumerate(segment_starts):
-        print(f"  Segment {i+1}: {s:.3f}s → {s + beat_duration:.3f}s")
-
-    # ─ Create temp workspace ──────────────────────────────────────
-    tmpdir = tempfile.mkdtemp(prefix="scene2_")
-    print(f"Temp dir      : {tmpdir}")
-
+    tmpdir = Path(tempfile.mkdtemp(prefix="scene2_"))
     try:
-        # ─ Extract filler segments (scale to output res so concat is clean) ─
-        segment_files = []
+        segment_files: list[Path] = []
+        cutaway_dither_filter = shared_raw_dither_filter(ow, oh, dither_factor, dither_threshold)
         for i, start in enumerate(segment_starts):
-            outpath = os.path.join(tmpdir, f"segment_{i:02d}.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-noautorotate",
-                "-ss", str(start),
-                "-t", str(beat_duration),
-                "-i", INPUT_VIDEO,
-                "-vf", f"{transpose_filter}scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2",
-                "-r", str(FPS),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-an",
-                "-pix_fmt", "yuv420p",
-                outpath,
-            ]
-            run(cmd)
+            outpath = tmpdir / f"segment_{i:02d}.mp4"
+            run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-display_rotation",
+                    "0",
+                    "-noautorotate",
+                    "-ss",
+                    str(start),
+                    "-t",
+                    str(beat_duration),
+                    "-i",
+                    str(input_video),
+                    "-vf",
+                    f"{transpose_filter}scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2,{cutaway_dither_filter}",
+                    "-r",
+                    str(fps),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    preset,
+                    "-crf",
+                    str(crf),
+                    "-an",
+                    "-pix_fmt",
+                    pix_fmt,
+                    "-map_metadata",
+                    "-1",
+                    "-metadata:s:v:0",
+                    "rotate=0",
+                    str(outpath),
+                ]
+            )
             segment_files.append(outpath)
 
-        # ─ Process main content: trim + chroma key + photo overlay ──
-        main_processed = os.path.join(tmpdir, "main_processed.mp4")
-
-        # Filtergraph breakdown:
-        #   [0:v] video → scale to output res, pad, trim, colorkey → [keyed]
-        #   [1:v] photo → scale to fill full height (oh), pad/crop to output res → [photo]
-        #   [photo][keyed] overlay at (0,0) because both are exactly ow×oh
-        #
-        # Photo fills the full canvas height; width is proportional.
-        # If the photo is wider than ow, sides are cropped by pad.
-        # If narrower, black bars appear on the sides.
-
+        keyed_main = tmpdir / "main_keyed.mp4"
         video_branch = (
             f"[0:v]{transpose_filter}scale={ow}:{oh}:force_original_aspect_ratio=decrease,"
             f"pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2,"
             f"trim=start={main_start}:end={main_end},setpts=PTS-STARTPTS,"
-            f"colorkey={CHROMA_KEY_COLOR}:{CHROMA_SIMILARITY}:{CHROMA_BLEND}[keyed]"
+            f"colorkey={chroma_key_color}:{chroma_similarity}:{chroma_blend}[fg]"
         )
-
-        # Scale photo to full height, rotate 180° (upside-down fix),
-        # then crop/pad to exact output resolution.
         photo_branch = (
-            f"scale=iw*{oh}/ih:{oh}," #[1:v]transpose=1,transpose=1,
-            f"crop=min(iw\,{ow}):min(ih\,{oh}):(iw-min(iw\,{ow}))/2:(ih-min(ih\,{oh}))/2,"
+            f"[1:v]scale=iw*{oh}/ih:{oh},"
+            f"crop=min(iw\\,{ow}):min(ih\\,{oh}):(iw-min(iw\\,{ow}))/2:(ih-min(ih\\,{oh}))/2,"
             f"pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2[photo]"
         )
+        fg_dither_branch = alpha_preserving_dither_filtergraph("fg", "fgd", ow, oh, dither_factor, dither_threshold)
+        overlay = "[photo][fgd]overlay=0:0:format=auto"
+        filtergraph = f"{video_branch};{photo_branch};{fg_dither_branch};{overlay}"
+        run(
+            [
+                "ffmpeg",
+                "-y",
+                    "-display_rotation",
+                    "0",
+                "-noautorotate",
+                "-i",
+                str(input_video),
+                "-i",
+                str(input_photo),
+                "-filter_complex",
+                filtergraph,
+                "-r",
+                str(fps),
+                "-c:v",
+                "libx264",
+                "-preset",
+                preset,
+                "-crf",
+                str(crf),
+                "-an",
+                "-pix_fmt",
+                pix_fmt,
+                "-map_metadata",
+                "-1",
+                "-metadata:s:v:0",
+                "rotate=0",
+                str(keyed_main),
+            ]
+        )
 
-        overlay = "[photo][keyed]overlay=0:0:format=auto"
+        main_processed = keyed_main
 
-        filtergraph = f"{video_branch};{photo_branch};{overlay}"
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-noautorotate",
-            "-i", INPUT_VIDEO,
-            "-i", INPUT_PHOTO,
-            "-filter_complex", filtergraph,
-            "-r", str(FPS),
-            "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-            "-an",
-            "-pix_fmt", "yuv420p",
-            main_processed,
-        ]
-        run(cmd)
-
-        # ─ Build concat list ──────────────────────────────────────
-        concat_list = os.path.join(tmpdir, "concat_list.txt")
-        with open(concat_list, "w") as f:
+        concat_list = tmpdir / "concat_list.txt"
+        with concat_list.open("w", encoding="utf-8") as f:
             for seg in segment_files:
-                abs_path = os.path.abspath(seg).replace(os.sep, "/")
-                f.write(f"file '{abs_path}'\n")
-            abs_main = os.path.abspath(main_processed).replace(os.sep, "/")
-            f.write(f"file '{abs_main}'\n")
+                f.write(f"file '{seg.as_posix()}'\n")
+            f.write(f"file '{main_processed.as_posix()}'\n")
 
-    # ─ Ensure output directory exists ─────────────────────────
-        output_video = resolve_path(OUTPUT_VIDEO)
-        out_dir = os.path.dirname(os.path.abspath(output_video))
-        if out_dir and not os.path.exists(out_dir):
-            os.makedirs(out_dir)
+        run(
+            [
+                "ffmpeg",
+                "-y",
+                "-noautorotate",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-vf",
+                f"scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2",
+                "-r",
+                str(fps),
+                "-c:v",
+                "libx264",
+                "-preset",
+                preset,
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                pix_fmt,
+                "-map_metadata",
+                "-1",
+                "-metadata:s:v:0",
+                "rotate=0",
+                str(output_video),
+            ]
+        )
 
-        # ─ Concatenate all parts ──────────────────────────────────
-        # -noautorotate prevents any rotation metadata in intermediates
-        # from being re-applied. -vf ensures exact output resolution.
-        cmd = [
-            "ffmpeg", "-y",
-            "-noautorotate",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concat_list,
-            "-vf", f"scale={ow}:{oh}:force_original_aspect_ratio=decrease,pad={ow}:{oh}:(ow-iw)/2:(oh-ih)/2",
-            "-r", str(FPS),
-            "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            output_video,
-        ]
-        run(cmd)
-
-        # ─ Summary ────────────────────────────────────────────────
-        final_duration = 4 * beat_duration + main_duration
-        print(f"\n{'=' * 60}")
-        print(f"[SUCCESS] Scene 2 rendered to:")
-        print(f"  {output_video}")
-        print(f"")
-        print(f"Duration breakdown:")
-        print(f"  4 filler cutaways : {4 * beat_duration:.3f}s")
-        print(f"  Main content      : {main_duration:.3f}s")
-        print(f"  Total             : {final_duration:.3f}s")
-        print(f"{'=' * 60}")
-
+        return {
+            "output_video": str(output_video),
+            "profile": profile,
+            "bpm": bpm,
+            "fps": fps,
+            "beat_duration": beat_duration,
+            "beat_frames": beat_frames,
+            "segment_starts": segment_starts,
+            "main_start": main_start,
+            "main_end": main_end,
+            "main_duration": main_duration,
+            "final_duration": 4 * beat_duration + main_duration,
+            "resolution": [ow, oh],
+            "rotation": rotation,
+            "dither_scene2_foreground": bool(dither_cfg.get("targets", {}).get("scene2_foreground", False)),
+        }
     finally:
-        if KEEP_TEMP:
+        if keep_temp:
             print(f"[DEBUG] Keeping temp dir: {tmpdir}")
         else:
-            print(f"Cleaning up temp dir: {tmpdir}")
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build Scene 2 from unified pipeline config.")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument("--profile", default="final", choices=["preview", "final"])
+    args = parser.parse_args()
+
+    config_path = Path(args.config).resolve()
+    config = load_json(config_path)
+    summary = build_from_config(config, args.profile)
+    print("=" * 60)
+    print("[SUCCESS] Scene 2 complete")
+    print(f"Output: {summary['output_video']}")
+    print(f"Duration: {summary['final_duration']:.3f}s")
+    print(f"Cutaways: {summary['segment_starts']}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

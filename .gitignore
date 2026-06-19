@@ -40,3 +40,8 @@ Thumbs.db
 *.iso
 **/dist/
 **/build/
+
+# Generated video/media artifacts
+export/
+video dev/export/
+video dev/videos/

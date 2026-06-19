@@ -1,6 +1,5 @@
 # Vertical Video Prototype — Warp Context
-
-Processing 4 generative video sketch. 1080×1920 vertical canvas, 30 FPS, 120 BPM.
+Modular visual pipeline for the `video dev` project. Target output is 1080×1920 at 30 FPS, synced to 120 BPM.
 
 ## Structure
 
@@ -8,18 +7,24 @@ Processing 4 generative video sketch. 1080×1920 vertical canvas, 30 FPS, 120 BP
 - `fonts/` — `.ttf`/`.otf` files loaded relative to sketch via `../fonts/…`
 - `FunHouse Logo (Black).png` — logo mask for Scene 0 punch-through
 
-## Scene Flow
+## Scene Flow (authoritative target)
+1. **Scene 0 (4 beats)**
+   - Dithered first frame of the main raw video as background.
+   - Processing intro animation (COR/UNUM + logo treatment) composited over that background.
+2. **Scene 1 (4 word segments)**
+   - Strict alternation: `clip_1 -> word_1 -> clip_2 -> word_2 -> clip_3 -> word_3 -> clip_4 -> word_4`.
+   - Clips are short setup excerpts from the same main raw video and must be dithered.
+   - Word segments are rendered from Processing intro frames, one segment per configured word.
+3. **Scene 2 (main body)**
+   - Starts with 4 random one-beat filler cutaways sourced from pre-start footage.
+   - Main section: green-screen foreground is keyed, dithered/pixelated, and composited over a clean full-frame background image.
+   - Background image should remain clean (not dithered); only the keyed foreground is dithered.
+4. **Scene 3 (16 beats total)**
+   - Processing outro text overlay over 3 background video blocks (4 beats each), then black background for final 4 beats.
+   - Background videos are scaled/cropped to fully fill 1080×1920.
 
-| Scene | Duration | Content |
-|-------|----------|---------|
-| 0 — Intro P1 | 4 beats | "COR / UNUM" expansion → chromatic aberration → logo punch-through |
-| 1 — Intro P2 | variable | Word cycle with half-beat mutations (font, chromatic, wobble) |
-| 2 — Middle | variable | Raw video with 4× random 1-beat filler cutaways + chroma-keyed green screen |
-| 3 — Outro | variable | Word-by-word phrase, 4 cycles, quarter-beat colour flash |
-
-In normal (preview) mode the sketch loops indefinitely.
-In export mode it renders one full cycle and stops.
-Scene 2 is generated separately by `scene2_processor.py`.
+In normal preview mode, the Processing sketch can loop; in export mode it should render one cycle and stop.
+Scene 2 processing remains FFmpeg-driven in `scene2_processor.py`.
 
 ## Global Scale
 
@@ -47,19 +52,32 @@ All font paths are relative (`../fonts/…`). Files must exist or Processing fal
 
 Logo uses a multiply-mask: black PNG is auto-cropped and converted to white silhouette, scaled to text reach, then multiplied against white text so only the intersection is drawn.
 
-## Scene 1 — Word Cycle Mutations
+## Scene 1 — Current Composition Contract
+- Processing still generates the intro animation frames (including Scene 1 text content), but final Scene 1 in the pipeline is built by compositor assembly, not by playing the full raw Processing scene as-is.
+- Exactly 4 text segments are expected for Scene 1, mapped one-to-one with configured words.
+- The compositor must alternate setup clips and text segments in the fixed pattern above.
+- Setup clips and Scene 0 background still must share the same raw-video dither look.
 
-Words change every 2 beats. On every **half-beat boundary**, one of three mutations fires (seed `42069`):
-
-1. **Chromatic toggle** — 3D-glasses split on/off
-2. **Font shift** — cycles through `font1Pool`
-3. **Wobble tweak** — `wobbleA` or `wobbleFreq` drifts ±small amount (clamped)
-
-All mutations are **persistent** across word changes. Radial pattern waves always render behind text. Wobble parameters smoothly interpolate over each half-beat via linear lerp.
+## Scene 2 — Current Composition Contract
+- Input video orientation must be normalized before composition so output remains vertical (1080×1920) without sideways playback.
+- Cutaway filler segments should use the same dither treatment as other raw-video excerpts.
+- Foreground-only dither path must preserve alpha after keying (no alpha stripping before overlay).
+- Final Scene 2 output should preserve the keyed foreground over the clean background image.
 
 ## Scene 3 — Outro
 
 `outroPhrase` words appear one at a time for 1 beat each. Colour flashes between `#c858fc` and `#8702c4` every quarter-beat.
+
+## Dither Intent (pipeline-level)
+- Dithered:
+  - Scene 0 raw-video background still
+  - Scene 1 raw setup clips
+  - Scene 2 raw cutaways
+  - Scene 2 keyed foreground (foreground-only branch)
+- Not dithered:
+  - Scene 1 text overlays
+  - Scene 2 background replacement image
+  - Scene 3 background blocks and text overlay
 
 ## Debug
 

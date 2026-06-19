@@ -26,12 +26,14 @@
 // ─ Global Scale ──────────────────────────────────────────────────
 //   1.0 = 1080×1920 native.  Reduce to fit your monitor (e.g. 0.5).
 float globalScale = 0.5;
+String pipelineConfigPath = "../pipeline/config/visual_pipeline.json";
 
 // ─ Canvas & Timing ───────────────────────────────────────────────
 int   canvasW   = round(1080 * globalScale);
 int   canvasH   = round(1920 * globalScale);
 int   targetFPS = 30;
 float bpm       = 120.0;       // 1 beat = 500 ms = 15 frames
+int[] halfBeatCadenceFrames = { 7, 8 };
 
 // ─ Font Pools ────────────────────────────────────────────────────
 // File paths are relative to the sketch folder (../fonts/…).
@@ -41,6 +43,7 @@ String[] font1Pool = {
   "../fonts/Oi-Regular.ttf"
 };   // Scene 1 word cycle
 String[] font2Pool = { "../fonts/Monoton-Regular.ttf" };   // Scene 3 outro
+String fontCorUnumPath = "../fonts/RammettoOne-Regular.ttf";
 int fontCreateSize = round(300 * globalScale);       // base size for createFont (higher = sharper)
 
 // ─ Typography ────────────────────────────────────────────────────
@@ -61,13 +64,18 @@ float patternRotationPerBeat = 15.0;   // degrees added each beat
 long  effectSeed             = 42069L;   // deterministic seed for Scene 1 mutations
 
 // ─ Intro Phase 2 ────────────────────────────────────────────────
-String[] introWords     = { "CITY", "GOVERNMENT", "NO FUN", "CITY", "???" };
+String[] introWords     = { "CITY", "GOVERNMENT", "NO FUN", "CITY" };
 int      introWordBeats = 2;           // beats each word stays on screen
 
 // ─ Outro ─────────────────────────────────────────────────────────
 String outroPhrase        = "FUN CULTURE FUN PEOPLE";
 float  outroBpmMultiplier = 1.0;       // 1 = quarter-note, 0.25 = whole-note
 int    outroCycleTotal    = 4;
+int    outroFlashColorA   = #c858fc;
+int    outroFlashColorB   = #8702c4;
+String scene0TopWord      = "COR";
+String scene0BottomWord   = "UNUM";
+int    scene0LogoTint     = #c858fc;
 
 // ─ Debug ─────────────────────────────────────────────────────────
 boolean showDebug = false;              // press 'D' to toggle
@@ -79,6 +87,9 @@ boolean showDebug = false;              // press 'D' to toggle
 // Run the sketch once with exportMode = true, then run the processor.
 boolean exportMode = true;
 String exportPath = "../export/";       // relative to sketch folder
+String exportIntroDir = "intro";
+String exportOutroDir = "outro";
+String logoPath = "../FunHouse Logo (Black).png";
 
 
 // ═════════════════════════════════════════════════════════════════
@@ -122,23 +133,29 @@ void settings() {
 }
 
 void setup() {
+  loadPipelineConfig();
+  canvasW = round(1080 * globalScale);
+  canvasH = round(1920 * globalScale);
+  maxSafeHeight = canvasH - safeTop - safeBottom;
+  maxSafeWidth = canvasW - safeLeft - safeRight;
+  surface.setSize(canvasW, canvasH);
   frameRate(targetFPS);
   framesPerBeat = round(targetFPS * 60.0 / bpm);   // 15
 
   if (exportMode) {
     println("=== EXPORT MODE ===");
-    println("Intro frames (scenes 0+1) -> " + exportPath + "intro/");
-    println("Outro frames (scene 3)    -> " + exportPath + "outro/");
+    println("Intro frames (scenes 0+1) -> " + exportPath + exportIntroDir + "/");
+    println("Outro frames (scene 3)    -> " + exportPath + exportOutroDir + "/");
     println("Scene 2 is skipped. Generate it with scene2_processor.py");
     println("The sketch will stop automatically after one cycle.");
     println("===================");
   }
 
-  fontCorUnum = createFont("../fonts/RammettoOne-Regular.ttf", fontCreateSize);
+  fontCorUnum = createFont(fontCorUnumPath, fontCreateSize);
   fonts1 = loadFontPool(font1Pool);
   fonts2 = loadFontPool(font2Pool);
 
-  funhouseLogo = loadImage("../FunHouse Logo (Black).png");
+  funhouseLogo = loadImage(logoPath);
   funhouseLogoCropped = cropToOpaque(funhouseLogo);
   funhouseLogoWhite   = whiteSilhouette(funhouseLogoCropped);
   textBuf = createGraphics(width, height);
@@ -195,9 +212,9 @@ void draw() {
 
   if (exportMode) {
     if (scene == 0 || scene == 1) {
-      saveFrame(exportPath + "intro/" + nf(exportIntroFrame++, 4) + ".png");
+      saveFrame(exportPath + exportIntroDir + "/" + nf(exportIntroFrame++, 4) + ".png");
     } else if (scene == 3) {
-      saveFrame(exportPath + "outro/" + nf(exportOutroFrame++, 4) + ".png");
+      saveFrame(exportPath + exportOutroDir + "/" + nf(exportOutroFrame++, 4) + ".png");
     }
     // Scene 2 is intentionally not saved.
   }
@@ -209,7 +226,7 @@ void draw() {
 void handleTransitions() {
   if (scene == 0 && sceneFrame >= 4 * framesPerBeat) {
     advanceTo(1);
-  } else if (scene == 1 && sceneFrame >= introWords.length * introWordBeats * framesPerBeat) {
+  } else if (scene == 1 && sceneFrame >= scene1DurationFrames()) {
     advanceTo(2);
   } else if (scene == 2 && sceneFrame >= 2 * targetFPS) {
     advanceTo(3);
@@ -257,11 +274,11 @@ void drawIntroPhase1() {
   } else if (beat == 2) {
     float slide = chromaticSlide(sceneFrame % framesPerBeat);
     drawCorUnum(1.0, true, 1, slide);   // chromatic slides out/in over the beat
-    drawLogoOverlay(true, #c858fc);
+    drawLogoOverlay(true, scene0LogoTint);
   } else {
     float slide = chromaticSlide(sceneFrame % framesPerBeat);
     drawCorUnum(1.0, true, -1, slide);  // swapped chromatic slides out/in
-    drawLogoOverlay(true, #c858fc);
+    drawLogoOverlay(true, scene0LogoTint);
   }
 }
 
@@ -282,13 +299,13 @@ void drawCorUnum(PGraphics pg, float progress, boolean chromatic, int chrDir, fl
   ctx.textAlign(CENTER, CENTER);
 
   // 1. Size UNUM to fit within safe width / half safe height
-  float targetFsUnum = fitFontSize(ctx, fontCorUnum, "UNUM", maxSafeWidth, maxSafeHeight * 0.5);
+  float targetFsUnum = fitFontSize(ctx, fontCorUnum, scene0BottomWord, maxSafeWidth, maxSafeHeight * 0.5);
   ctx.textSize(targetFsUnum);
-  float targetW = ctx.textWidth("UNUM");
+  float targetW = ctx.textWidth(scene0BottomWord);
 
   // 2. Size COR to match UNUM width
   ctx.textSize(100);
-  float wCor100 = ctx.textWidth("COR");
+  float wCor100 = ctx.textWidth(scene0TopWord);
   float targetFsCor = 100.0 * targetW / wCor100;
 
   // 3. Ensure total block fits in safe height
@@ -316,16 +333,16 @@ void drawCorUnum(PGraphics pg, float progress, boolean chromatic, int chrDir, fl
     float off = chromaticOffsetPx * chrDir * offsetMult;
     ctx.blendMode(SCREEN);
     ctx.fill(0, 255, 255);
-    ctx.textSize(fsCor);  drawTracked(ctx, "COR",  cx + off, y1, trackingPx);
-    ctx.textSize(fsUnum); drawTracked(ctx, "UNUM", cx + off, y2, trackingPx);
+    ctx.textSize(fsCor);  drawTracked(ctx, scene0TopWord,  cx + off, y1, trackingPx);
+    ctx.textSize(fsUnum); drawTracked(ctx, scene0BottomWord, cx + off, y2, trackingPx);
     ctx.fill(255, 0, 0);
-    ctx.textSize(fsCor);  drawTracked(ctx, "COR",  cx - off, y1, trackingPx);
-    ctx.textSize(fsUnum); drawTracked(ctx, "UNUM", cx - off, y2, trackingPx);
+    ctx.textSize(fsCor);  drawTracked(ctx, scene0TopWord,  cx - off, y1, trackingPx);
+    ctx.textSize(fsUnum); drawTracked(ctx, scene0BottomWord, cx - off, y2, trackingPx);
     ctx.blendMode(BLEND);
   } else {
     ctx.fill(255);
-    ctx.textSize(fsCor);  drawTracked(ctx, "COR",  cx, y1, trackingPx);
-    ctx.textSize(fsUnum); drawTracked(ctx, "UNUM", cx, y2, trackingPx);
+    ctx.textSize(fsCor);  drawTracked(ctx, scene0TopWord,  cx, y1, trackingPx);
+    ctx.textSize(fsUnum); drawTracked(ctx, scene0BottomWord, cx, y2, trackingPx);
   }
 }
 
@@ -417,7 +434,7 @@ void drawIntroPhase2() {
   background(0);
 
   // Half-beat index (one beat = framesPerBeat frames)
-  int halfBeat = (int)(sceneFrame / (framesPerBeat / 2.0));
+  int halfBeat = halfBeatIndexFromFrame(sceneFrame);
 
   // Apply one deterministic mutation on every half-beat boundary
   if (halfBeat != lastHalfBeat) {
@@ -429,7 +446,7 @@ void drawIntroPhase2() {
   }
 
   // Linearly smooth wobble parameters over the half-beat
-  float hbFrames = framesPerBeat / 2.0;
+  float hbFrames = halfBeatFrameCount(halfBeat);
   float progress = constrain((sceneFrame - wobbleEffectStartFrame) / hbFrames, 0, 1);
   wobbleA    = lerp(wobbleAStart, wobbleATarget, progress);
   wobbleFreq = lerp(wobbleFreqStart, wobbleFreqTarget, progress);
@@ -512,8 +529,8 @@ void drawOutro() {
   // Flash colour every quarter-beat
   int wordFrame = sceneFrame % outroFramesPerWord;
   int quarter   = (wordFrame * 4 / outroFramesPerWord) % 4;
-  if (quarter % 2 == 0) fill(#c858fc);
-  else                  fill(#8702c4);
+  if (quarter % 2 == 0) fill(outroFlashColorA);
+  else                  fill(outroFlashColorB);
 
   drawTracked(outroWords[wordIdx], width / 2.0, height / 2.0, trackingPx);
 }
@@ -616,6 +633,28 @@ void drawTracked(PGraphics pg, String txt, float cx, float cy, float trk) {
   ctx.textAlign(CENTER, CENTER);   // restore
 }
 
+int halfBeatFrameCount(int halfBeatIdx) {
+  if (halfBeatCadenceFrames == null || halfBeatCadenceFrames.length == 0) return 8;
+  return halfBeatCadenceFrames[halfBeatIdx % halfBeatCadenceFrames.length];
+}
+
+int halfBeatIndexFromFrame(int frame) {
+  int idx = 0;
+  int remaining = frame;
+  while (remaining >= halfBeatFrameCount(idx)) {
+    remaining -= halfBeatFrameCount(idx);
+    idx++;
+  }
+  return idx;
+}
+
+int scene1DurationFrames() {
+  int totalHalfBeats = introWords.length * introWordBeats * 2;
+  int total = 0;
+  for (int i = 0; i < totalHalfBeats; i++) total += halfBeatFrameCount(i);
+  return total;
+}
+
 
 // ═════════════════════════════════════════════════════════════════
 // DEBUG — safe-zone overlay (toggle with 'D')
@@ -638,4 +677,144 @@ void drawSafeZoneOverlay() {
   strokeWeight(1);
   rect(safeLeft, safeTop, maxSafeWidth, maxSafeHeight);
   noStroke();
+}
+
+void loadPipelineConfig() {
+  try {
+    String[] lines = loadStrings(pipelineConfigPath);
+    if (lines == null || lines.length == 0) {
+      println("[WARN] Could not read pipeline config at " + pipelineConfigPath + ". Using in-sketch defaults.");
+      return;
+    }
+
+    String jsonText = join(lines, "\n");
+    JSONObject root = parseJSONObject(jsonText);
+    if (root == null) {
+      println("[WARN] Invalid JSON in pipeline config. Using in-sketch defaults.");
+      return;
+    }
+
+    JSONObject global = root.getJSONObject("global");
+    if (global != null) {
+      bpm = getJsonFloat(global, "bpm", bpm);
+      targetFPS = round(getJsonFloat(global, "fps", targetFPS));
+      JSONArray hb = global.getJSONArray("half_beat_cadence_frames");
+      if (hb != null && hb.size() >= 2) {
+        halfBeatCadenceFrames = new int[] { hb.getInt(0), hb.getInt(1) };
+      }
+    }
+
+    JSONObject processing = root.getJSONObject("processing");
+    if (processing != null) {
+      globalScale = getJsonFloat(processing, "global_scale", globalScale);
+      fontCreateSize = round(getJsonFloat(processing, "font_create_size", fontCreateSize));
+      trackingPx = getJsonFloat(processing, "tracking_px", trackingPx);
+      leadingMult = getJsonFloat(processing, "leading_mult", leadingMult);
+
+      JSONObject safe = processing.getJSONObject("safe_zone");
+      if (safe != null) {
+        safeTop = round(getJsonFloat(safe, "top", safeTop));
+        safeBottom = round(getJsonFloat(safe, "bottom", safeBottom));
+        safeLeft = round(getJsonFloat(safe, "left", safeLeft));
+        safeRight = round(getJsonFloat(safe, "right", safeRight));
+      }
+
+      JSONObject effects = processing.getJSONObject("effects");
+      if (effects != null) {
+        chromaticOffsetPx = round(getJsonFloat(effects, "chromatic_offset_px", chromaticOffsetPx));
+        patternRotationPerBeat = getJsonFloat(effects, "pattern_rotation_per_beat", patternRotationPerBeat);
+        effectSeed = (long)getJsonFloat(effects, "effect_seed", effectSeed);
+        wobbleA = getJsonFloat(effects, "wobble_a", wobbleA);
+        wobbleATarget = wobbleA;
+        wobbleAStart = wobbleA;
+        wobbleFreq = getJsonFloat(effects, "wobble_freq", wobbleFreq);
+        wobbleFreqTarget = wobbleFreq;
+        wobbleFreqStart = wobbleFreq;
+      }
+
+      JSONObject scene1 = processing.getJSONObject("scene1");
+      if (scene1 != null) {
+        introWordBeats = round(getJsonFloat(scene1, "word_beats", introWordBeats));
+        JSONArray words = scene1.getJSONArray("words");
+        if (words != null && words.size() > 0) introWords = jsonArrayToStringArray(words, introWords);
+      }
+
+      JSONObject scene3 = processing.getJSONObject("scene3");
+      if (scene3 != null) {
+        outroPhrase = getJsonString(scene3, "outro_phrase", outroPhrase);
+        outroBpmMultiplier = getJsonFloat(scene3, "bpm_multiplier", outroBpmMultiplier);
+        outroCycleTotal = round(getJsonFloat(scene3, "cycle_total", outroCycleTotal));
+        JSONArray flashColors = scene3.getJSONArray("flash_colors");
+        if (flashColors != null && flashColors.size() >= 2) {
+          outroFlashColorA = unhexColor(flashColors.getString(0), outroFlashColorA);
+          outroFlashColorB = unhexColor(flashColors.getString(1), outroFlashColorB);
+        }
+      }
+
+      JSONObject scene0 = processing.getJSONObject("scene0");
+      if (scene0 != null) {
+        JSONArray scene0Text = scene0.getJSONArray("text");
+        if (scene0Text != null && scene0Text.size() >= 2) {
+          scene0TopWord = scene0Text.getString(0);
+          scene0BottomWord = scene0Text.getString(1);
+        }
+        scene0LogoTint = unhexColor(getJsonString(scene0, "logo_tint_hex", "#c858fc"), scene0LogoTint);
+      }
+
+      JSONObject exportCfg = processing.getJSONObject("export");
+      if (exportCfg != null) {
+        exportMode = getJsonBoolean(exportCfg, "enabled", exportMode);
+        exportPath = getJsonString(exportCfg, "path", exportPath);
+        exportIntroDir = getJsonString(exportCfg, "intro_dir", exportIntroDir);
+        exportOutroDir = getJsonString(exportCfg, "outro_dir", exportOutroDir);
+      }
+    }
+
+    JSONObject assets = root.getJSONObject("assets");
+    if (assets != null) {
+      JSONObject fonts = assets.getJSONObject("fonts");
+      if (fonts != null) {
+        fontCorUnumPath = getJsonString(fonts, "scene0_font", fontCorUnumPath);
+        JSONArray fp1 = fonts.getJSONArray("scene1_pool");
+        JSONArray fp2 = fonts.getJSONArray("scene3_pool");
+        if (fp1 != null && fp1.size() > 0) font1Pool = jsonArrayToStringArray(fp1, font1Pool);
+        if (fp2 != null && fp2.size() > 0) font2Pool = jsonArrayToStringArray(fp2, font2Pool);
+      }
+      logoPath = getJsonString(assets, "logo_path", logoPath);
+    }
+  } catch (Exception e) {
+    println("[WARN] Failed to parse pipeline config, using in-sketch defaults.");
+    println(e.getMessage());
+  }
+}
+
+String[] jsonArrayToStringArray(JSONArray arr, String[] fallback) {
+  if (arr == null || arr.size() == 0) return fallback;
+  String[] out = new String[arr.size()];
+  for (int i = 0; i < arr.size(); i++) out[i] = arr.getString(i);
+  return out;
+}
+
+float getJsonFloat(JSONObject obj, String key, float fallback) {
+  if (obj == null || !obj.hasKey(key)) return fallback;
+  return obj.getFloat(key);
+}
+
+String getJsonString(JSONObject obj, String key, String fallback) {
+  if (obj == null || !obj.hasKey(key)) return fallback;
+  return obj.getString(key);
+}
+
+boolean getJsonBoolean(JSONObject obj, String key, boolean fallback) {
+  if (obj == null || !obj.hasKey(key)) return fallback;
+  return obj.getBoolean(key);
+}
+
+int unhexColor(String hexColor, int fallback) {
+  if (hexColor == null) return fallback;
+  String clean = trim(hexColor);
+  if (clean.length() == 0) return fallback;
+  if (clean.startsWith("#")) clean = clean.substring(1);
+  if (clean.length() != 6) return fallback;
+  return unhex("FF" + clean);
 }

@@ -1,0 +1,173 @@
+{
+  "project": {
+    "name": "noctem-video-dev-visual-pipeline",
+    "version": 1
+  },
+  "global": {
+    "resolution": {
+      "width": 1080,
+      "height": 1920
+    },
+    "fps": 30.0,
+    "bpm": 120.0,
+    "half_beat_cadence_frames": [
+      7,
+      8
+    ],
+    "random_seed": 42069
+  },
+  "profiles": {
+    "preview": {
+      "ffmpeg": {
+        "preset": "fast",
+        "crf": 23,
+        "pix_fmt": "yuv420p"
+      }
+    },
+    "final": {
+      "ffmpeg": {
+        "preset": "slow",
+        "crf": 18,
+        "pix_fmt": "yuv420p"
+      }
+    }
+  },
+  "dither": {
+    "enabled": true,
+    "algorithm": "floyd_steinberg",
+    "palette": "black_white",
+    "pixelation_factor": 10,
+    "threshold": 128,
+    "targets": {
+      "scene0_background": true,
+      "scene1_setup_clips": true,
+      "scene2_foreground": true,
+      "scene1_text": false,
+      "scene3_text": false
+    }
+  },
+  "paths": {
+    "export_root": "export",
+    "runs_root": "export/runs",
+    "scene2_output": "export/scene2.mp4",
+    "scene3_bg_output": "export/scene3_bg.mp4",
+    "scene3_overlay_output": "export/scene3_overlay.mov",
+    "scene3_composite_output": "export/scene3_composite.mp4",
+    "scene0_overlay_output": "export/scene0_overlay.mp4",
+    "scene1_text_segments_dir": "export/scene1_text_segments",
+    "final_output": "export/final_visual.mp4",
+    "scene0_background_still": "export/scene0_bg_first_frame.png"
+  },
+  "assets": {
+    "logo_path": "FunHouse Logo (Black).png",
+    "fonts": {
+      "scene0_font": "fonts/RammettoOne-Regular.ttf",
+      "scene1_pool": [
+        "fonts/ClimateCrisis-Regular-VariableFont_YEAR.ttf",
+        "fonts/Honk-Regular-VariableFont_MORF,SHLN.ttf",
+        "fonts/Oi-Regular.ttf"
+      ],
+      "scene3_pool": [
+        "fonts/Monoton-Regular.ttf"
+      ]
+    },
+    "scene2": {
+      "input_video": "videos/test videos/VID_20260520_152333.mp4",
+      "input_photo": "videos/IMG_0724.JPG"
+    },
+    "scene1": {
+      "setup_source_video": "videos/test videos/VID_20260520_152333.mp4"
+    },
+    "scene3": {
+      "background_source_dir": "videos/ending clips",
+      "background_videos": [
+        "videos/ending clips/20260510_003234.mp4",
+        "videos/ending clips/20260511_144035.mp4",
+        "videos/ending clips/20260516_200746.mp4"
+      ]
+    }
+  },
+  "processing": {
+    "config_path": "pipeline/config/visual_pipeline.json",
+    "global_scale": 0.5,
+    "font_create_size": 300,
+    "tracking_px": 0.0,
+    "leading_mult": 0.85,
+    "safe_zone": {
+      "top": 270,
+      "bottom": 384,
+      "left": 27,
+      "right": 27
+    },
+    "effects": {
+      "chromatic_offset_px": 12,
+      "pattern_rotation_per_beat": 15.0,
+      "effect_seed": 42069,
+      "wobble_a": 0.16,
+      "wobble_freq": 8.0
+    },
+    "scene0": {
+      "text": [
+        "COR",
+        "UNUM"
+      ],
+      "logo_tint_hex": "#c858fc"
+    },
+    "scene1": {
+      "words": [
+        "CITY",
+        "GOVERNMENT",
+        "NO FUN",
+        "CITY"
+      ],
+      "word_beats": 2,
+      "shared_style": true
+    },
+    "scene3": {
+      "outro_phrase": "FUN CULTURE FUN PEOPLE",
+      "bpm_multiplier": 1.0,
+      "cycle_total": 4,
+      "flash_colors": [
+        "#c858fc",
+        "#8702c4"
+      ]
+    },
+    "export": {
+      "enabled": true,
+      "path": "../export/",
+      "intro_dir": "intro",
+      "outro_dir": "outro",
+      "scene1_text_dir": "scene1_text",
+      "scene3_text_dir": "scene3_text"
+    }
+  },
+  "scene2": {
+    "timing": {
+      "actual_start_seconds": 50.0,
+      "cut_from_end_seconds": 3.0
+    },
+    "chroma": {
+      "key_color": "0x4D7B5A",
+      "similarity": 0.15,
+      "blend": 0.0
+    },
+    "keep_temp": false
+  },
+  "pipeline": {
+    "processing_cli": {
+      "enabled": false,
+      "command": "processing-java",
+      "sketch_path": "VerticalVideoPrototype",
+      "run_args": [
+        "--run"
+      ]
+    },
+    "scene1": {
+      "loops": 4
+    },
+    "scene3": {
+      "beats_per_background": 4,
+      "black_tail_beats": 4
+    }
+  }
+}
