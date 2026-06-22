@@ -72,4 +72,8 @@ If older comments/docstrings mention prior versions, prefer actual current code 
 - Refer to the unified review/background/task surface as the **Control** tab/page (not the old “Tools tab” naming).
 - When changing Cor Unum behavior, account for both internal and portal modes.
 - Keep README/WARP/docs synchronized with structural or runtime behavior changes to avoid stale guidance.
+- Treat generated/source media folders as local-only artifacts: `export/`, `video dev/export/`, and `video dev/videos/` should remain gitignored.
+- Do not commit render outputs or raw media from those folders (`.mp4`, `.mov`, frame dumps, manifests, etc.); commit pipeline code/config/docs only.
+- If media files are accidentally tracked, untrack them with `git rm -r --cached -- <path>`, commit the `.gitignore` update, then recommit code-only changes.
+- If large media blobs land in unpushed branch history, rewrite/squash from a clean base and push only the cleaned code-only commit set.
 
